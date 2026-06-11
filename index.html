@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SlideCraft — Source-Grounded Presentation Maker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">
+    <span class="brand-mark">▦</span>
+    <span class="brand-name">SlideCraft</span>
+  </div>
+  <input id="deck-title" type="text" placeholder="Untitled presentation" spellcheck="false">
+  <div class="topbar-actions">
+    <button id="btn-new" class="btn ghost" title="Start a new project">New</button>
+    <button id="btn-open" class="btn ghost" title="Open a saved .json project">Open</button>
+    <button id="btn-save" class="btn ghost" title="Download project as .json">Save</button>
+    <div class="dropdown">
+      <button id="btn-export" class="btn ghost">Export ▾</button>
+      <div class="dropdown-menu" id="export-menu">
+        <button id="export-html">Standalone HTML</button>
+        <button id="export-pdf">PDF (print)</button>
+        <button id="export-json">Project JSON</button>
+      </div>
+    </div>
+    <button id="btn-settings" class="btn ghost" title="API key &amp; preferences">⚙</button>
+    <button id="btn-present" class="btn primary">▶ Present</button>
+  </div>
+</header>
+
+<main id="layout">
+
+  <!-- ============ LEFT: SOURCES ============ -->
+  <aside id="sources-panel">
+    <div class="panel-head">
+      <h2>Sources</h2>
+      <span id="source-count" class="pill">0</span>
+    </div>
+    <p class="panel-hint">Add the material your deck should be grounded in — notes, articles, docs.</p>
+    <div class="panel-actions">
+      <button id="btn-add-source-file" class="btn small">＋ Upload files</button>
+      <button id="btn-add-source-paste" class="btn small">＋ Paste text</button>
+    </div>
+    <ul id="source-list"></ul>
+    <div class="panel-foot">
+      <button id="btn-generate" class="btn primary wide">✦ Generate slide deck</button>
+    </div>
+  </aside>
+
+  <!-- ============ CENTER: EDITOR ============ -->
+  <section id="editor-panel">
+    <div id="canvas-toolbar">
+      <label>Layout
+        <select id="layout-select">
+          <option value="title">Title</option>
+          <option value="section">Section header</option>
+          <option value="bullets">Title + bullets</option>
+          <option value="bullets-image">Bullets + image</option>
+          <option value="image">Full image</option>
+          <option value="quote">Quote</option>
+        </select>
+      </label>
+      <label>Theme
+        <select id="theme-select">
+          <option value="paper">Paper</option>
+          <option value="midnight">Midnight</option>
+          <option value="forest">Forest</option>
+          <option value="sunrise">Sunrise</option>
+          <option value="slate">Slate</option>
+        </select>
+      </label>
+      <span class="toolbar-spacer"></span>
+      <span id="slide-position" class="muted"></span>
+    </div>
+
+    <div id="canvas-wrap">
+      <div id="slide-canvas" class="slide" data-theme="paper"></div>
+    </div>
+
+    <div id="notes-wrap">
+      <label for="speaker-notes">Speaker notes</label>
+      <textarea id="speaker-notes" placeholder="Notes only you will see while presenting…"></textarea>
+    </div>
+  </section>
+
+  <!-- ============ RIGHT: SLIDES + IMAGE LIBRARY ============ -->
+  <aside id="right-panel">
+    <div class="panel-head">
+      <h2>Slides</h2>
+      <div>
+        <button id="btn-add-slide" class="btn small" title="Add slide">＋</button>
+        <button id="btn-dup-slide" class="btn small" title="Duplicate slide">⧉</button>
+        <button id="btn-del-slide" class="btn small danger" title="Delete slide">🗑</button>
+      </div>
+    </div>
+    <ol id="filmstrip"></ol>
+
+    <div class="panel-head library-head">
+      <h2>Image library</h2>
+      <button id="btn-lib-add" class="btn small" title="Add images to library">＋</button>
+    </div>
+    <p class="panel-hint">Your images, reusable across slides. Click one to place it on the current slide.</p>
+    <div id="image-library"></div>
+  </aside>
+</main>
+
+<!-- ============ GENERATE MODAL ============ -->
+<dialog id="generate-modal" class="modal">
+  <form method="dialog">
+    <h2>Generate slide deck</h2>
+    <p class="modal-sub">Your deck is built from your sources. Images are never auto-generated — each slide gets a placeholder with a suggested image for you to fill with your own picture.</p>
+
+    <label class="field">What should the deck focus on? <span class="muted">(optional)</span>
+      <textarea id="gen-focus" rows="2" placeholder="e.g. Emphasize the Q3 results and the roadmap"></textarea>
+    </label>
+
+    <div class="field-row">
+      <label class="field">Audience
+        <input id="gen-audience" type="text" placeholder="e.g. executives, students…">
+      </label>
+      <label class="field">Tone
+        <select id="gen-tone">
+          <option value="professional">Professional</option>
+          <option value="casual">Casual</option>
+          <option value="academic">Academic</option>
+          <option value="enthusiastic">Enthusiastic</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="field-row">
+      <label class="field">Number of slides
+        <input id="gen-count" type="number" min="3" max="30" value="10">
+      </label>
+      <label class="field">Language
+        <input id="gen-language" type="text" value="English">
+      </label>
+    </div>
+
+    <label class="field">Generation engine
+      <select id="gen-engine">
+        <option value="claude">Claude API (needs API key in Settings)</option>
+        <option value="offline">Built-in outliner (no key, works offline)</option>
+      </select>
+    </label>
+
+    <div id="gen-status" class="status" hidden></div>
+
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="gen-go" class="btn primary" type="button">Generate</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ PASTE SOURCE MODAL ============ -->
+<dialog id="paste-modal" class="modal">
+  <form method="dialog">
+    <h2>Paste a source</h2>
+    <label class="field">Title
+      <input id="paste-title" type="text" placeholder="e.g. Meeting notes 2026-06-10">
+    </label>
+    <label class="field">Content
+      <textarea id="paste-content" rows="10" placeholder="Paste text or markdown here…"></textarea>
+    </label>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="paste-add" class="btn primary" type="button">Add source</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<dialog id="settings-modal" class="modal">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <label class="field">Anthropic API key <span class="muted">(stored only in this browser)</span>
+      <input id="set-apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
+    </label>
+    <label class="field">Model
+      <select id="set-model">
+        <option value="claude-opus-4-8">claude-opus-4-8 (recommended)</option>
+        <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+        <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+      </select>
+    </label>
+    <p class="panel-hint">The key is used only for generating slide text from your sources, directly from your browser to Anthropic. No images are ever AI-generated.</p>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="set-save" class="btn primary" type="button">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ IMAGE URL MODAL ============ -->
+<dialog id="imgurl-modal" class="modal">
+  <form method="dialog">
+    <h2>Insert image from URL</h2>
+    <label class="field">Image URL
+      <input id="imgurl-input" type="url" placeholder="https://…/photo.jpg">
+    </label>
+    <p class="panel-hint">The image is fetched and embedded into your project so exports stay self-contained. If it can't be fetched (CORS), it's linked instead.</p>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="imgurl-add" class="btn primary" type="button">Insert</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ PRESENT MODE ============ -->
+<div id="present-overlay" hidden>
+  <div id="present-stage"><div id="present-slide" class="slide"></div></div>
+  <div id="present-notes" hidden></div>
+  <div id="present-hud">
+    <span id="present-counter"></span>
+    <span class="muted">← → navigate · S notes · Esc exit</span>
+  </div>
+</div>
+
+<!-- Print container (PDF export) -->
+<div id="print-area" aria-hidden="true"></div>
+
+<input type="file" id="file-source" accept=".txt,.md,.markdown,.text,.csv,text/*" multiple hidden>
+<input type="file" id="file-project" accept=".json,application/json" hidden>
+<input type="file" id="file-image" accept="image/*" hidden>
+<input type="file" id="file-lib-image" accept="image/*" multiple hidden>
+
+<div id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
