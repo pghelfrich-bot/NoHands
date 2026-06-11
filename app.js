@@ -144,15 +144,19 @@ function slideHTML(s, mode) {
     if (s.image && s.image.src) {
       imgzone = `<div class="s-imgzone">
         <img class="s-img" src="${esc(s.image.src)}" alt="${esc(s.image.alt || "")}">
-        ${mode === "edit" ? '<button class="img-remove" data-act="img-remove" title="Remove image">✕ Remove</button>' : ""}
+        ${mode === "edit" ? `<div class="img-tools">
+          <button data-act="img-bg" title="Remove the image's background">✂ Background</button>
+          <button data-act="img-remove" title="Remove image">✕ Remove</button>
+        </div>` : ""}
       </div>`;
     } else {
       imgzone = `<div class="s-imgzone"><div class="img-placeholder" data-act="img-pick">
         <div class="ph-icon">🖼</div>
         ${s.imageSuggestion ? `<div class="ph-suggest">Suggested image: ${esc(s.imageSuggestion)}</div>` : `<div class="ph-suggest">Add your own image here</div>`}
         ${mode === "edit" ? `<div class="ph-actions">
+            <button type="button" data-act="img-web">🔍 Find on the web</button>
             <button type="button" data-act="img-upload">Upload</button>
-            <button type="button" data-act="img-url">From URL</button>
+            <button type="button" data-act="img-url">URL</button>
           </div>
           <div class="ph-hint">…or drag &amp; drop / paste an image, or pick one from the library →</div>` : ""}
       </div></div>`;
@@ -294,15 +298,23 @@ function renderLibrary() {
     item.className = "lib-item";
     item.title = img.name + " — click to place on current slide";
     item.innerHTML = `<img src="${esc(img.src)}" alt="${esc(img.name)}">
+      <button class="lib-cut" title="Remove background (saves as a copy)">✂</button>
       <button class="lib-del" title="Remove from library">✕</button>`;
     item.addEventListener("click", (e) => {
-      if (e.target.closest(".lib-del")) return;
+      if (e.target.closest(".lib-del, .lib-cut")) return;
       setSlideImage(img.src, img.name, false);
     });
     item.querySelector(".lib-del").addEventListener("click", () => {
       project.library = project.library.filter(x => x.id !== img.id);
       renderLibrary();
       persist();
+    });
+    item.querySelector(".lib-cut").addEventListener("click", () => {
+      openBgRemover(img.src, (cut) => {
+        project.library.push({ id: uid(), name: img.name + " (cut-out)", src: cut });
+        renderLibrary(); persist();
+        toast("Cut-out added to your library — click it to place it on the slide.");
+      });
     });
     libraryEl.appendChild(item);
   });
@@ -358,8 +370,9 @@ canvasEl.addEventListener("keydown", (e) => {
 canvasEl.addEventListener("click", (e) => {
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (!act) return;
-  if (act === "img-upload" || act === "img-pick") {
-    if (act === "img-pick" && e.target.closest(".ph-actions")) return;
+  if (act === "img-pick" || act === "img-web") {
+    openWebSidebar();
+  } else if (act === "img-upload") {
     $("#file-image").click();
   } else if (act === "img-url") {
     $("#imgurl-input").value = "";
@@ -367,6 +380,14 @@ canvasEl.addEventListener("click", (e) => {
   } else if (act === "img-remove") {
     slide().image = null;
     renderCanvas(); renderFilmstrip(); persist();
+  } else if (act === "img-bg") {
+    const img = slide().image;
+    if (!img) return;
+    openBgRemover(img.src, (cut) => {
+      slide().image = { src: cut, alt: img.alt || "" };
+      renderCanvas(); renderFilmstrip(); persist();
+      toast("Background removed.");
+    });
   }
 });
 
@@ -803,6 +824,361 @@ function clip(s, n) {
   s = (s || "").trim();
   return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
 }
+
+/* ============================================================
+   WEB IMAGE SIDEBAR
+   Search keyless, CORS-friendly, openly-licensed image APIs
+   (Openverse, Wikimedia Commons) and insert your picks. These
+   are real photos/illustrations from the web — never AI art.
+   ============================================================ */
+
+const webSidebar = $("#web-sidebar");
+const wsResultsEl = $("#ws-results");
+const wsQueryEl = $("#ws-query");
+let wsResults = [];          // [{id, thumb, full, title, credit}]
+const wsSelected = new Set(); // ids, in no particular order; insert uses result order
+
+function openWebSidebar() {
+  webSidebar.hidden = false;
+  const s = slide();
+  const suggestion = (s.imageSuggestion || s.title || project.title || "").trim();
+  if (!wsQueryEl.value && suggestion) {
+    // strip our own boilerplate from offline-engine suggestions
+    wsQueryEl.value = suggestion.replace(/^Your own photo, chart, or diagram illustrating\s*/i, "").replace(/[“”"]/g, "").slice(0, 80);
+  }
+  wsQueryEl.focus();
+  if (wsQueryEl.value && !wsResults.length) runWebSearch();
+}
+
+function closeWebSidebar() {
+  webSidebar.hidden = true;
+}
+
+$("#ws-close").addEventListener("click", closeWebSidebar);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !webSidebar.hidden && !presenting && !document.querySelector("dialog[open]")) {
+    closeWebSidebar();
+  }
+});
+$("#ws-go").addEventListener("click", runWebSearch);
+wsQueryEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); runWebSearch(); }
+});
+
+function wsStatus(msg, isError) {
+  const el = $("#ws-status");
+  if (!msg) { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = msg;
+  el.classList.toggle("error", !!isError);
+}
+
+function stripHTML(s) {
+  const d = document.createElement("div");
+  d.innerHTML = s || "";
+  return d.textContent.trim();
+}
+
+async function searchOpenverse(q) {
+  const res = await fetch(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=24&mature=false`);
+  if (!res.ok) throw new Error(`Openverse error ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).map(r => ({
+    id: "ov-" + r.id,
+    thumb: r.thumbnail,
+    full: r.url,
+    title: r.title || "Untitled",
+    credit: [r.creator, (r.license || "").toUpperCase()].filter(Boolean).join(" · "),
+  }));
+}
+
+async function searchWikimedia(q) {
+  const u = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
+    "&generator=search&gsrnamespace=6&gsrlimit=24" +
+    "&gsrsearch=" + encodeURIComponent("filetype:bitmap " + q) +
+    "&prop=imageinfo&iiprop=url%7Cextmetadata&iiurlwidth=1024";
+  const res = await fetch(u);
+  if (!res.ok) throw new Error(`Wikimedia error ${res.status}`);
+  const data = await res.json();
+  return Object.values(data.query?.pages || {}).map(p => {
+    const ii = p.imageinfo?.[0];
+    if (!ii) return null;
+    const md = ii.extmetadata || {};
+    return {
+      id: "wm-" + p.pageid,
+      thumb: ii.thumburl || ii.url,
+      full: ii.url,
+      title: (p.title || "").replace(/^File:/, "").replace(/\.[^.]+$/, ""),
+      credit: [stripHTML(md.Artist?.value), md.LicenseShortName?.value].filter(Boolean).join(" · "),
+    };
+  }).filter(Boolean);
+}
+
+async function runWebSearch() {
+  const q = wsQueryEl.value.trim();
+  if (!q) { wsStatus("Type something to search for.", true); return; }
+  wsSelected.clear();
+  updateWsFooter();
+  wsResultsEl.innerHTML = "";
+  wsStatus("Searching…");
+  try {
+    const provider = $("#ws-provider").value;
+    wsResults = provider === "wikimedia" ? await searchWikimedia(q) : await searchOpenverse(q);
+    wsStatus(wsResults.length ? "" : "No results — try different words or the other source.", !wsResults.length);
+    renderWsResults();
+  } catch (err) {
+    wsStatus("Search failed: " + (err?.message || err) + " (are you online?)", true);
+  }
+}
+
+function renderWsResults() {
+  wsResultsEl.innerHTML = "";
+  wsResults.forEach((r) => {
+    const item = document.createElement("div");
+    item.className = "ws-item" + (wsSelected.has(r.id) ? " sel" : "");
+    item.title = r.title + (r.credit ? "\n" + r.credit : "");
+    item.innerHTML = `<img src="${esc(r.thumb)}" alt="${esc(r.title)}" loading="lazy">
+      <div class="ws-check">✓</div>
+      <div class="ws-credit">${esc(r.credit || r.title)}</div>`;
+    item.addEventListener("click", () => {
+      if (wsSelected.has(r.id)) wsSelected.delete(r.id);
+      else wsSelected.add(r.id);
+      item.classList.toggle("sel", wsSelected.has(r.id));
+      updateWsFooter();
+    });
+    wsResultsEl.appendChild(item);
+  });
+}
+
+function updateWsFooter() {
+  $("#ws-count").textContent = `${wsSelected.size} selected`;
+  $("#ws-insert").disabled = !wsSelected.size;
+  $("#ws-add-lib").disabled = !wsSelected.size;
+}
+
+// Embed for self-contained exports; fall back to the (CORS-friendly)
+// thumbnail, then to hot-linking, if the original host blocks us.
+async function resultToSrc(r) {
+  for (const url of [r.full, r.thumb]) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) continue;
+      return await fileToDataURL(blob);
+    } catch { /* try next */ }
+  }
+  return r.thumb || r.full;
+}
+
+function selectedResults() {
+  return wsResults.filter(r => wsSelected.has(r.id));
+}
+
+async function withWsBusy(btn, label, fn) {
+  const insertBtn = $("#ws-insert"), libBtn = $("#ws-add-lib");
+  const old = btn.textContent;
+  insertBtn.disabled = libBtn.disabled = true;
+  btn.textContent = label;
+  try { await fn(); }
+  finally {
+    btn.textContent = old;
+    updateWsFooter();
+  }
+}
+
+$("#ws-insert").addEventListener("click", () => {
+  const picks = selectedResults();
+  if (!picks.length) return;
+  withWsBusy($("#ws-insert"), "Inserting…", async () => {
+    let first = true;
+    for (const r of picks) {
+      const src = await resultToSrc(r);
+      const name = [r.title, r.credit].filter(Boolean).join(" — ");
+      if (first) {
+        setSlideImage(src, name, true);
+        first = false;
+      } else if (!project.library.some(x => x.src === src)) {
+        project.library.push({ id: uid(), name, src });
+      }
+    }
+    renderLibrary(); persist();
+    wsSelected.clear();
+    renderWsResults(); updateWsFooter();
+    closeWebSidebar();
+    toast(picks.length === 1
+      ? "Image placed on the slide."
+      : `First image placed on the slide — the other ${picks.length - 1} are in your library.`);
+  });
+});
+
+$("#ws-add-lib").addEventListener("click", () => {
+  const picks = selectedResults();
+  if (!picks.length) return;
+  withWsBusy($("#ws-add-lib"), "Adding…", async () => {
+    for (const r of picks) {
+      const src = await resultToSrc(r);
+      if (!project.library.some(x => x.src === src)) {
+        project.library.push({ id: uid(), name: [r.title, r.credit].filter(Boolean).join(" — "), src });
+      }
+    }
+    renderLibrary(); persist();
+    wsSelected.clear();
+    renderWsResults(); updateWsFooter();
+    toast(`${picks.length} image${picks.length > 1 ? "s" : ""} added to your library.`);
+  });
+});
+
+/* ============================================================
+   BACKGROUND REMOVER
+   Flood-fills similar colors in from the image edges (plus any
+   spots the user clicks) and makes them transparent. Pure
+   canvas — runs entirely in the browser, no model downloads.
+   ============================================================ */
+
+const bgModal = $("#bg-modal");
+const bgCanvas = $("#bg-canvas");
+const bgCtx = bgCanvas.getContext("2d", { willReadFrequently: true });
+let bgState = null; // {orig: ImageData, seeds: [{x,y}], onApply}
+
+async function openBgRemover(src, onApply) {
+  // Canvas pixel access needs a non-tainted image. data:/blob: are safe;
+  // for http(s) sources, try refetching into a data URL first.
+  let safeSrc = src;
+  if (/^https?:/i.test(src)) {
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      if (!blob.type.startsWith("image/")) throw new Error("not an image");
+      safeSrc = await fileToDataURL(blob);
+    } catch {
+      toast("Can't edit this image: its host blocks cross-site access. Download it and re-upload instead.");
+      return;
+    }
+  }
+
+  const img = new Image();
+  img.onload = () => {
+    const MAX = 1400;
+    const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+    bgCanvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    bgCanvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    bgCtx.drawImage(img, 0, 0, bgCanvas.width, bgCanvas.height);
+    bgState = {
+      orig: bgCtx.getImageData(0, 0, bgCanvas.width, bgCanvas.height),
+      seeds: [],
+      onApply,
+    };
+    bgRecompute();
+    bgModal.showModal();
+  };
+  img.onerror = () => toast("Couldn't load that image for editing.");
+  img.src = safeSrc;
+}
+
+// Pure mask computation: returns Uint8Array (1 = background, remove).
+// Flood-fills from every border pixel plus user seeds; each region grows
+// from its own seed's color, so multi-colored backgrounds just need clicks.
+function computeBgMask(src, w, h, seeds, tol2) {
+  const removed = new Uint8Array(w * h);
+  const queue = []; // flat: [pixelIndex, seedR, seedG, seedB, ...]
+  const push = (x, y) => {
+    const i = y * w + x;
+    if (removed[i]) return;
+    const p = i * 4;
+    queue.push(i, src[p], src[p + 1], src[p + 2]);
+    removed[i] = 1;
+  };
+  for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1); }
+  for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y); }
+  for (const s of seeds) {
+    const x = Math.min(w - 1, Math.max(0, s.x));
+    const y = Math.min(h - 1, Math.max(0, s.y));
+    removed[y * w + x] = 0; // allow re-seeding a pixel already claimed
+    push(x, y);
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const i = queue[head], sr = queue[head + 1], sg = queue[head + 2], sb = queue[head + 3];
+    head += 4;
+    const x = i % w, y = (i / w) | 0;
+    const tryGrow = (j) => {
+      if (removed[j]) return;
+      const p = j * 4;
+      const dr = src[p] - sr, dg = src[p + 1] - sg, db = src[p + 2] - sb;
+      if (dr * dr + dg * dg + db * db <= tol2) {
+        removed[j] = 1;
+        queue.push(j, sr, sg, sb);
+      }
+    };
+    if (x > 0) tryGrow(i - 1);
+    if (x < w - 1) tryGrow(i + 1);
+    if (y > 0) tryGrow(i - w);
+    if (y < h - 1) tryGrow(i + w);
+  }
+  return removed;
+}
+
+function bgRecompute() {
+  if (!bgState) return;
+  const { orig, seeds } = bgState;
+  const w = orig.width, h = orig.height;
+  const src = orig.data;
+  const out = new Uint8ClampedArray(src); // copy
+  const tol = Number($("#bg-tolerance").value);
+  const removed = computeBgMask(src, w, h, seeds, (tol * 2.2) ** 2);
+
+  // apply mask + soften the cut edge a touch
+  let count = 0;
+  for (let i = 0; i < removed.length; i++) {
+    if (removed[i]) { out[i * 4 + 3] = 0; count++; }
+  }
+  for (let i = 0; i < removed.length; i++) {
+    if (removed[i]) continue;
+    const x = i % w, y = (i / w) | 0;
+    if ((x > 0 && removed[i - 1]) || (x < w - 1 && removed[i + 1]) ||
+        (y > 0 && removed[i - w]) || (y < h - 1 && removed[i + w])) {
+      out[i * 4 + 3] = Math.min(out[i * 4 + 3], 128);
+    }
+  }
+
+  bgCtx.putImageData(new ImageData(out, w, h), 0, 0);
+  $("#bg-status").textContent = `${Math.round(100 * count / removed.length)}% removed` +
+    (bgState.seeds.length ? ` · ${bgState.seeds.length} extra spot${bgState.seeds.length > 1 ? "s" : ""}` : "");
+}
+
+let bgDebounce;
+$("#bg-tolerance").addEventListener("input", () => {
+  clearTimeout(bgDebounce);
+  bgDebounce = setTimeout(bgRecompute, 120);
+});
+
+bgCanvas.addEventListener("click", (e) => {
+  if (!bgState) return;
+  const rect = bgCanvas.getBoundingClientRect();
+  const x = Math.round((e.clientX - rect.left) * (bgCanvas.width / rect.width));
+  const y = Math.round((e.clientY - rect.top) * (bgCanvas.height / rect.height));
+  bgState.seeds.push({ x, y });
+  bgRecompute();
+});
+
+$("#bg-reset").addEventListener("click", () => {
+  if (!bgState) return;
+  bgState.seeds = [];
+  bgRecompute();
+});
+
+$("#bg-apply").addEventListener("click", () => {
+  if (!bgState) return;
+  const dataUrl = bgCanvas.toDataURL("image/png");
+  const cb = bgState.onApply;
+  bgState = null;
+  bgModal.close();
+  cb(dataUrl);
+});
+
+bgModal.addEventListener("close", () => { bgState = null; });
 
 /* ============================================================
    PRESENT MODE

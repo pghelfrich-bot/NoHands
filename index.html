@@ -210,6 +210,48 @@
   </form>
 </dialog>
 
+<!-- ============ WEB IMAGE SIDEBAR ============ -->
+<aside id="web-sidebar" hidden>
+  <div class="ws-head">
+    <h2>Find images on the web</h2>
+    <button id="ws-close" class="btn small" title="Close">✕</button>
+  </div>
+  <div class="ws-search">
+    <input id="ws-query" type="search" placeholder="Search for images…">
+    <select id="ws-provider" title="Image source">
+      <option value="openverse">Openverse</option>
+      <option value="wikimedia">Wikimedia Commons</option>
+    </select>
+    <button id="ws-go" class="btn primary small">Search</button>
+  </div>
+  <p class="panel-hint">Openly licensed images — not AI-generated. Click results to select several, then insert. Review each image's license before publishing.</p>
+  <div id="ws-status" class="status" hidden></div>
+  <div id="ws-results"></div>
+  <div class="ws-foot">
+    <span id="ws-count" class="muted">0 selected</span>
+    <button id="ws-add-lib" class="btn small" disabled>＋ Library</button>
+    <button id="ws-insert" class="btn primary small" disabled>Insert</button>
+  </div>
+</aside>
+
+<!-- ============ BACKGROUND REMOVER ============ -->
+<dialog id="bg-modal" class="modal wide">
+  <form method="dialog">
+    <h2>Background remover</h2>
+    <p class="modal-sub">Removes the background by flood-filling similar colors in from the edges — works entirely in your browser. Click anywhere on the image to mark extra areas to remove, and adjust tolerance until it looks right.</p>
+    <div id="bg-canvas-wrap"><canvas id="bg-canvas"></canvas></div>
+    <div class="bg-controls">
+      <label>Tolerance <input id="bg-tolerance" type="range" min="2" max="100" value="30"></label>
+      <button type="button" id="bg-reset" class="btn small">Reset</button>
+      <span id="bg-status" class="muted"></span>
+    </div>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="bg-apply" class="btn primary" type="button">Apply cut-out</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- ============ PRESENT MODE ============ -->
 <div id="present-overlay" hidden>
   <div id="present-stage"><div id="present-slide" class="slide"></div></div>
