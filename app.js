@@ -213,13 +213,15 @@ function slideHTML(s, mode) {
   }</ul>`;
 
   // kicker (eyebrow) — shown on content layouts; editable always in edit mode
-  const kickerShown = s.layout !== "title" && (mode === "edit" || s.kicker);
+  const KICKER_LAYOUTS = new Set(["section", "bullets", "bullets-image", "image", "free"]);
+  const kickerShown = KICKER_LAYOUTS.has(s.layout) && (mode === "edit" || s.kicker);
   const kicker = kickerShown
     ? `<div class="s-kicker" ${editable} data-field="kicker" data-ph="Kicker / note…">${esc(s.kicker)}</div>`
     : "";
 
-  // takeaway — big bottom line; editable on content layouts
-  const takeawayShown = s.layout !== "title" && (mode === "edit" || s.takeaway);
+  // takeaway — big bottom line; only on layouts where it reads as a summary
+  const TAKEAWAY_LAYOUTS = new Set(["bullets", "bullets-image", "image", "free"]);
+  const takeawayShown = TAKEAWAY_LAYOUTS.has(s.layout) && (mode === "edit" || s.takeaway);
   const takeaway = takeawayShown
     ? `<div class="s-takeaway" ${editable} data-field="takeaway" data-ph="Key takeaway…">${esc(s.takeaway)}</div>`
     : "";
@@ -279,10 +281,11 @@ function renderSlideInto(el, s, mode) {
 
 /* ----------------------- free image placement ----------------------- */
 
-// Loose scatter slots (in % of slide) used when auto-placing images.
+// Loose scatter slots (in % of slide) for auto-placing images. They avoid
+// the top-left head (title + kicker) and the bottom takeaway band.
 const SCATTER = [
-  { x: 58, y: 12 }, { x: 77, y: 38 }, { x: 56, y: 56 }, { x: 8, y: 44 },
-  { x: 30, y: 60 }, { x: 80, y: 12 }, { x: 38, y: 26 }, { x: 14, y: 24 },
+  { x: 60, y: 30 }, { x: 78, y: 36 }, { x: 60, y: 58 }, { x: 8, y: 52 },
+  { x: 34, y: 60 }, { x: 80, y: 60 }, { x: 44, y: 34 }, { x: 18, y: 34 },
 ];
 let placeTarget = null; // id of a placeholder awaiting a source, or null = append new
 
@@ -292,7 +295,7 @@ function nextSlot(s) { return SCATTER[(s.placed || []).length % SCATTER.length];
 
 function addPlaced(s, fields) {
   const slot = nextSlot(s);
-  const p = Object.assign({ id: uid(), src: null, alt: "", caption: "", suggestion: "", x: slot.x, y: slot.y, w: 22 }, fields);
+  const p = Object.assign({ id: uid(), src: null, alt: "", caption: "", suggestion: "", x: slot.x, y: slot.y, w: 20 }, fields);
   s.placed.push(p);
   return p;
 }

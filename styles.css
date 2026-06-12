@@ -322,16 +322,24 @@ aside, #editor-panel { min-height: 0; overflow: hidden; }
 .slide.l-bullets .s-kicker, .slide.l-bullets-image .s-kicker,
 .slide.l-image .s-kicker, .slide.l-section .s-kicker { margin-bottom: 14px; }
 
-/* takeaway (bottom line) */
+/* takeaway (bottom line) — in normal flow so it can never overlap the body */
 .s-takeaway {
-  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
-  width: 86%; text-align: center;
+  margin-top: auto;            /* pin to the bottom of the column */
+  align-self: center;
+  width: 88%; text-align: center;
   font-family: var(--slide-head-font);
-  font-weight: 600; font-size: 27px; line-height: 1.2;
+  font-weight: 600; font-size: 26px; line-height: 1.22;
   color: var(--slide-fg);
-  z-index: 5; outline: none;
+  padding-top: 16px;
+  outline: none;
 }
 .s-takeaway:empty::before { content: attr(data-ph); opacity: .3; }
+/* on the free poster the rest of the slide is absolutely placed, so the
+   takeaway is anchored absolutely too (clear of scattered images) */
+.slide.l-free .s-takeaway {
+  position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+  margin: 0; padding: 0; width: 86%; z-index: 6;
+}
 
 /* ---------- free (poster) layout ---------- */
 .slide.l-free { padding: 0; }
