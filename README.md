@@ -23,7 +23,7 @@ Everything you'd expect from NotebookLM's slide-deck generator:
    - **Two engines:**
      - **Claude API** — high-quality generation grounded in your sources. Enter your own Anthropic API key under ⚙ Settings (stored only in your browser's localStorage; calls go directly from your browser to Anthropic).
      - **Built-in outliner** — no key, no network. Parses markdown headings / paragraphs from your sources into a deck.
-3. **Edit** — click any text on the slide to edit in place. Reorder slides by dragging in the filmstrip, add / duplicate / delete, switch layouts (title, section, bullets, bullets + image, full image, quote) and themes (Paper, Midnight, Forest, Sunrise, Slate). Speaker notes per slide.
+3. **Edit** — click any text on the slide to edit in place. Reorder slides by dragging in the filmstrip, add / duplicate / delete, switch layouts and themes. Speaker notes per slide.
 4. **Present** — fullscreen mode with arrow-key navigation, `S` toggles speaker notes, `Esc` exits.
 5. **Export** —
    - **Standalone HTML**: a single self-contained file with built-in navigation (images embedded).
@@ -42,6 +42,21 @@ Where NotebookLM auto-inserts AI-generated illustrations, SlideCraft inserts an 
 - **Image library** — a per-project gallery of your images; click any to place it on the current slide
 
 Dropping an image on a text-only slide automatically switches it to an image layout.
+
+## Polished "lecture deck" formatting
+
+The tool is tuned to reproduce a clean, image-rich lecture style (think: a unifying dark background, serif titles, scattered captioned cut-out photos, a bottom takeaway line) from nothing but an outline.
+
+- **Deck-wide background + frame** — pick a full-bleed background for *every* slide (gradient presets like Oceanic / Abyss / Charcoal / Plum / Sand / Mist, or upload your own image) and toggle a thin inset **Frame**. Dark backgrounds automatically switch text to light.
+- **One-click ✨ Oceanic style** — applies the dark-serif look (Oceanic theme + background + frame) to the whole deck. New decks start in this style.
+- **Themes** — Oceanic (dark serif), Paper, Midnight, Forest, Sunrise, Slate.
+- **Kicker (eyebrow)** — a small note under the title (definition, key term, date). Supports a couple of short lines.
+- **Takeaway** — a big takeaway line anchored to the bottom of the slide.
+- **Free "poster" layout** — the signature layout: a title + kicker, a bottom takeaway, and **multiple images you scatter freely**, each with its own caption. Drag any image to reposition it, drag its corner handle to resize, click the caption to edit, and use ✂ / ✕ to cut out the background or remove it.
+
+**From an outline:** when you *Generate*, content-heavy points become poster slides whose images are pre-laid-out as **placeholders** carrying a search suggestion and a caption. Click a placeholder → the web sidebar opens pre-filled → pick your image → optionally remove its background. That's the whole loop: outline in, formatted image-rich deck out, you supply the pictures.
+
+**Multi-image insert:** on a poster slide, selecting several images in the web sidebar and hitting *Insert* **scatters them all** onto the slide at once.
 
 ### Built-in background remover
 

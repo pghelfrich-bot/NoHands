@@ -60,11 +60,13 @@
           <option value="bullets">Title + bullets</option>
           <option value="bullets-image">Bullets + image</option>
           <option value="image">Full image</option>
+          <option value="free">Free poster (scatter images)</option>
           <option value="quote">Quote</option>
         </select>
       </label>
       <label>Theme
         <select id="theme-select">
+          <option value="oceanic">Oceanic</option>
           <option value="paper">Paper</option>
           <option value="midnight">Midnight</option>
           <option value="forest">Forest</option>
@@ -72,6 +74,20 @@
           <option value="slate">Slate</option>
         </select>
       </label>
+      <label>Background
+        <select id="bg-select" title="Deck-wide background">
+          <option value="none">Theme color</option>
+          <option value="oceanic">Oceanic</option>
+          <option value="abyss">Abyss</option>
+          <option value="charcoal">Charcoal</option>
+          <option value="plum">Plum</option>
+          <option value="sand">Sand</option>
+          <option value="mist">Mist</option>
+          <option value="__image">Image…</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="frame-toggle"> Frame</label>
+      <button id="btn-oceanic" class="btn small" title="Apply the dark serif lecture look (Oceanic theme + background + frame)">✨ Oceanic style</button>
       <span class="toolbar-spacer"></span>
       <span id="slide-position" class="muted"></span>
     </div>
@@ -269,6 +285,7 @@
 <input type="file" id="file-project" accept=".json,application/json" hidden>
 <input type="file" id="file-image" accept="image/*" hidden>
 <input type="file" id="file-lib-image" accept="image/*" multiple hidden>
+<input type="file" id="file-bg" accept="image/*" hidden>
 
 <div id="toast" hidden></div>
 

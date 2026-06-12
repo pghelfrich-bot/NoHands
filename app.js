@@ -25,7 +25,9 @@ function uid() {
 function newProject() {
   return {
     title: "",
-    theme: "paper",
+    theme: "oceanic",                                  // dark serif lecture look by default
+    background: { preset: "oceanic", image: null },    // deck-wide full-bleed fill
+    frame: true,                                        // thin inset border on every slide
     sources: [],
     slides: [newSlide("title")],
     library: [], // {id, name, src}
@@ -38,10 +40,13 @@ function newSlide(layout = "bullets") {
     layout,
     title: "",
     subtitle: "",
+    kicker: "",      // small eyebrow text under the title
+    takeaway: "",    // big takeaway line anchored to the bottom
     bullets: [],
     notes: "",
-    image: null, // {src, alt}
+    image: null,     // {src, alt} — the single-image layouts
     imageSuggestion: "",
+    placed: [],      // free-placement images: {id, src|null, alt, caption, suggestion, x, y, w}
   };
 }
 
@@ -65,12 +70,20 @@ function persist() {
   }
 }
 
+// Fill in fields added in later versions so old projects keep working.
+function normalizeProject(p) {
+  p = Object.assign(newProject(), p);
+  if (!p.background) p.background = { preset: "none", image: null };
+  p.slides = (p.slides || []).map(s => Object.assign(newSlide(s.layout), s));
+  return p;
+}
+
 function restore() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const p = JSON.parse(raw);
-    if (p && Array.isArray(p.slides) && p.slides.length) project = p;
+    if (p && Array.isArray(p.slides) && p.slides.length) project = normalizeProject(p);
   } catch { /* ignore corrupt autosave */ }
 }
 
@@ -129,15 +142,87 @@ function readFileText(file) {
    RENDERING
    ============================================================ */
 
+// Deck-wide background presets (full-bleed). DARK ones force light text.
+const BG_PRESETS = {
+  none:     null,
+  oceanic:  "radial-gradient(125% 110% at 50% -10%, #1b5286 0%, #0c2c4a 48%, #06182e 100%)",
+  abyss:    "linear-gradient(165deg,#0f2027 0%,#203a43 55%,#2c5364 100%)",
+  charcoal: "radial-gradient(120% 120% at 30% 15%, #3b4350 0%, #1a1d23 72%)",
+  plum:     "radial-gradient(120% 120% at 70% 10%, #3b2154 0%, #160e26 75%)",
+  sand:     "linear-gradient(165deg,#f7f1e3 0%,#ece0c8 100%)",
+  mist:     "linear-gradient(165deg,#f4f7fb 0%,#dfe7f1 100%)",
+};
+const DARK_PRESETS = new Set(["oceanic", "abyss", "charcoal", "plum"]);
+
+function applyBackground(el) {
+  const bg = project.background || { preset: "none" };
+  el.classList.toggle("framed", !!project.frame);
+  if (bg.image) {
+    el.style.background = `#0c2c4a url("${bg.image}") center / cover no-repeat`;
+    el.classList.add("bg-dark");
+  } else if (bg.preset && bg.preset !== "none" && BG_PRESETS[bg.preset]) {
+    el.style.background = BG_PRESETS[bg.preset];
+    el.classList.toggle("bg-dark", DARK_PRESETS.has(bg.preset));
+  } else {
+    el.style.background = "";           // fall back to the theme's --slide-bg
+    el.classList.remove("bg-dark");
+  }
+}
+
+function placedImageHTML(p, mode) {
+  const editable = mode === "edit";
+  const style = `left:${p.x}%;top:${p.y}%;width:${p.w}%`;
+  const cap = `<figcaption class="placed-cap" ${editable ? `contenteditable="true" data-pid="${p.id}"` : ""} data-ph="caption…">${esc(p.caption || "")}</figcaption>`;
+  if (p.src) {
+    return `<figure class="placed${editable ? " editable" : ""}" data-pid="${p.id}" style="${style}">
+      <img src="${esc(p.src)}" alt="${esc(p.alt || "")}" draggable="false">
+      ${editable ? `<div class="placed-tools">
+        <button data-pact="bg" title="Remove background">✂</button>
+        <button data-pact="del" title="Remove image">✕</button>
+      </div><div class="placed-resize" data-pact="resize"></div>` : ""}
+      ${(p.caption || editable) ? cap : ""}
+    </figure>`;
+  }
+  // unfilled placeholder
+  return `<figure class="placed placeholder${editable ? " editable" : ""}" data-pid="${p.id}" style="${style}">
+    <div class="placed-ph" ${editable ? 'data-pact="fill"' : ""}>
+      <div class="ph-icon">🖼</div>
+      <div class="placed-ph-text">${esc(p.suggestion || "Add image")}</div>
+      ${editable ? '<div class="placed-ph-hint">click to fill</div>' : ""}
+    </div>
+    ${editable ? `<div class="placed-tools"><button data-pact="del" title="Remove">✕</button></div><div class="placed-resize" data-pact="resize"></div>` : ""}
+    ${(p.caption || editable) ? cap : ""}
+  </figure>`;
+}
+
+function freeLayerHTML(s, mode) {
+  const items = (s.placed || []).map(p => placedImageHTML(p, mode)).join("");
+  const addBtn = mode === "edit" ? `<button class="free-add" data-act="free-add">＋ Add image</button>` : "";
+  return `<div class="s-free-layer">${items}${addBtn}</div>`;
+}
+
 // Builds the inner HTML of a slide. `mode`: "edit" | "static".
 function slideHTML(s, mode) {
   const editable = mode === "edit" ? 'contenteditable="true"' : "";
-  const title = `<div class="s-title" ${editable} data-field="title" data-ph="${s.layout === "quote" ? "Quote text…" : "Slide title…"}">${esc(s.title)}</div>`;
+  const titlePh = s.layout === "quote" ? "Quote text…" : "Slide title…";
+  const title = `<div class="s-title" ${editable} data-field="title" data-ph="${titlePh}">${esc(s.title)}</div>`;
   const subPh = s.layout === "quote" ? "Attribution…" : "Subtitle…";
   const subtitle = `<div class="s-subtitle" ${editable} data-field="subtitle" data-ph="${subPh}">${esc(s.subtitle)}</div>`;
   const bullets = `<ul class="s-bullets" ${editable} data-field="bullets" data-ph="Add bullet points…">${
     s.bullets.map(b => `<li>${esc(b)}</li>`).join("")
   }</ul>`;
+
+  // kicker (eyebrow) — shown on content layouts; editable always in edit mode
+  const kickerShown = s.layout !== "title" && (mode === "edit" || s.kicker);
+  const kicker = kickerShown
+    ? `<div class="s-kicker" ${editable} data-field="kicker" data-ph="Kicker / note…">${esc(s.kicker)}</div>`
+    : "";
+
+  // takeaway — big bottom line; editable on content layouts
+  const takeawayShown = s.layout !== "title" && (mode === "edit" || s.takeaway);
+  const takeaway = takeawayShown
+    ? `<div class="s-takeaway" ${editable} data-field="takeaway" data-ph="Key takeaway…">${esc(s.takeaway)}</div>`
+    : "";
 
   let imgzone = "";
   if (s.layout === "bullets-image" || s.layout === "image") {
@@ -163,22 +248,132 @@ function slideHTML(s, mode) {
     }
   }
 
-  switch (s.layout) {
-    case "title":   return title + subtitle;
-    case "section": return title;
-    case "quote":   return title + subtitle;
-    case "bullets": return title + bullets;
-    case "bullets-image":
-      return title + `<div class="s-body">${bullets}${imgzone}</div>`;
-    case "image":   return title + imgzone;
-    default:        return title + bullets;
+  if (s.layout === "free") {
+    // freeform "poster" slide: title top-left, scattered captioned images, takeaway bottom
+    return freeLayerHTML(s, mode)
+      + `<div class="s-free-head">${title}${kicker}</div>`
+      + takeaway;
   }
+
+  let body;
+  switch (s.layout) {
+    case "title":   body = title + subtitle; break;
+    case "section": body = title + kicker; break;
+    case "quote":   body = title + subtitle; break;
+    case "bullets": body = title + kicker + bullets; break;
+    case "bullets-image":
+      body = title + kicker + `<div class="s-body">${bullets}${imgzone}</div>`; break;
+    case "image":   body = title + kicker + imgzone; break;
+    default:        body = title + kicker + bullets;
+  }
+  return body + takeaway;
 }
 
 function renderSlideInto(el, s, mode) {
   el.className = "slide l-" + s.layout + (mode === "static" ? " static" : "");
   el.dataset.theme = project.theme;
   el.innerHTML = slideHTML(s, mode);
+  applyBackground(el);
+  if (mode === "edit") wireFreeLayer(el, s);
+}
+
+/* ----------------------- free image placement ----------------------- */
+
+// Loose scatter slots (in % of slide) used when auto-placing images.
+const SCATTER = [
+  { x: 58, y: 12 }, { x: 77, y: 38 }, { x: 56, y: 56 }, { x: 8, y: 44 },
+  { x: 30, y: 60 }, { x: 80, y: 12 }, { x: 38, y: 26 }, { x: 14, y: 24 },
+];
+let placeTarget = null; // id of a placeholder awaiting a source, or null = append new
+
+function findPlaced(s, id) { return (s.placed || []).find(p => p.id === id); }
+
+function nextSlot(s) { return SCATTER[(s.placed || []).length % SCATTER.length]; }
+
+function addPlaced(s, fields) {
+  const slot = nextSlot(s);
+  const p = Object.assign({ id: uid(), src: null, alt: "", caption: "", suggestion: "", x: slot.x, y: slot.y, w: 22 }, fields);
+  s.placed.push(p);
+  return p;
+}
+
+// Route an incoming image onto a free-layout slide.
+function placeOnFree(s, src, name) {
+  if (placeTarget) {
+    const p = findPlaced(s, placeTarget);
+    placeTarget = null;
+    if (p) { p.src = src; if (!p.alt) p.alt = name || ""; return; }
+  }
+  addPlaced(s, { src, alt: name || "" });
+}
+
+function openFillPlaced(s, p) {
+  placeTarget = p.id;
+  openWebSidebar(p.suggestion || p.caption || "");
+}
+
+function wireFreeLayer(el, s) {
+  const layer = el.querySelector(".s-free-layer");
+  if (!layer) return;
+
+  layer.querySelectorAll(".placed").forEach((fig) => {
+    const id = fig.dataset.pid;
+    const p = findPlaced(s, id);
+    if (!p) return;
+
+    // tool buttons (delete / background)
+    fig.querySelectorAll(".placed-tools [data-pact]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const act = btn.dataset.pact;
+        if (act === "del") {
+          s.placed = s.placed.filter(q => q.id !== id);
+          renderCanvas(); renderFilmstrip(); persist();
+        } else if (act === "bg" && p.src) {
+          openBgRemover(p.src, (cut) => {
+            p.src = cut; renderCanvas(); renderFilmstrip(); persist();
+            toast("Background removed.");
+          });
+        }
+      });
+    });
+
+    // drag to move, or drag the corner to resize; a click (no drag) on an
+    // empty placeholder opens the fill flow.
+    fig.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".placed-cap, .placed-tools")) return;
+      const isResize = !!e.target.closest(".placed-resize");
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const sx = e.clientX, sy = e.clientY;
+      const x0 = p.x, y0 = p.y, w0 = p.w;
+      let moved = false;
+      try { fig.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+
+      const move = (ev) => {
+        const ddx = ev.clientX - sx, ddy = ev.clientY - sy;
+        if (Math.abs(ddx) + Math.abs(ddy) > 3) moved = true;
+        if (isResize) {
+          p.w = Math.max(6, Math.min(80, w0 + ddx / rect.width * 100));
+          fig.style.width = p.w + "%";
+        } else {
+          p.x = Math.max(-6, Math.min(96, x0 + ddx / rect.width * 100));
+          p.y = Math.max(-6, Math.min(94, y0 + ddy / rect.height * 100));
+          fig.style.left = p.x + "%";
+          fig.style.top = p.y + "%";
+        }
+      };
+      const up = () => {
+        fig.removeEventListener("pointermove", move);
+        fig.removeEventListener("pointerup", up);
+        try { fig.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+        if (moved) { persist(); renderFilmstrip(); }
+        else if (!p.src) openFillPlaced(s, p);
+      };
+      fig.addEventListener("pointermove", move);
+      fig.addEventListener("pointerup", up);
+    });
+  });
 }
 
 function fitCanvas() {
@@ -197,6 +392,7 @@ function renderCanvas() {
   notesEl.value = s.notes || "";
   layoutSelect.value = s.layout;
   themeSelect.value = project.theme;
+  syncBgControls();
   slidePosEl.textContent = `Slide ${current + 1} of ${project.slides.length}`;
   fitCanvas();
 }
@@ -340,6 +536,12 @@ function selectSlide(i) {
 
 function commitEditable(el) {
   const s = slide();
+  // placed-image caption
+  if (el.dataset.pid) {
+    const p = findPlaced(s, el.dataset.pid);
+    if (p) { p.caption = el.innerText.replace(/\n+/g, " ").trim(); persist(); renderFilmstrip(); }
+    return;
+  }
   const field = el.dataset.field;
   if (!field) return;
   if (field === "bullets") {
@@ -347,6 +549,8 @@ function commitEditable(el) {
     // contenteditable may flatten to plain text lines if the user deletes the list
     const fallback = el.innerText.split("\n").map(t => t.trim());
     s.bullets = (items.length ? items : fallback).filter(Boolean);
+  } else if (field === "kicker") {
+    s.kicker = el.innerText.replace(/\n{3,}/g, "\n").trim(); // allow short line breaks
   } else {
     s[field] = el.innerText.replace(/\n+/g, " ").trim();
   }
@@ -361,7 +565,7 @@ canvasEl.addEventListener("blur", (e) => {
 
 canvasEl.addEventListener("keydown", (e) => {
   // keep Enter inside single-line fields from inserting newlines
-  if (e.key === "Enter" && e.target.matches('[data-field="title"],[data-field="subtitle"]')) {
+  if (e.key === "Enter" && e.target.matches('[data-field="title"],[data-field="subtitle"],[data-field="takeaway"],.placed-cap')) {
     e.preventDefault();
     e.target.blur();
   }
@@ -370,7 +574,10 @@ canvasEl.addEventListener("keydown", (e) => {
 canvasEl.addEventListener("click", (e) => {
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (!act) return;
-  if (act === "img-pick" || act === "img-web") {
+  if (act === "free-add") {
+    placeTarget = null;
+    openWebSidebar();
+  } else if (act === "img-pick" || act === "img-web") {
     openWebSidebar();
   } else if (act === "img-upload") {
     $("#file-image").click();
@@ -426,7 +633,14 @@ notesEl.addEventListener("input", () => {
 });
 
 layoutSelect.addEventListener("change", () => {
-  slide().layout = layoutSelect.value;
+  const s = slide();
+  const next = layoutSelect.value;
+  // carry an existing single image into the free layer so it isn't lost
+  if (next === "free" && s.image && s.image.src && !(s.placed || []).some(p => p.src === s.image.src)) {
+    addPlaced(s, { src: s.image.src, alt: s.image.alt || "" });
+    s.image = null;
+  }
+  s.layout = next;
   renderCanvas(); renderFilmstrip(); persist();
 });
 
@@ -434,6 +648,52 @@ themeSelect.addEventListener("change", () => {
   project.theme = themeSelect.value;
   renderCanvas(); renderFilmstrip(); persist();
 });
+
+$("#bg-select").addEventListener("change", (e) => {
+  const v = e.target.value;
+  if (v === "__image") {
+    $("#bg-select").value = project.background?.image ? "__image" : (project.background?.preset || "none");
+    $("#file-bg").click();
+    return;
+  }
+  project.background = { preset: v, image: null };
+  renderCanvas(); renderFilmstrip(); persist();
+});
+
+$("#file-bg").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    try {
+      const src = await fileToDataURL(file);
+      project.background = { preset: "none", image: src };
+      project.frame = project.frame; // unchanged
+      renderCanvas(); renderFilmstrip(); persist();
+      toast("Background image applied to every slide.");
+    } catch { toast("Couldn't read that image."); }
+  }
+  e.target.value = "";
+  syncBgControls();
+});
+
+$("#frame-toggle").addEventListener("change", (e) => {
+  project.frame = e.target.checked;
+  renderCanvas(); renderFilmstrip(); persist();
+});
+
+$("#btn-oceanic").addEventListener("click", () => {
+  // One-click "polished dark serif lecture" look.
+  project.theme = "oceanic";
+  project.background = { preset: "oceanic", image: null };
+  project.frame = true;
+  renderAll(); persist();
+  toast("Applied the Oceanic style to the whole deck.");
+});
+
+function syncBgControls() {
+  const bg = project.background || { preset: "none" };
+  $("#bg-select").value = bg.image ? "__image" : (bg.preset || "none");
+  $("#frame-toggle").checked = !!project.frame;
+}
 
 deckTitleEl.addEventListener("input", () => {
   project.title = deckTitleEl.value;
@@ -453,16 +713,27 @@ async function insertImageFile(file, fallbackName) {
   }
 }
 
+function libAdd(src, name) {
+  if (!project.library.some(x => x.src === src)) {
+    project.library.push({ id: uid(), name: name || "image", src });
+  }
+}
+
 function setSlideImage(src, name, addToLibrary) {
   const s = slide();
+  // On a free (poster) slide, images are scattered cut-outs, not a single zone.
+  if (s.layout === "free") {
+    placeOnFree(s, src, name);
+    if (addToLibrary) libAdd(src, name);
+    renderCanvas(); renderFilmstrip(); renderLibrary(); persist();
+    return;
+  }
   // image only renders on image layouts — switch automatically if needed
   if (s.layout !== "image" && s.layout !== "bullets-image") {
     s.layout = s.bullets.length ? "bullets-image" : "image";
   }
   s.image = { src, alt: name || "" };
-  if (addToLibrary && !project.library.some(x => x.src === src)) {
-    project.library.push({ id: uid(), name: name || "image", src });
-  }
+  if (addToLibrary) libAdd(src, name);
   renderCanvas(); renderFilmstrip(); renderLibrary(); persist();
 }
 
@@ -644,9 +915,17 @@ function applyGeneratedDeck(deck) {
     const s = newSlide(d.layout || "bullets");
     s.title = d.title || "";
     s.subtitle = d.subtitle || "";
+    s.kicker = d.kicker || "";
     s.bullets = (d.bullets || []).slice(0, 7);
+    s.takeaway = d.takeaway || "";
     s.notes = d.notes || "";
     s.imageSuggestion = d.imageSuggestion || "";
+    // free (poster) layout: turn each suggested image into a scattered placeholder
+    if (s.layout === "free" && Array.isArray(d.images)) {
+      d.images.slice(0, 6).forEach((im) => {
+        addPlaced(s, { suggestion: im.suggestion || "", caption: im.caption || "" });
+      });
+    }
     slides.push(s);
   }
 
@@ -670,14 +949,29 @@ const DECK_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          layout: { type: "string", enum: ["section", "bullets", "bullets-image", "image", "quote"] },
+          layout: { type: "string", enum: ["section", "bullets", "bullets-image", "image", "quote", "free"] },
           title: { type: "string" },
           subtitle: { type: "string", description: "Only for quote slides: the attribution" },
+          kicker: { type: "string", description: "A short eyebrow note shown under the title (e.g. a definition, date, or sub-point). Use line breaks for 1-3 short lines. Empty if not needed." },
           bullets: { type: "array", items: { type: "string" } },
+          takeaway: { type: "string", description: "A single punchy takeaway line anchored to the bottom of the slide. Empty if not needed." },
           notes: { type: "string", description: "Speaker notes for this slide" },
-          imageSuggestion: { type: "string", description: "A short description of an image the USER could supply for this slide (e.g. 'a photo of your team at the launch event'). Empty string if the slide needs no image." }
+          imageSuggestion: { type: "string", description: "For 'bullets-image' / 'image' layouts: a short description of ONE image the USER could supply. Empty string otherwise." },
+          images: {
+            type: "array",
+            description: "For the 'free' (poster) layout ONLY: 2-5 images the user should supply, scattered around the slide. Each is a placeholder — the user inserts their own picture.",
+            items: {
+              type: "object",
+              properties: {
+                suggestion: { type: "string", description: "What image to find/supply (a search-friendly phrase)." },
+                caption: { type: "string", description: "Short caption shown under the image. Empty for none." }
+              },
+              required: ["suggestion", "caption"],
+              additionalProperties: false
+            }
+          }
         },
-        required: ["layout", "title", "subtitle", "bullets", "notes", "imageSuggestion"],
+        required: ["layout", "title", "subtitle", "kicker", "bullets", "takeaway", "notes", "imageSuggestion", "images"],
         additionalProperties: false
       }
     }
@@ -688,11 +982,15 @@ const DECK_SCHEMA = {
 
 async function generateWithClaude(opts) {
   const system = [
-    "You are a presentation designer. Build a clear, well-structured slide deck strictly grounded in the user's source material.",
+    "You are a presentation designer. Build a clear, visually rich slide deck strictly grounded in the user's source material.",
     "Rules:",
     "- Slides must be concise: max ~6 bullets per slide, each under 12 words.",
+    "- Use a short 'kicker' on most content slides — an eyebrow note under the title (a definition, key term, date, or sub-point).",
+    "- Use a punchy 'takeaway' line on slides that have a clear single message; it anchors to the bottom of the slide.",
     "- Use 'section' slides to break the deck into chapters when it helps.",
-    "- Use 'bullets-image' or 'image' layouts where a visual would genuinely help, and write imageSuggestion as a concrete description of a photo/diagram the presenter could supply themselves. NEVER assume images will be generated — they are placeholders for the user's own pictures.",
+    "- Prefer the 'free' (poster) layout for visually-driven slides: a title, a kicker, a bottom takeaway, and 2-5 scattered images. For each image fill 'images' with a search-friendly suggestion and a short caption. This mirrors a polished lecture-style deck.",
+    "- Use 'bullets-image' / 'image' for a single dominant visual; set imageSuggestion.",
+    "- EVERY image is a placeholder for the USER's OWN picture. NEVER assume images are generated.",
     "- Use a 'quote' slide if the sources contain a strong quotable line (subtitle = attribution).",
     "- Write helpful speaker notes (2-4 sentences) for every slide.",
     "- Do not invent facts that are not in the sources.",
@@ -770,14 +1068,17 @@ function generateOffline(opts) {
 
   let deckSlides;
   if (slides.length >= 2) {
-    deckSlides = slides.map(s => ({
-      layout: s.body.length ? "bullets" : "section",
-      title: clip(s.title, 80),
-      subtitle: "",
-      bullets: s.body.slice(0, 6).map(b => clip(b, 90)),
-      notes: s.body.slice(6).join(" "),
-      imageSuggestion: "",
-    }));
+    deckSlides = slides.map(s => {
+      const body = s.body.slice(0, 6).map(b => clip(b, 90));
+      return {
+        layout: body.length ? "bullets" : "section",
+        title: clip(s.title, 80),
+        subtitle: "", kicker: "", takeaway: "",
+        bullets: body,
+        notes: s.body.slice(6).join(" "),
+        imageSuggestion: "", images: [],
+      };
+    });
   } else {
     // Pass 2: no headings — paragraphs become slides
     const paras = text.split(/\n\s*\n/).map(p => p.replace(/\s+/g, " ").trim()).filter(p => p.length > 40);
@@ -786,10 +1087,10 @@ function generateOffline(opts) {
       return {
         layout: "bullets",
         title: clip(sentences[0], 70),
-        subtitle: "",
+        subtitle: "", kicker: "", takeaway: "",
         bullets: sentences.slice(1, 6).map(t => clip(t.trim(), 90)).filter(Boolean),
         notes: sentences.slice(6).join(" ").trim(),
-        imageSuggestion: "",
+        imageSuggestion: "", images: [],
       };
     });
   }
@@ -800,21 +1101,34 @@ function generateOffline(opts) {
 
   deckSlides = deckSlides.slice(0, opts.count);
 
-  // suggest user images on a few content-heavy slides
+  // Turn some content-heavy slides into image-rich "poster" slides with
+  // scattered placeholders + a takeaway, mirroring a polished lecture deck.
   deckSlides.forEach((s, i) => {
-    if (s.layout === "bullets" && s.bullets.length >= 2 && i % 3 === 1) {
+    if (s.layout !== "bullets" || s.bullets.length < 2) return;
+    if (i % 3 === 1) {
+      // poster slide: move a couple of bullets into a bottom takeaway + images
+      s.layout = "free";
+      s.takeaway = s.bullets[s.bullets.length - 1] || "";
+      s.bullets = [];
+      const n = 2 + (i % 2); // 2 or 3 images
+      s.images = Array.from({ length: n }, (_, k) => ({
+        suggestion: `${s.title} — image ${k + 1}`,
+        caption: "",
+      }));
+    } else if (i % 3 === 2) {
       s.layout = "bullets-image";
       s.imageSuggestion = `Your own photo, chart, or diagram illustrating “${s.title}”`;
+      s.takeaway = "";
     }
   });
 
   deckSlides.push({
     layout: "section",
     title: "Thank you",
-    subtitle: "",
+    subtitle: "", kicker: "", takeaway: "Questions?",
     bullets: [],
     notes: "Wrap up and invite questions.",
-    imageSuggestion: "",
+    imageSuggestion: "", images: [],
   });
 
   return { title: clip(title, 80), subtitle: opts.audience ? `For ${opts.audience}` : "", slides: deckSlides };
@@ -838,20 +1152,23 @@ const wsQueryEl = $("#ws-query");
 let wsResults = [];          // [{id, thumb, full, title, credit}]
 const wsSelected = new Set(); // ids, in no particular order; insert uses result order
 
-function openWebSidebar() {
+function openWebSidebar(queryHint) {
   webSidebar.hidden = false;
   const s = slide();
-  const suggestion = (s.imageSuggestion || s.title || project.title || "").trim();
-  if (!wsQueryEl.value && suggestion) {
+  const suggestion = (queryHint || s.imageSuggestion || s.title || project.title || "").trim();
+  if (queryHint !== undefined || (!wsQueryEl.value && suggestion)) {
     // strip our own boilerplate from offline-engine suggestions
-    wsQueryEl.value = suggestion.replace(/^Your own photo, chart, or diagram illustrating\s*/i, "").replace(/[“”"]/g, "").slice(0, 80);
+    wsQueryEl.value = (queryHint || suggestion)
+      .replace(/^Your own photo, chart, or diagram illustrating\s*/i, "")
+      .replace(/[“”"]/g, "").slice(0, 80);
   }
   wsQueryEl.focus();
-  if (wsQueryEl.value && !wsResults.length) runWebSearch();
+  if (wsQueryEl.value && (!wsResults.length || queryHint)) runWebSearch();
 }
 
 function closeWebSidebar() {
   webSidebar.hidden = true;
+  placeTarget = null; // drop any pending placeholder target
 }
 
 $("#ws-close").addEventListener("click", closeWebSidebar);
@@ -991,24 +1308,37 @@ $("#ws-insert").addEventListener("click", () => {
   const picks = selectedResults();
   if (!picks.length) return;
   withWsBusy($("#ws-insert"), "Inserting…", async () => {
+    const s = slide();
+    const onFree = s.layout === "free";
+    let placedCount = 0;
     let first = true;
     for (const r of picks) {
       const src = await resultToSrc(r);
       const name = [r.title, r.credit].filter(Boolean).join(" — ");
-      if (first) {
+      if (onFree) {
+        // On a poster slide, scatter every pick as its own captioned cut-out.
+        placeOnFree(s, src, r.title || name);
+        if (r.title) { const p = s.placed[s.placed.length - 1]; if (p && !p.caption) p.caption = r.title; }
+        libAdd(src, name);
+        placedCount++;
+      } else if (first) {
         setSlideImage(src, name, true);
         first = false;
-      } else if (!project.library.some(x => x.src === src)) {
-        project.library.push({ id: uid(), name, src });
+      } else {
+        libAdd(src, name);
       }
     }
-    renderLibrary(); persist();
+    renderCanvas(); renderLibrary(); renderFilmstrip(); persist();
     wsSelected.clear();
     renderWsResults(); updateWsFooter();
     closeWebSidebar();
-    toast(picks.length === 1
-      ? "Image placed on the slide."
-      : `First image placed on the slide — the other ${picks.length - 1} are in your library.`);
+    if (onFree) {
+      toast(`Placed ${placedCount} image${placedCount > 1 ? "s" : ""} on the slide — drag to arrange.`);
+    } else {
+      toast(picks.length === 1
+        ? "Image placed on the slide."
+        : `First image placed on the slide — the other ${picks.length - 1} are in your library.`);
+    }
   });
 });
 
@@ -1271,7 +1601,7 @@ $("#file-project").addEventListener("change", async (e) => {
   try {
     const p = JSON.parse(await readFileText(file));
     if (!p || !Array.isArray(p.slides)) throw new Error("bad shape");
-    project = Object.assign(newProject(), p);
+    project = normalizeProject(p);
     current = 0;
     renderAll(); persist();
     toast("Project loaded.");
@@ -1366,8 +1696,7 @@ function extractSlideCSS() {
     try { rules = sheet.cssRules; } catch { continue; }
     for (const rule of rules) {
       const sel = rule.selectorText || "";
-      if (/^\.slide|^\s*\.slide|\.s-imgzone|\.img-placeholder|\[contenteditable\]/.test(sel)
-        || sel.includes(".slide")) {
+      if (/\.slide|\.s-|\.placed|\.img-|\.free-add|\[contenteditable\]/.test(sel)) {
         out += rule.cssText + "\n";
       }
     }
