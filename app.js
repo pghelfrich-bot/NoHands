@@ -202,6 +202,22 @@ function escHTML(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<'
 function stripHTML(s){ const d = document.createElement('div'); d.innerHTML = s || ''; return d.textContent.trim(); }
 function pad2(n){ return String(n).padStart(2, '0'); }
 
+/* break a FIGURE prompt like "peacock male, alternatively a bird of paradise
+   or a kingfisher" into one simple primary search term plus optional
+   alternates, so image search gets short queries instead of one long one */
+function splitFigureTerms(text){
+  text = (text || '').trim();
+  if (!text) return { primary: '', alternates: [] };
+  const parts = text
+    .split(/\s*,?\s*(?:or\s+)?alternatively\s*,?\s*|\s+or\s+|\s*\/\s*/i)
+    .map(p => p.replace(/^(?:a|an|the)\s+/i, '').trim())
+    .filter(Boolean);
+  let [primary, ...rest] = parts;
+  primary = primary.replace(/\b(?:male|female|juvenile|adult|baby|young)\b/gi, '').replace(/\s+/g, ' ').trim() || primary;
+  const alternates = [...new Set(rest)];
+  return { primary, alternates };
+}
+
 let toastTimer = null;
 function toast(msg, ms = 2600){
   const t = $('#toast');
@@ -1244,7 +1260,7 @@ function startMove(e, node, slide, info, root, accLine){
     node.removeEventListener('pointermove', move);
     node.removeEventListener('pointerup', up);
     if (moved) commitChange();
-    else if (info.isFig){ $('#ip-query').value = slide.figure || slide.headline || ''; lastAutoQuery = null; runImageSearch(); }
+    else if (info.isFig){ seedQueryFromText(slide.figure || slide.headline || ''); lastAutoQuery = null; runImageSearch(); }
   };
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', up);
@@ -1667,12 +1683,41 @@ const autoSearchSoon = debounce(() => {
   runImageSearch({ auto: true });
 }, 500);
 
+/* fill the search box with a simplified primary term and show any
+   alternate subjects (from "alternatively"/"or") as optional chips */
+function seedQueryFromText(text){
+  const { primary, alternates } = splitFigureTerms(text);
+  $('#ip-query').value = primary;
+  renderAltChips(alternates);
+  return primary;
+}
+
+function renderAltChips(alternates){
+  const box = $('#ip-alts');
+  if (!box) return;
+  box.innerHTML = '';
+  box.hidden = !alternates.length;
+  alternates.forEach(term => {
+    const label = el('label', 'ip-alt-chip', '', null);
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.term = term;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(term));
+    cb.addEventListener('change', () => {
+      label.classList.toggle('active', cb.checked);
+      runImageSearch();
+    });
+    box.appendChild(label);
+  });
+}
+
 function seedImagePanel(){
   const s = cur();
   if (!s) return;
   if (panelSeedFor !== s.id){
     panelSeedFor = s.id;
-    $('#ip-query').value = s.figure || s.headline || state.deck.title || '';
+    seedQueryFromText(s.figure || s.headline || state.deck.title || '');
   }
   autoSearchSoon();
 }
@@ -1709,11 +1754,23 @@ async function runImageSearch(opts = {}){
   ipStatus((auto ? 'Suggestions for this slide — searching ' : 'Searching ')
     + provs.map(p => PROVIDERS[p].label).join(', ') + '…');
 
-  const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(q)));
+  // also search any checked alternate subjects, alongside the main query
+  const altTerms = $$('#ip-alts input:checked').map(cb => cb.dataset.term);
+  const queries = [q, ...altTerms];
+
+  const perTerm = await Promise.all(queries.map(async term => {
+    const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(term)));
+    return {
+      lists: settled.map(s2 => s2.status === 'fulfilled' ? s2.value : []),
+      failed: settled.map((s2, i) => s2.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean),
+    };
+  }));
   if (token !== searchToken) return;
-  const lists = settled.map(s2 => s2.status === 'fulfilled' ? s2.value : []);
-  const failedProvs = settled.map((s2, i) => s2.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean);
-  const merged = interleave(lists).slice(0, auto ? 15 : 48);
+  const failedProvs = [...new Set(perTerm.flatMap(t => t.failed))];
+  const seen = new Set();
+  const merged = interleave(perTerm.map(t => interleave(t.lists)))
+    .filter(r => { const k = r.provider + ':' + r.id; if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, auto ? 15 : 48);
 
   if (!merged.length){
     ipStatus('No results.' + (failedProvs.length ? ` (${failedProvs.join(', ')} failed)` : ''), !!failedProvs.length);
