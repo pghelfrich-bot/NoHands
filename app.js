@@ -109,6 +109,12 @@ const SLIDE_CSS = `
   padding:10px 14px;font-size:13.5px;line-height:1.4;opacity:.75}
 .slide .lf-bg{position:absolute;left:-5%;top:-5%;width:110%;height:110%;object-fit:cover;z-index:0}
 .slide .lf-bgscrim{position:absolute;inset:0;z-index:0}
+.slide .lf-anchor{position:absolute;z-index:48;width:15px;height:15px;margin:-7.5px 0 0 -7.5px;border-radius:50%;
+  border:2.5px solid #fff;background:var(--lf-accent);box-shadow:0 0 0 2px rgba(0,0,0,.4),0 2px 6px rgba(0,0,0,.45);
+  cursor:grab;touch-action:none;opacity:.6}
+.slide .lf-anchor.pinned{opacity:1}
+.slide .lf-anchor:hover{opacity:1;transform:scale(1.15)}
+.slide .lf-anchor:active{cursor:grabbing}
 .slide .lf-frame{position:absolute;inset:16px;border:1px solid rgba(20,32,44,.14);border-radius:8px;z-index:46;pointer-events:none}
 .slide.dark .lf-frame{border-color:rgba(255,255,255,.35)}
 .slide.has-bg .lf-frame{border-color:rgba(255,255,255,.55)}
@@ -543,6 +549,23 @@ function connectorFor(fig, pos, h){
   else if (cyL < fig.y)           a = { x: cxL,                y: pos.y + h + 8 };
   else                            a = { x: cxL,                y: pos.y - 10 };
   return { a, t: rectEdgePoint(fig, a) };
+}
+/* where a leader line should exit a label box, given the point it aims at */
+function leaderStart(pos, w, h, target){
+  const cx = pos.x + w / 2, cy = pos.y + h / 2;
+  const dx = target.x - cx, dy = target.y - cy;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? { x: pos.x + w + 10, y: cy } : { x: pos.x - 10, y: cy };
+  return dy >= 0 ? { x: cx, y: pos.y + h + 8 } : { x: cx, y: pos.y - 10 };
+}
+/* leader endpoints for one annotation: a pinned hotspot (anchor, normalized
+   within the figure box) wins over the default figure-edge target. Shared by
+   the DOM renderer and the PPTX exporter so pins export faithfully. */
+function annLeader(fig, ann, pos, w, h){
+  if (ann && ann.anchor){
+    const t = { x: fig.x + clamp(ann.anchor.x, 0, 1) * fig.w, y: fig.y + clamp(ann.anchor.y, 0, 1) * fig.h };
+    return { a: leaderStart(pos, w, h, t), t };
+  }
+  return connectorFor(fig, pos, h);
 }
 function panelGrid(n, hasCallout){
   const x0 = 80, x1 = 1200, y0 = 168, y1 = hasCallout ? 596 : 652, gap = 20;
@@ -1067,8 +1090,10 @@ function drawConnectors(root, slide, color){
   let inner = '';
   annNodes.forEach((n, i) => {
     const pos = { x: parseFloat(n.style.left), y: parseFloat(n.style.top) };
+    const w = n.offsetWidth || ANN_W;
     const h = n.offsetHeight || estimateAnnH(n.textContent);
-    const { a, t } = connectorFor(fig, pos, h);
+    const ann = slide.annotations.find(a => a.id === n.dataset.id);
+    const { a, t } = annLeader(fig, ann, pos, w, h);
     const dx = t.x - a.x, dy = t.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
     const bow = Math.min(34, len * 0.18) * (i % 2 ? 1 : -1);
@@ -1239,6 +1264,67 @@ function applySelection(root){
   const isImg = info && info.isImg;
   $('#sel-cutout').disabled = !isImg;
   $('#sel-front').disabled = $('#sel-back').disabled = !isImg;
+  updateAnchorHandle(root, cur());
+}
+
+/* When an annotation is selected on a connector layout that has an image,
+   show a draggable dot on the photo. Dragging pins the label's leader line to
+   that exact feature (a.anchor, normalized to the figure box); double-click
+   clears it back to the automatic figure-edge target. */
+function updateAnchorHandle(root, slide){
+  root.querySelector('.lf-anchor')?.remove();
+  if (!slide || !state.sel || !state.sel.startsWith('ann:')) return;
+  if (!slide.images.length) return;
+  const L = contentLayout(slide);
+  if (!L.connectors) return;
+  const ann = slide.annotations.find(a => ('ann:' + a.id) === state.sel);
+  if (!ann) return;
+  const node = root.querySelector(`[data-sel="${state.sel}"]`);
+  if (!node) return;
+
+  const fig = figRectOf(slide);
+  const pos = { x: parseFloat(node.style.left), y: parseFloat(node.style.top) };
+  const { t } = annLeader(fig, ann, pos, node.offsetWidth || ANN_W, node.offsetHeight || 40);
+
+  const dot = el('div', 'lf-anchor' + (ann.anchor ? ' pinned' : ''));
+  dot.style.left = t.x + 'px';
+  dot.style.top = t.y + 'px';
+  dot.title = ann.anchor ? 'Drag to move the pin · double-click to unpin' : 'Drag onto the part of the image this label points to';
+  dot.addEventListener('pointerdown', e => {
+    e.stopPropagation(); e.preventDefault();
+    checkpoint();
+    dot.setPointerCapture(e.pointerId);
+    const f = figRectOf(slide);
+    const move = ev => {
+      const r = root.getBoundingClientRect();
+      const px = (ev.clientX - r.left) / viewScale, py = (ev.clientY - r.top) / viewScale;
+      ann.anchor = {
+        x: clamp((px - f.x) / (f.w || 1), 0, 1),
+        y: clamp((py - f.y) / (f.h || 1), 0, 1),
+      };
+      dot.classList.add('pinned');
+      dot.style.left = clamp(px, f.x, f.x + f.w) + 'px';
+      dot.style.top = clamp(py, f.y, f.y + f.h) + 'px';
+      drawConnectors(root, slide, root.style.getPropertyValue('--lf-accent') || '#38bdf8');
+    };
+    const up = () => {
+      dot.removeEventListener('pointermove', move);
+      dot.removeEventListener('pointerup', up);
+      commitChange();
+    };
+    dot.addEventListener('pointermove', move);
+    dot.addEventListener('pointerup', up);
+  });
+  dot.addEventListener('dblclick', e => {
+    e.stopPropagation();
+    if (!ann.anchor) return;
+    checkpoint();
+    delete ann.anchor;
+    drawConnectors(root, slide, root.style.getPropertyValue('--lf-accent') || '#38bdf8');
+    updateAnchorHandle(root, slide);
+    commitChange();
+  });
+  root.appendChild(dot);
 }
 
 function setSel(sel){
@@ -1292,6 +1378,7 @@ function wireSlideEditing(root, slide){
     applyEdit(slide, ed.dataset.edit, ed.textContent.trim());
     ed.contentEditable = 'false';
     drawConnectors(root, slide, accLine);
+    updateAnchorHandle(root, slide);
     refreshRailThumb(state.cur);
     save();
   });
@@ -1315,6 +1402,7 @@ function startMove(e, node, slide, info, root, accLine){
     node.style.left = nx + 'px'; node.style.top = ny + 'px';
     Object.assign(info.obj, { x: nx, y: ny });
     drawConnectors(root, slide, accLine);
+    updateAnchorHandle(root, slide);
   };
   const up = () => {
     node.removeEventListener('pointermove', move);
@@ -2482,7 +2570,7 @@ async function exportPPTX(){
                   fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
               if (L.connectors){
                 const fig = figRectOf(s);
-                const { a: A, t: Tg } = connectorFor(fig, { x, y }, cardH);
+                const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, cardH);
                 addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
                 sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
               }
@@ -2496,7 +2584,7 @@ async function exportPPTX(){
                   fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
               if (L.connectors){
                 const fig = figRectOf(s);
-                const { a: A, t: Tg } = connectorFor(fig, { x, y }, estimateAnnH(a.text));
+                const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, estimateAnnH(a.text));
                 addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
                 sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
               }

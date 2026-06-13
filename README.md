@@ -55,7 +55,7 @@ Every slide is auto-laid-out with a consistent design system — dark layouts fo
 Content slides have **13 layouts**:
 
 - **Cinematic** — one photo runs edge-to-edge as the whole slide, with the headline and a few short points sitting low over an automatic dark-to-clear scrim that keeps the text legible. The most direct, image-forward layout; carries through to HTML/PDF/PPTX with the photo full-bleed beneath the text.
-- **Annotated figure** — points become short labels around a central image, linked by curved connector lines that re-route live as you drag.
+- **Annotated figure** — points become short labels around a central image, linked by curved connector lines that re-route live as you drag. Select a label and a draggable dot appears on the photo: drop it on a specific feature to **pin** that label's line to that exact spot (double-click the dot to unpin). The pin is relative to the image, so it tracks as you move or resize the photo, and it carries into PPTX.
 - **Annotated cards** — points become discrete, bordered, numbered cards you can freely move and resize around a central image, linked by the same curved connectors.
 - **Figure left / right**, **Spotlight** — image beside a list of points.
 - **Image band** — a wide image with panels beneath.
