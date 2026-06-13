@@ -17,9 +17,15 @@ open index.html        # macOS — or just double-click it in any modern browser
 
 Click **Load sample → Build deck** to see the whole flow in ten seconds.
 
+## Home & decks
+
+The **Home** screen (the LectureFlow logo, or the Home button) is your deck library: every saved deck appears as a card with a live thumbnail and **Open / Copy / Download (.json) / Delete** actions. Organise decks into **folders** (e.g. one per class) from the sidebar — filter by folder, move a deck via its card menu, or drag a card onto a folder. You can **import** a previously downloaded `.json` deck too.
+
 ## Workflow
 
-**Paste an outline → get a formatted deck → drop in images → export.**
+**Paste an outline → get a formatted deck → choose a layout → drop in images → export.**
+
+Everything you place is editable by direct manipulation: select any text box or image to get **8-direction resize handles** (drag a side to resize, a corner to rescale, vertical drags rescale the font), drag to reposition, and delete (text boxes can be restored with **Undo**). Add free text boxes with **＋ Text**. Full **Undo/Redo** (toolbar buttons or Ctrl/Cmd+Z / Shift+Z / Y) covers every edit.
 
 ### 1. The outline
 
@@ -44,25 +50,32 @@ Parsing is lenient: `## Headings` and `---` separators also start slides, field 
 
 ### 2. The layout engine (the anti-bullet-dump part)
 
-Every slide is auto-laid-out by type with a consistent design system — dark layouts for **title / roadmap / section / takeaway**, light for **content** (override per slide with the Theme selector):
+Every slide is auto-laid-out with a consistent design system — dark layouts for **title / roadmap / section / takeaway**, light for **content** (override per slide with the Theme selector). The **Layout tab** in the right sidebar offers pickable, schematic-previewed arrangements; switching one reflows the slide's text and images, and you can fine-tune by dragging afterwards.
 
-- **content + figure** — points become short labels around the central image, linked by curved connector lines that re-route live as you drag things.
-- **content, no figure** — a clean numbered multi-panel layout. Never an empty image box.
-- **roadmap** — numbered stops with directional arrows (horizontal ≤ 5 stops, vertical above).
-- **section** — giant part number + headline.
-- **takeaway** — one big centered statement, points as a footer strip.
+Content slides have **11 layouts**:
 
-A shared motif (corner arcs, accent rules, a flow arrow in the bottom-right of every slide — a square on the last) keeps visual direction across the deck. The accent palette is picked from the outline's `Design:` notes (ocean, forest, ember, plum, slate, indigo).
+- **Annotated figure** — points become short labels around a central image, linked by curved connector lines that re-route live as you drag.
+- **Figure left / right**, **Spotlight** — image beside a list of points.
+- **Image band** — a wide image with panels beneath.
+- **Numbered panels** — clean cards (the default when there's no image; never an empty image box).
+- **Two columns** — side-by-side comparison.
+- **Timeline** — numbered steps with directional arrows.
+- **Statement** — a large headline with a few supporting points.
+- **Quote** — a big centred pull-quote.
+- **Gallery** — a grid of images.
+
+Title/section/takeaway add left / centered / quote variants; roadmap is numbered stops with arrows. A shared motif (corner arcs, accent rules, a flow arrow bottom-right of every slide — a square on the last) keeps visual direction across the deck. The accent palette is picked from the outline's `Design:` notes (ocean, forest, ember, plum, slate, indigo).
 
 ### 3. The image panel (licensed sources only)
 
 Tied to the selected slide; the query is auto-seeded from that slide's `FIGURE` text (the dashed "suggested figure" chip on the canvas also triggers a search).
 
 - **Providers:** Openverse and Wikimedia Commons (keyless), plus Unsplash and Pexels with your own API keys (⚙ Settings; keys live only in your browser's localStorage). **No AI-generated images.**
-- Every result shows its **author and license**; the attribution is stored with the image, shown as a small credit line on the slide, and carried into every export (plus an auto-generated *Image credits* slide).
+- **Auto-suggest:** opening a slide automatically shows the ~15 most relevant images (seeded from its FIGURE) so you can drop one in immediately — toggle with the **Auto** switch.
+- Results are shown **one per row at full size** (never cropped or overlapping) with the **author and license** beneath each. Attribution is stored with the image, shown as a credit line on the slide, and carried into every export (plus an auto-generated *Image credits* slide).
 - Thumbnails that fail to load are **silently skipped** — you only see images that work.
 - Insert by **click or drag** onto the slide. Inserted images are embedded as data-URLs so exports are self-contained (Unsplash inserts also ping the official download endpoint per API guidelines).
-- **Cutout** — toggle in the panel (applies on insert) or the ✂ button (selected image): removes the background so the subject floats over the slide. Uses remove.bg if you add a key in Settings, otherwise a built-in in-browser edge flood-fill remover. Toggle off restores the original.
+- **Cutout** — toggle in the panel (applies on insert) or the ✂ button (selected image): removes the background so the subject floats over the slide. Uses remove.bg if you add a key in Settings, otherwise a built-in in-browser remover that **region-grows along colour gradients** with feathered edges, so it handles coloured and softly-varying backgrounds, not just flat white. Toggle off restores the original.
 
 ### 4. Editing
 
