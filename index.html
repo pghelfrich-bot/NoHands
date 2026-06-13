@@ -3,98 +3,139 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SlideCraft — Source-Grounded Presentation Maker</title>
+<title>LectureFlow — image-first presentation builder</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230c2233'/><path d='M22 64 C 38 30, 62 30, 78 50' stroke='%2338bdf8' stroke-width='7' fill='none' stroke-linecap='round'/><circle cx='78' cy='50' r='8' fill='%232dd4bf'/></svg>">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <header id="topbar">
-  <div class="brand">
-    <span class="brand-mark">▦</span>
-    <span class="brand-name">SlideCraft</span>
+  <div class="brand" id="brand" title="LectureFlow">
+    <svg class="brand-mark" viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="18" fill="#0c2233"/><path d="M22 64 C 38 30, 62 30, 78 50" stroke="#38bdf8" stroke-width="7" fill="none" stroke-linecap="round"/><circle cx="78" cy="50" r="8" fill="#2dd4bf"/></svg>
+    <span class="brand-name">LectureFlow</span>
   </div>
-  <input id="deck-title" type="text" placeholder="Untitled presentation" spellcheck="false">
+  <input id="deck-title" type="text" placeholder="Untitled deck" spellcheck="false">
   <div class="topbar-actions">
-    <button id="btn-new" class="btn ghost" title="Start a new project">New</button>
-    <button id="btn-open" class="btn ghost" title="Open a saved .json project">Open</button>
-    <button id="btn-save" class="btn ghost" title="Download project as .json">Save</button>
+    <button id="btn-decks"   class="btn ghost" title="Open a saved deck">Decks</button>
+    <button id="btn-outline" class="btn ghost" title="Paste a new outline">＋ Outline</button>
     <div class="dropdown">
       <button id="btn-export" class="btn ghost">Export ▾</button>
       <div class="dropdown-menu" id="export-menu">
-        <button id="export-html">Standalone HTML</button>
+        <button id="export-pptx">PowerPoint (.pptx)</button>
         <button id="export-pdf">PDF (print)</button>
-        <button id="export-json">Project JSON</button>
+        <button id="export-html">Standalone HTML</button>
       </div>
     </div>
-    <button id="btn-settings" class="btn ghost" title="API key &amp; preferences">⚙</button>
+    <button id="btn-settings" class="btn ghost" title="Image provider API keys">⚙</button>
     <button id="btn-present" class="btn primary">▶ Present</button>
   </div>
 </header>
 
-<main id="layout">
+<!-- ===================== OUTLINE SCREEN ===================== -->
+<main id="screen-outline" class="screen">
+  <div class="outline-grid">
+    <section class="card outline-left">
+      <h1>Paste your outline</h1>
+      <p class="muted">LectureFlow turns a structured outline into an image-first deck: short annotation
+      labels arranged around a central figure instead of walls of bullets. Paste below, or upload a
+      <code>.md</code>/<code>.txt</code> file. Parsing is lenient — rough outlines are fine.</p>
+      <textarea id="outline-text" spellcheck="false" placeholder="# Deck title
+Presenter: Your name
+Date: 2026-06-12
+Design: ocean blues, calm
 
-  <!-- ============ LEFT: SOURCES ============ -->
-  <aside id="sources-panel">
-    <div class="panel-head">
-      <h2>Sources</h2>
-      <span id="source-count" class="pill">0</span>
-    </div>
-    <p class="panel-hint">Add the material your deck should be grounded in — notes, articles, docs.</p>
-    <div class="panel-actions">
-      <button id="btn-add-source-file" class="btn small">＋ Upload files</button>
-      <button id="btn-add-source-paste" class="btn small">＋ Paste text</button>
-    </div>
-    <ul id="source-list"></ul>
-    <div class="panel-foot">
-      <button id="btn-generate" class="btn primary wide">✦ Generate slide deck</button>
+1. TYPE: title
+   HEADLINE: Deck title
+
+2. TYPE: content
+   HEADLINE: A slide about something
+   POINTS:
+   - First point — long detail goes to speaker notes
+   - Second point
+   FIGURE: what the central image should show"></textarea>
+      <div class="row outline-actions">
+        <button id="btn-outline-file"   class="btn ghost">Upload file</button>
+        <button id="btn-outline-sample" class="btn ghost">Load sample</button>
+        <span class="spacer"></span>
+        <button id="btn-outline-build"  class="btn primary">Build deck →</button>
+      </div>
+    </section>
+    <aside class="card outline-right">
+      <h2>Outline format</h2>
+      <pre class="fmt"># Deck title
+Presenter: name
+Date: any text
+Design: free-text notes
+        (colors / mood)
+
+1. TYPE: title | roadmap |
+         section | content |
+         takeaway
+   HEADLINE: slide heading
+   POINTS:
+   - short or long point
+   - another point
+   CALLOUT: a highlighted
+            stat or quote
+   FIGURE: what the central
+           image should show
+   NOTES: speaker notes</pre>
+      <ul class="fmt-notes">
+        <li><b>title / roadmap / section / takeaway</b> render dark; <b>content</b> renders light.</li>
+        <li>On content slides, POINTS become short labels placed <i>around</i> the figure and connected to it — long points are compressed and the detail moves to speaker notes.</li>
+        <li>FIGURE seeds the image search for that slide.</li>
+        <li>Slides can also start with <code>## Heading</code> or be separated by <code>---</code>.</li>
+      </ul>
+    </aside>
+  </div>
+</main>
+
+<!-- ===================== EDITOR SCREEN ===================== -->
+<main id="screen-editor" class="screen" hidden>
+
+  <!-- left: slide rail -->
+  <aside id="rail">
+    <ol id="rail-list"></ol>
+    <div class="rail-foot">
+      <button id="btn-add-slide" class="btn small wide">＋ Slide</button>
     </div>
   </aside>
 
-  <!-- ============ CENTER: EDITOR ============ -->
-  <section id="editor-panel">
+  <!-- center: canvas -->
+  <section id="stage">
     <div id="canvas-toolbar">
-      <label>Layout
-        <select id="layout-select">
+      <label>Type
+        <select id="type-select">
           <option value="title">Title</option>
-          <option value="section">Section header</option>
-          <option value="bullets">Title + bullets</option>
-          <option value="bullets-image">Bullets + image</option>
-          <option value="image">Full image</option>
-          <option value="free">Free poster (scatter images)</option>
-          <option value="quote">Quote</option>
+          <option value="roadmap">Roadmap</option>
+          <option value="section">Section</option>
+          <option value="content">Content</option>
+          <option value="takeaway">Takeaway</option>
         </select>
       </label>
       <label>Theme
         <select id="theme-select">
-          <option value="oceanic">Oceanic</option>
-          <option value="paper">Paper</option>
-          <option value="midnight">Midnight</option>
-          <option value="forest">Forest</option>
-          <option value="sunrise">Sunrise</option>
-          <option value="slate">Slate</option>
+          <option value="">Auto</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
         </select>
       </label>
-      <label>Background
-        <select id="bg-select" title="Deck-wide background">
-          <option value="none">Theme color</option>
-          <option value="oceanic">Oceanic</option>
-          <option value="abyss">Abyss</option>
-          <option value="charcoal">Charcoal</option>
-          <option value="plum">Plum</option>
-          <option value="sand">Sand</option>
-          <option value="mist">Mist</option>
-          <option value="__image">Image…</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" id="frame-toggle"> Frame</label>
-      <button id="btn-oceanic" class="btn small" title="Apply the dark serif lecture look (Oceanic theme + background + frame)">✨ Oceanic style</button>
-      <span class="toolbar-spacer"></span>
-      <span id="slide-position" class="muted"></span>
+      <button id="btn-relayout" class="btn small" title="Reset image and label positions to the automatic layout">✦ Re-layout</button>
+      <button id="btn-add-label" class="btn small" title="Add an annotation label">＋ Label</button>
+      <span class="sep"></span>
+      <span id="sel-tools" hidden>
+        <button id="sel-front" class="btn small" title="Bring forward">▲</button>
+        <button id="sel-back"  class="btn small" title="Send backward">▼</button>
+        <button id="sel-cutout" class="btn small" title="Toggle background cut-out">✂</button>
+        <button id="sel-delete" class="btn small danger" title="Delete element">✕</button>
+      </span>
+      <span class="spacer"></span>
+      <button id="btn-dup-slide" class="btn small" title="Duplicate slide">⧉</button>
+      <button id="btn-del-slide" class="btn small danger" title="Delete slide">🗑</button>
+      <span id="slide-pos" class="muted"></span>
     </div>
 
-    <div id="canvas-wrap">
-      <div id="slide-canvas" class="slide" data-theme="paper"></div>
-    </div>
+    <div id="canvas-wrap"><div id="canvas-scale"><div id="canvas"></div></div></div>
 
     <div id="notes-wrap">
       <label for="speaker-notes">Speaker notes</label>
@@ -102,108 +143,50 @@
     </div>
   </section>
 
-  <!-- ============ RIGHT: SLIDES + IMAGE LIBRARY ============ -->
-  <aside id="right-panel">
+  <!-- right: image panel -->
+  <aside id="img-panel">
     <div class="panel-head">
-      <h2>Slides</h2>
-      <div>
-        <button id="btn-add-slide" class="btn small" title="Add slide">＋</button>
-        <button id="btn-dup-slide" class="btn small" title="Duplicate slide">⧉</button>
-        <button id="btn-del-slide" class="btn small danger" title="Delete slide">🗑</button>
-      </div>
+      <h2>Images</h2>
+      <span class="pill" title="Only openly licensed sources are searched">licensed only</span>
     </div>
-    <ol id="filmstrip"></ol>
-
-    <div class="panel-head library-head">
-      <h2>Image library</h2>
-      <button id="btn-lib-add" class="btn small" title="Add images to library">＋</button>
+    <div class="ip-search">
+      <input id="ip-query" type="search" placeholder="Search images…">
+      <button id="ip-go" class="btn primary small">Search</button>
     </div>
-    <p class="panel-hint">Your images, reusable across slides. Click one to place it on the current slide.</p>
-    <div id="image-library"></div>
+    <div class="ip-row">
+      <select id="ip-provider" title="Image source">
+        <option value="all">All sources</option>
+        <option value="openverse">Openverse</option>
+        <option value="wikimedia">Wikimedia Commons</option>
+        <option value="unsplash">Unsplash (key)</option>
+        <option value="pexels">Pexels (key)</option>
+      </select>
+      <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
+        <input type="checkbox" id="ip-cutout"> Cutout
+      </label>
+    </div>
+    <p class="panel-hint">Seeded from this slide's FIGURE. Click or drag a result onto the slide.
+    Broken images are skipped automatically. Attribution is kept and carried into exports.</p>
+    <div id="ip-status" class="status" hidden></div>
+    <div id="ip-results"></div>
   </aside>
 </main>
 
-<!-- ============ GENERATE MODAL ============ -->
-<dialog id="generate-modal" class="modal">
-  <form method="dialog">
-    <h2>Generate slide deck</h2>
-    <p class="modal-sub">Your deck is built from your sources. Images are never auto-generated — each slide gets a placeholder with a suggested image for you to fill with your own picture.</p>
-
-    <label class="field">What should the deck focus on? <span class="muted">(optional)</span>
-      <textarea id="gen-focus" rows="2" placeholder="e.g. Emphasize the Q3 results and the roadmap"></textarea>
-    </label>
-
-    <div class="field-row">
-      <label class="field">Audience
-        <input id="gen-audience" type="text" placeholder="e.g. executives, students…">
-      </label>
-      <label class="field">Tone
-        <select id="gen-tone">
-          <option value="professional">Professional</option>
-          <option value="casual">Casual</option>
-          <option value="academic">Academic</option>
-          <option value="enthusiastic">Enthusiastic</option>
-        </select>
-      </label>
-    </div>
-
-    <div class="field-row">
-      <label class="field">Number of slides
-        <input id="gen-count" type="number" min="3" max="30" value="10">
-      </label>
-      <label class="field">Language
-        <input id="gen-language" type="text" value="English">
-      </label>
-    </div>
-
-    <label class="field">Generation engine
-      <select id="gen-engine">
-        <option value="claude">Claude API (needs API key in Settings)</option>
-        <option value="offline">Built-in outliner (no key, works offline)</option>
-      </select>
-    </label>
-
-    <div id="gen-status" class="status" hidden></div>
-
-    <div class="modal-actions">
-      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
-      <button id="gen-go" class="btn primary" type="button">Generate</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- ============ PASTE SOURCE MODAL ============ -->
-<dialog id="paste-modal" class="modal">
-  <form method="dialog">
-    <h2>Paste a source</h2>
-    <label class="field">Title
-      <input id="paste-title" type="text" placeholder="e.g. Meeting notes 2026-06-10">
-    </label>
-    <label class="field">Content
-      <textarea id="paste-content" rows="10" placeholder="Paste text or markdown here…"></textarea>
-    </label>
-    <div class="modal-actions">
-      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
-      <button id="paste-add" class="btn primary" type="button">Add source</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- ============ SETTINGS MODAL ============ -->
+<!-- ===================== SETTINGS ===================== -->
 <dialog id="settings-modal" class="modal">
   <form method="dialog">
     <h2>Settings</h2>
-    <label class="field">Anthropic API key <span class="muted">(stored only in this browser)</span>
-      <input id="set-apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
+    <p class="modal-sub">Keys are stored only in this browser (localStorage) and used directly from your
+    browser to each provider. Openverse and Wikimedia Commons need no key.</p>
+    <label class="field">Unsplash access key
+      <input id="set-unsplash" type="password" autocomplete="off" placeholder="from unsplash.com/developers">
     </label>
-    <label class="field">Model
-      <select id="set-model">
-        <option value="claude-opus-4-8">claude-opus-4-8 (recommended)</option>
-        <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-        <option value="claude-haiku-4-5">claude-haiku-4-5</option>
-      </select>
+    <label class="field">Pexels API key
+      <input id="set-pexels" type="password" autocomplete="off" placeholder="from pexels.com/api">
     </label>
-    <p class="panel-hint">The key is used only for generating slide text from your sources, directly from your browser to Anthropic. No images are ever AI-generated.</p>
+    <label class="field">remove.bg API key <span class="muted">(optional — Cutout falls back to a built-in remover)</span>
+      <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
+    </label>
     <div class="modal-actions">
       <button value="cancel" class="btn ghost" type="submit">Cancel</button>
       <button id="set-save" class="btn primary" type="button">Save</button>
@@ -211,66 +194,22 @@
   </form>
 </dialog>
 
-<!-- ============ IMAGE URL MODAL ============ -->
-<dialog id="imgurl-modal" class="modal">
+<!-- ===================== DECK MANAGER ===================== -->
+<dialog id="decks-modal" class="modal">
   <form method="dialog">
-    <h2>Insert image from URL</h2>
-    <label class="field">Image URL
-      <input id="imgurl-input" type="url" placeholder="https://…/photo.jpg">
-    </label>
-    <p class="panel-hint">The image is fetched and embedded into your project so exports stay self-contained. If it can't be fetched (CORS), it's linked instead.</p>
+    <h2>Your decks</h2>
+    <p class="modal-sub">Decks are saved automatically in this browser.</p>
+    <ul id="decks-list"></ul>
     <div class="modal-actions">
-      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
-      <button id="imgurl-add" class="btn primary" type="button">Insert</button>
+      <button id="decks-new" class="btn ghost" type="button">＋ New from outline</button>
+      <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>
 </dialog>
 
-<!-- ============ WEB IMAGE SIDEBAR ============ -->
-<aside id="web-sidebar" hidden>
-  <div class="ws-head">
-    <h2>Find images on the web</h2>
-    <button id="ws-close" class="btn small" title="Close">✕</button>
-  </div>
-  <div class="ws-search">
-    <input id="ws-query" type="search" placeholder="Search for images…">
-    <select id="ws-provider" title="Image source">
-      <option value="openverse">Openverse</option>
-      <option value="wikimedia">Wikimedia Commons</option>
-    </select>
-    <button id="ws-go" class="btn primary small">Search</button>
-  </div>
-  <p class="panel-hint">Openly licensed images — not AI-generated. Click results to select several, then insert. Review each image's license before publishing.</p>
-  <div id="ws-status" class="status" hidden></div>
-  <div id="ws-results"></div>
-  <div class="ws-foot">
-    <span id="ws-count" class="muted">0 selected</span>
-    <button id="ws-add-lib" class="btn small" disabled>＋ Library</button>
-    <button id="ws-insert" class="btn primary small" disabled>Insert</button>
-  </div>
-</aside>
-
-<!-- ============ BACKGROUND REMOVER ============ -->
-<dialog id="bg-modal" class="modal wide">
-  <form method="dialog">
-    <h2>Background remover</h2>
-    <p class="modal-sub">Removes the background by flood-filling similar colors in from the edges — works entirely in your browser. Click anywhere on the image to mark extra areas to remove, and adjust tolerance until it looks right.</p>
-    <div id="bg-canvas-wrap"><canvas id="bg-canvas"></canvas></div>
-    <div class="bg-controls">
-      <label>Tolerance <input id="bg-tolerance" type="range" min="2" max="100" value="30"></label>
-      <button type="button" id="bg-reset" class="btn small">Reset</button>
-      <span id="bg-status" class="muted"></span>
-    </div>
-    <div class="modal-actions">
-      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
-      <button id="bg-apply" class="btn primary" type="button">Apply cut-out</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- ============ PRESENT MODE ============ -->
+<!-- ===================== PRESENT MODE ===================== -->
 <div id="present-overlay" hidden>
-  <div id="present-stage"><div id="present-slide" class="slide"></div></div>
+  <div id="present-stage"></div>
   <div id="present-notes" hidden></div>
   <div id="present-hud">
     <span id="present-counter"></span>
@@ -278,15 +217,8 @@
   </div>
 </div>
 
-<!-- Print container (PDF export) -->
 <div id="print-area" aria-hidden="true"></div>
-
-<input type="file" id="file-source" accept=".txt,.md,.markdown,.text,.csv,text/*" multiple hidden>
-<input type="file" id="file-project" accept=".json,application/json" hidden>
-<input type="file" id="file-image" accept="image/*" hidden>
-<input type="file" id="file-lib-image" accept="image/*" multiple hidden>
-<input type="file" id="file-bg" accept="image/*" hidden>
-
+<input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
 <div id="toast" hidden></div>
 
 <script src="app.js"></script>
