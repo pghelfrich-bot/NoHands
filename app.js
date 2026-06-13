@@ -517,6 +517,131 @@ function panelGrid(n, hasCallout){
   }
   return rects;
 }
+/* stacked list of label positions inside a column */
+function listPositions(n, x, y0, w, gap, bottom){
+  n = Math.max(1, n); gap = gap || 18; bottom = bottom || 640;
+  const avail = bottom - y0;
+  const rowH = Math.min(110, Math.max(34, (avail - (n - 1) * gap) / n));
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ x, y: y0 + i * (rowH + gap), w, h: rowH });
+  return out;
+}
+/* a balanced grid of image zones for the gallery layout */
+function galleryZones(n){
+  n = Math.max(1, Math.min(n, 6));
+  const x0 = 80, y0 = 150, W = 1120, H = 500, gap = 18;
+  const cols = n <= 1 ? 1 : n <= 4 ? 2 : 3;
+  const rows = Math.ceil(n / cols);
+  const w = (W - (cols - 1) * gap) / cols, h = (H - (rows - 1) * gap) / rows;
+  const z = [];
+  for (let i = 0; i < n; i++) z.push({ x: x0 + (i % cols) * (w + gap), y: y0 + Math.floor(i / cols) * (h + gap), w, h });
+  return z;
+}
+
+/* The set of layouts offered per slide type, with tiny schematic icons. */
+const LAYOUTS = {
+  content: [
+    { key: 'annotated',  label: 'Annotated figure',  needs: 'image' },
+    { key: 'figureRight',label: 'Figure right' },
+    { key: 'figureLeft', label: 'Figure left' },
+    { key: 'spotlight',  label: 'Spotlight' },
+    { key: 'bandTop',    label: 'Image band' },
+    { key: 'panels',     label: 'Numbered panels' },
+    { key: 'comparison', label: 'Two columns' },
+    { key: 'timeline',   label: 'Timeline' },
+    { key: 'statement',  label: 'Statement' },
+    { key: 'quote',      label: 'Quote' },
+    { key: 'gallery',    label: 'Gallery' },
+  ],
+  title:    [{ key: 'titleLeft', label: 'Left' }, { key: 'titleCenter', label: 'Centered' }],
+  section:  [{ key: 'sectionLeft', label: 'Left' }, { key: 'sectionCenter', label: 'Centered' }],
+  roadmap:  [{ key: 'roadmapAuto', label: 'Auto' }],
+  takeaway: [{ key: 'takeawayCenter', label: 'Centered' }, { key: 'takeawayQuote', label: 'Quote' }],
+};
+
+function effContentLayout(slide){
+  const valid = LAYOUTS.content.map(l => l.key);
+  if (slide.layout && valid.includes(slide.layout)) return slide.layout;
+  return slide.images.length ? 'annotated' : 'panels';
+}
+
+/* Geometry for a content slide under its chosen layout. Consumed by both the
+   DOM renderer and the PPTX exporter so every layout looks the same everywhere. */
+function contentLayout(slide){
+  const n = slide.annotations.length;
+  const lay = effContentLayout(slide);
+  const out = { lay, annStyle: 'label', anns: [], headline: { x: 80, y: 64, w: 1120, fs: 38 },
+                callout: null, figZones: [{ ...FIGZONE }], wantFigure: true, connectors: false,
+                bigQuote: false };
+
+  if (lay === 'panels'){
+    out.wantFigure = false; out.annStyle = 'panel';
+    out.anns = panelGrid(n, !!slide.callout).map(r => ({ ...r }));
+    if (slide.callout){
+      const maxY = out.anns.length ? Math.max(...out.anns.map(r => r.y + r.h)) : 600;
+      out.callout = { x: 80, y: Math.min(maxY + 14, 632), w: 1120, fs: 18 };
+    }
+  } else if (lay === 'annotated'){
+    out.annStyle = 'label'; out.connectors = true;
+    out.headline = { x: 80, y: 64, w: 620, fs: 38 };
+    out.anns = slide.annotations.map((a, i) => {
+      const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 19 };
+    });
+    if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
+  } else if (lay === 'figureLeft' || lay === 'figureRight'){
+    const imgLeft = lay === 'figureLeft';
+    out.figZones = [{ x: imgLeft ? 80 : 690, y: 168, w: 510, h: 472 }];
+    const tx = imgLeft ? 700 : 80;
+    out.headline = { x: tx, y: 70, w: 500, fs: 33 };
+    out.annStyle = 'list';
+    out.anns = listPositions(n, tx, 180, 500).map(r => ({ ...r, fs: 20 }));
+    if (slide.callout) out.callout = { x: tx, y: 612, w: 500, fs: 17 };
+  } else if (lay === 'spotlight'){
+    out.figZones = [{ x: 80, y: 150, w: 620, h: 490 }];
+    out.headline = { x: 742, y: 130, w: 458, fs: 40 };
+    out.annStyle = 'list';
+    out.anns = listPositions(Math.min(n, 3), 742, 270, 458).map(r => ({ ...r, fs: 22 }));
+    if (slide.callout) out.callout = { x: 742, y: 560, w: 458, fs: 18 };
+  } else if (lay === 'bandTop'){
+    out.figZones = [{ x: 80, y: 150, w: 1120, h: 286 }];
+    out.headline = { x: 80, y: 56, w: 1120, fs: 33 };
+    out.annStyle = 'panel';
+    const cols = Math.min(Math.max(n, 1), 4), gap = 18, w = (1120 - (cols - 1) * gap) / cols;
+    out.anns = slide.annotations.map((a, i) => ({ x: 80 + (i % cols) * (w + gap),
+      y: 460 + Math.floor(i / cols) * 160, w, h: 150 }));
+  } else if (lay === 'comparison'){
+    out.wantFigure = false; out.annStyle = 'panel';
+    out.headline = { x: 80, y: 64, w: 1120, fs: 33 };
+    const half = Math.ceil(n / 2), gap = 20, w = 540;
+    const rowsPer = Math.max(1, half), h = Math.min(150, (470 - (rowsPer - 1) * 14) / rowsPer);
+    out.anns = slide.annotations.map((a, i) => {
+      const col = i < half ? 0 : 1, row = i < half ? i : i - half;
+      return { x: 80 + col * (w + gap), y: 168 + row * (h + 14), w, h };
+    });
+    if (slide.callout) out.callout = { x: 80, y: 650, w: 1120, fs: 16 };
+  } else if (lay === 'timeline'){
+    out.wantFigure = false; out.annStyle = 'step';
+    out.headline = { x: 80, y: 60, w: 1120, fs: 33 };
+    out.timelineGeom = roadmapGeom(n);
+  } else if (lay === 'statement'){
+    out.wantFigure = false; out.annStyle = 'list';
+    out.headline = { x: 96, y: 150, w: 760, fs: 52 };
+    const bottom = slide.callout ? 568 : 632;
+    out.anns = listPositions(Math.min(n, 4), 96, 332, 700, 14, bottom).map(r => ({ ...r, fs: 19 }));
+    if (slide.callout) out.callout = { x: 96, y: 590, w: 1000, fs: 19 };
+  } else if (lay === 'quote'){
+    out.wantFigure = false; out.annStyle = 'none'; out.bigQuote = true;
+    out.headline = { x: 150, y: 470, w: 980, fs: 22 };  // used as attribution line
+  } else if (lay === 'gallery'){
+    out.annStyle = 'none';
+    out.headline = { x: 80, y: 52, w: 1120, fs: 32 };
+    out.galleryZones = galleryZones(Math.max(slide.images.length, 1));
+    out.figZones = out.galleryZones;
+  }
+  return out;
+}
+
 function roadmapGeom(n){
   if (n <= 1) return { horizontal: true, stops: [{ cx: 640, cy: 410 }] };
   if (n <= 5){
@@ -551,8 +676,7 @@ function renderSlide(slide, deck, opts = {}){
   }
 
   renderImages(root, slide, opts);
-  if (slide.type === 'content' && slide.images.length && slide.annotations.length){
-    renderAnnotations(root, slide, opts);
+  if (slide.type === 'content' && root.dataset.conn && slide.images.length && slide.annotations.length){
     drawConnectors(root, slide, accLine);
   }
   renderTexts(root, slide, opts);
@@ -600,19 +724,22 @@ function mkBox(slide, key, def, content, css, opts){
 }
 
 function renderTitle(root, slide, deck, pal, dark, opts){
+  const centered = slide.layout === 'titleCenter';
   const kicker = deck.date || 'Lecture';
-  appendBox(root, mkBox(slide, 'kicker', { x: 96, y: 232, w: 1010, fs: 16, z: 5 }, kicker,
-    `letter-spacing:3.5px;text-transform:uppercase;opacity:.8;color:${pal.accent2};font-weight:600;`,
+  const kx = centered ? 140 : 96, kw = centered ? 1000 : 1010;
+  const ta = centered ? 'text-align:center;' : '';
+  appendBox(root, mkBox(slide, 'kicker', { x: kx, y: 232, w: kw, fs: 16, z: 5 }, kicker,
+    `letter-spacing:3.5px;text-transform:uppercase;opacity:.8;color:${pal.accent2};font-weight:600;${ta}`,
     { ...opts, editKey: 'date' }));
-  root.appendChild(el('div', '', `position:absolute;left:96px;top:272px;width:64px;height:5px;
+  root.appendChild(el('div', '', `position:absolute;left:${centered ? 608 : 96}px;top:272px;width:64px;height:5px;
     border-radius:3px;background:${pal.accent};z-index:5;`));
   const txt = slide.headline || deck.title;
   appendBox(root, withSerif(mkBox(slide, 'headline',
-    { x: 96, y: 292, w: 1000, fs: txt.length > 48 ? 56 : 74, z: 5 },
-    txt, 'line-height:1.06;font-weight:600;', opts)));
+    { x: centered ? 140 : 96, y: 292, w: 1000, fs: txt.length > 48 ? 56 : 74, z: 5 },
+    txt, `line-height:1.06;font-weight:600;${ta}`, opts)));
   if (deck.presenter || opts.editor){
-    appendBox(root, mkBox(slide, 'presenter', { x: 96, y: 470, w: 900, fs: 22, z: 5 },
-      deck.presenter || 'Presenter name', 'opacity:.78;', { ...opts, editKey: 'presenter' }));
+    appendBox(root, mkBox(slide, 'presenter', { x: centered ? 140 : 96, y: 470, w: centered ? 1000 : 900, fs: 22, z: 5 },
+      deck.presenter || 'Presenter name', `opacity:.78;${ta}`, { ...opts, editKey: 'presenter' }));
   }
 }
 function withSerif(node){ if (node) node.classList.add('serif'); return node; }
@@ -665,16 +792,26 @@ function renderSection(root, slide, deck, pal, dark, opts){
     .findIndex(s => s.id === slide.id) + 1;
   root.appendChild(el('div', 'serif', `position:absolute;right:46px;bottom:-72px;font-size:330px;
     font-weight:700;line-height:1;z-index:2;opacity:${dark ? '.10' : '.07'};`, pad2(partNo)));
-  root.appendChild(el('div', '', `position:absolute;left:96px;top:266px;font-size:15px;letter-spacing:4px;
-    text-transform:uppercase;font-weight:650;z-index:5;color:${dark ? pal.accent2 : pal.accentInk};`,
-    'Part ' + pad2(partNo)));
-  appendBox(root, withSerif(mkBox(slide, 'headline', { x: 96, y: 298, w: 820, fs: 62, z: 5 },
-    slide.headline || 'Section', 'font-weight:600;line-height:1.1;', opts)));
-  if (opts.editor && slide.figure && !slide.images.length)
+  const centered = slide.layout === 'sectionCenter';
+  const ta = centered ? 'text-align:center;' : '';
+  root.appendChild(el('div', '', `position:absolute;left:${centered ? 140 : 96}px;top:266px;width:${centered ? 1000 : 600}px;
+    font-size:15px;letter-spacing:4px;text-transform:uppercase;font-weight:650;z-index:5;${ta}
+    color:${dark ? pal.accent2 : pal.accentInk};`, 'Part ' + pad2(partNo)));
+  appendBox(root, withSerif(mkBox(slide, 'headline', { x: centered ? 140 : 96, y: 298, w: centered ? 1000 : 820, fs: 62, z: 5 },
+    slide.headline || 'Section', `font-weight:600;line-height:1.1;${ta}`, opts)));
+  if (opts.editor && slide.figure && !slide.images.length && !centered)
     addFigHint(root, slide, { x: 900, y: 80, w: 300 });
 }
 
 function renderTakeaway(root, slide, deck, pal, dark, opts){
+  if (slide.layout === 'takeawayQuote'){
+    appendBox(root, withSerif(mkBox(slide, 'callout', { x: 150, y: 210, w: 980, fs: 44, z: 6 },
+      slide.callout || slide.headline || 'A memorable line',
+      'font-weight:600;line-height:1.22;text-align:center;font-style:italic;', { ...opts, editKey: 'callout' })));
+    appendBox(root, mkBox(slide, 'headline', { x: 200, y: 470, w: 880, fs: 22, z: 6 },
+      slide.headline || '', 'text-align:center;opacity:.7;', opts));
+    return;
+  }
   root.appendChild(el('div', '', `position:absolute;left:608px;top:188px;width:64px;height:5px;
     border-radius:3px;background:${pal.accent};z-index:5;`));
   const txt = slide.headline || 'The one thing to remember';
@@ -694,42 +831,103 @@ function renderTakeaway(root, slide, deck, pal, dark, opts){
 
 function renderContent(root, slide, deck, pal, dark, opts){
   const accLine = dark ? pal.accent : pal.accentInk;
-  const annotated = slide.images.length && slide.annotations.length;
-  root.appendChild(el('div', '', `position:absolute;left:80px;top:50px;width:54px;height:5px;
-    border-radius:3px;background:${pal.accent};z-index:5;`));
-  appendBox(root, withSerif(mkBox(slide, 'headline',
-    { x: 80, y: 64, w: annotated ? 620 : 1120, fs: 38, z: 5 },
+  const L = contentLayout(slide);
+  root.dataset.conn = L.connectors ? '1' : '';
+
+  // big centred quote layout
+  if (L.bigQuote){
+    appendBox(root, withSerif(mkBox(slide, 'callout',
+      { x: 150, y: 200, w: 980, fs: 44, z: 6 }, slide.callout || slide.headline || 'A memorable line',
+      'font-weight:600;line-height:1.22;text-align:center;font-style:italic;', { ...opts, editKey: 'callout' })));
+    appendBox(root, mkBox(slide, 'headline', { ...L.headline, z: 6 },
+      slide.headline || '', 'text-align:center;opacity:.7;', opts));
+    return;
+  }
+
+  // accent rule + headline
+  root.appendChild(el('div', '', `position:absolute;left:${L.headline.x}px;top:${L.headline.y - 14}px;
+    width:54px;height:5px;border-radius:3px;background:${pal.accent};z-index:5;`));
+  appendBox(root, withSerif(mkBox(slide, 'headline', { ...L.headline, z: 5 },
     slide.headline || 'Slide headline', 'font-weight:650;line-height:1.14;', opts)));
 
-  if (!slide.images.length && slide.annotations.length){
-    // no figure → clean multi-panel layout (never an empty image box)
-    const rects = panelGrid(slide.annotations.length, !!slide.callout);
-    slide.annotations.forEach((a, i) => {
-      const r = rects[i];
-      const p = el('div', 'lf-panel', `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;`);
-      p.appendChild(el('div', 'serif', `font-size:23px;font-weight:700;color:${accLine};margin-bottom:6px;`,
-        pad2(i + 1)));
-      p.appendChild(editable(el('div', '', 'font-size:20px;font-weight:650;line-height:1.3;', a.text),
-        'ann:' + a.id, opts));
-      if (a.full && a.full.trim() !== a.text.trim()){
-        p.appendChild(editable(el('div', '', 'font-size:14.5px;opacity:.72;margin-top:7px;line-height:1.45;', a.full),
-          'annfull:' + a.id, opts));
-      }
+  // annotations, by style
+  slide.annotations.forEach((a, i) => {
+    const def = L.anns[i];
+    if (L.annStyle === 'none' || !def) return;
+    if (L.annStyle === 'panel'){
+      const p = el('div', 'lf-panel', `left:${def.x}px;top:${def.y}px;width:${def.w}px;height:${def.h}px;`);
+      p.appendChild(el('div', 'serif', `font-size:22px;font-weight:700;color:${accLine};margin-bottom:6px;`, pad2(i + 1)));
+      p.appendChild(editable(el('div', '', 'font-size:19px;font-weight:650;line-height:1.3;', a.text), 'ann:' + a.id, opts));
+      if (a.full && a.full.trim() !== a.text.trim())
+        p.appendChild(editable(el('div', '', 'font-size:13.5px;opacity:.72;margin-top:6px;line-height:1.4;', a.full), 'annfull:' + a.id, opts));
       root.appendChild(p);
-    });
+    } else if (L.annStyle === 'step'){
+      // timeline rendered separately below
+    } else {
+      // 'label' or 'list' → movable annotation box
+      renderAnnBox(root, slide, a, i, def, opts);
+    }
+  });
+
+  if (L.annStyle === 'step' && L.timelineGeom) renderTimeline(root, slide, pal, dark, L.timelineGeom, opts);
+
+  // callout
+  if (slide.callout && L.callout){
+    const cb = mkBox(slide, 'callout', { ...L.callout, z: 35 }, slide.callout,
+      'border-left:4px solid var(--lf-accent);padding:10px 16px;line-height:1.45;font-style:italic;'
+      + 'border-radius:0 10px 10px 0;' + calloutBg(dark), opts);
+    if (cb) cb.classList.add('lf-callout');
+    appendBox(root, cb);
   }
 
-  if (slide.callout){
-    const w = annotated ? 380 : 800;
-    const cy = annotated ? 540 : 600;
-    appendBox(root, mkBox(slide, 'callout', { x: 80, y: cy, w, fs: 18, z: 35 }, slide.callout,
-      'border-left:4px solid var(--lf-accent);padding:10px 16px;line-height:1.45;font-style:italic;'
-      + 'border-radius:0 10px 10px 0;' + calloutBg(dark), opts));
+  // suggested-figure hint when no image is placed yet
+  if (opts.editor && slide.figure && !slide.images.length && L.annStyle !== 'step' && !L.bigQuote && L.lay !== 'gallery'){
+    if (L.wantFigure){
+      const z = L.figZones[0];
+      addFigHint(root, slide, { x: z.x + Math.max(0, (z.w - 360) / 2), y: z.y + Math.max(0, (z.h - 80) / 2), w: Math.min(360, z.w) });
+    } else if (L.lay === 'panels'){
+      addFigHint(root, slide, { x: 870, y: 50, w: 330 });   // tucked top-right above the cards
+    }
   }
-  if (opts.editor && slide.figure && !slide.images.length){
-    addFigHint(root, slide, slide.annotations.length
-      ? { x: 870, y: 58, w: 330 } : { x: 425, y: 300, w: 430 });
+}
+
+/* one annotation as a movable/resizable label box (merges per-annotation overrides) */
+function renderAnnBox(root, slide, a, i, def, opts){
+  const x = a.x != null ? a.x : def.x;
+  const y = a.y != null ? a.y : def.y;
+  const w = a.w != null ? a.w : def.w;
+  const fs = a.fs != null ? a.fs : (def.fs || 19);
+  const node = el('div', 'lf-ann lf-box', `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`);
+  node.dataset.id = a.id;
+  node.dataset.sel = 'ann:' + a.id;
+  const inner = el('div', 'lf-ann-text', '', a.text);
+  if (opts.editor){ inner.dataset.edit = 'ann:' + a.id; inner.dataset.editable = '1'; }
+  node.appendChild(inner);
+  node.title = a.full && a.full !== a.text ? a.full : '';
+  root.appendChild(node);
+}
+
+function renderTimeline(root, slide, pal, dark, g, opts){
+  const mid = `lftl-${slide.id}`;
+  let lines = `<defs><marker id="${mid}" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+    <path d="M1 1 L8 4.5 L1 8" fill="none" stroke="${pal.accent}" stroke-width="1.6"/></marker></defs>`;
+  for (let i = 0; i < g.stops.length - 1; i++){
+    const a = g.stops[i], b = g.stops[i + 1];
+    if (g.horizontal) lines += `<line x1="${a.cx + 50}" y1="${a.cy}" x2="${b.cx - 54}" y2="${a.cy}" stroke="${pal.accent}" stroke-width="2" opacity=".8" marker-end="url(#${mid})"/>`;
+    else lines += `<line x1="${a.cx}" y1="${a.cy + 34}" x2="${a.cx}" y2="${b.cy - 38}" stroke="${pal.accent}" stroke-width="2" opacity=".8" marker-end="url(#${mid})"/>`;
   }
+  root.appendChild(svgEl(lines, 'lf-conn'));
+  slide.annotations.forEach((a, i) => {
+    const st = g.stops[i]; if (!st) return;
+    const r = g.horizontal ? 36 : 26;
+    root.appendChild(el('div', 'serif', `position:absolute;z-index:6;left:${st.cx - r}px;top:${st.cy - r}px;
+      width:${r * 2}px;height:${r * 2}px;border:2.5px solid ${pal.accent};border-radius:50%;
+      display:flex;align-items:center;justify-content:center;font-size:${g.horizontal ? 28 : 20}px;color:${pal.accent2};`, String(i + 1)));
+    const lbl = g.horizontal
+      ? el('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy + 54}px;width:200px;text-align:center;font-size:17px;font-weight:600;line-height:1.3;`, a.text)
+      : el('div', '', `position:absolute;z-index:6;left:${st.cx + 54}px;top:${st.cy - 14}px;width:900px;font-size:20px;font-weight:600;line-height:1.3;`, a.text);
+    root.appendChild(editable(lbl, 'ann:' + a.id, opts));
+  });
 }
 function calloutBg(dark){
   return dark ? 'background:rgba(255,255,255,.06);'
@@ -1216,6 +1414,7 @@ function selectSlide(i){
   $$('#rail-list .rail-item').forEach((li, k) => li.classList.toggle('current', k === state.cur));
   updateToolbar();
   seedImagePanel();
+  if (!$('#tab-layout').hidden) renderLayoutPanel();
 }
 
 function updateToolbar(){
@@ -1273,6 +1472,94 @@ function updateUndoButtons(){
   const u = $('#btn-undo'), r = $('#btn-redo');
   if (u) u.disabled = !undoStack.length;
   if (r) r.disabled = !redoStack.length;
+}
+
+/* ================= layout panel ================= */
+
+function showPanelTab(which){
+  $$('.ip-tab').forEach(t => t.classList.toggle('current', t.dataset.tab === which));
+  $('#tab-images').hidden = which !== 'images';
+  $('#tab-layout').hidden = which !== 'layout';
+  if (which === 'layout') renderLayoutPanel();
+}
+
+/* small schematic preview for each layout option */
+function layoutIcon(key){
+  const A = '#38bdf8', T = '#8090a2', P = '#33404f', IMG = '#22303e';
+  const open = 'data:', svg = inner =>
+    `<svg viewBox="0 0 120 68" preserveAspectRatio="none">${inner}</svg>`;
+  const bar = (x, y, w, h, c) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${c}"/>`;
+  const head = (x = 8, y = 8, w = 60) => bar(x, y, w, 6, A);
+  const tline = (x, y, w) => bar(x, y, w, 3, T);
+  const img = (x, y, w, h) => bar(x, y, w, h, IMG);
+  const panel = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${P}"/>`;
+  const dot = (cx, cy) => `<circle cx="${cx}" cy="${cy}" r="4" fill="none" stroke="${A}" stroke-width="1.5"/>`;
+  switch (key){
+    case 'annotated': return svg(img(44, 18, 32, 36) + tline(10, 22, 26) + tline(10, 30, 22) + tline(84, 22, 26) + tline(84, 30, 20)
+      + `<line x1="38" y1="28" x2="44" y2="30" stroke="${A}" stroke-width="1"/><line x1="76" y1="30" x2="82" y2="28" stroke="${A}" stroke-width="1"/>`);
+    case 'figureRight': return svg(head(8, 10, 44) + tline(8, 26, 40) + tline(8, 34, 36) + tline(8, 42, 38) + img(66, 14, 46, 44));
+    case 'figureLeft': return svg(img(8, 14, 46, 44) + head(64, 10, 44) + tline(64, 26, 40) + tline(64, 34, 36) + tline(64, 42, 38));
+    case 'spotlight': return svg(img(8, 12, 56, 46) + head(72, 16, 40) + tline(72, 32, 36) + tline(72, 40, 30));
+    case 'bandTop': return svg(head(8, 8, 50) + img(8, 18, 104, 22) + panel(8, 46, 30, 16) + panel(45, 46, 30, 16) + panel(82, 46, 30, 16));
+    case 'panels': return svg(head(8, 8, 50) + panel(8, 20, 50, 18) + panel(62, 20, 50, 18) + panel(8, 42, 50, 18) + panel(62, 42, 50, 18));
+    case 'comparison': return svg(head(8, 8, 50) + panel(8, 20, 50, 40) + panel(62, 20, 50, 40) + tline(14, 28, 38) + tline(68, 28, 38));
+    case 'timeline': return svg(head(8, 8, 50) + dot(20, 38) + dot(50, 38) + dot(80, 38) + dot(110, 38)
+      + `<line x1="24" y1="38" x2="46" y2="38" stroke="${A}" stroke-width="1.2"/><line x1="54" y1="38" x2="76" y2="38" stroke="${A}" stroke-width="1.2"/><line x1="84" y1="38" x2="106" y2="38" stroke="${A}" stroke-width="1.2"/>`);
+    case 'statement': return svg(bar(10, 18, 70, 9, A) + bar(10, 30, 50, 9, A) + tline(10, 48, 40) + tline(10, 55, 34));
+    case 'quote': return svg(`<text x="16" y="30" font-size="22" fill="${A}">“</text>` + bar(24, 24, 72, 6, T) + bar(30, 36, 60, 6, T) + tline(40, 50, 40));
+    case 'gallery': return svg(head(8, 8, 50) + img(8, 20, 50, 18) + img(62, 20, 50, 18) + img(8, 42, 50, 18) + img(62, 42, 50, 18));
+    case 'titleCenter': return svg(bar(30, 26, 60, 8, A) + bar(40, 40, 40, 4, T));
+    case 'titleLeft': return svg(bar(10, 24, 70, 8, A) + bar(10, 38, 40, 4, T));
+    case 'sectionCenter': return svg(`<text x="46" y="44" font-size="22" fill="${P}">01</text>` + bar(34, 30, 52, 7, A));
+    case 'sectionLeft': return svg(`<text x="86" y="46" font-size="22" fill="${P}">01</text>` + bar(10, 30, 52, 7, A));
+    case 'takeawayCenter': return svg(bar(20, 28, 80, 7, A) + bar(34, 40, 52, 4, T));
+    case 'takeawayQuote': return svg(`<text x="14" y="32" font-size="22" fill="${A}">“</text>` + bar(24, 26, 74, 7, T) + bar(32, 38, 58, 5, T));
+    case 'roadmapAuto': return svg(dot(24, 34) + dot(60, 34) + dot(96, 34) + `<line x1="28" y1="34" x2="56" y2="34" stroke="${A}" stroke-width="1.2"/><line x1="64" y1="34" x2="92" y2="34" stroke="${A}" stroke-width="1.2"/>`);
+    default: return svg(head() + tline(8, 24, 80));
+  }
+}
+
+function renderLayoutPanel(){
+  const list = $('#layout-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const s = cur();
+  if (!s) return;
+  const opts = LAYOUTS[s.type] || [];
+  const curLay = s.type === 'content' ? effContentLayout(s) : (s.layout || (opts[0] && opts[0].key));
+  for (const o of opts){
+    const card = el('div', 'layout-card' + (o.key === curLay ? ' current' : ''));
+    card.title = o.label + (o.needs === 'image' ? ' — works best with an image' : '');
+    card.innerHTML = layoutIcon(o.key);
+    card.appendChild(el('div', 'lc-name', '', o.label));
+    card.addEventListener('click', () => applyLayout(o.key));
+    list.appendChild(card);
+  }
+  if (s.type !== 'content')
+    list.appendChild(el('div', 'layout-note', '',
+      'Switch the slide Type to “Content” for the full set of 11 content layouts.'));
+}
+
+function applyLayout(key){
+  const s = cur();
+  if (!s) return;
+  checkpoint();
+  s.layout = key;
+  // clear manual geometry so the new layout's defaults apply cleanly
+  s.boxes = {};
+  s.annotations.forEach(a => { delete a.x; delete a.y; delete a.w; delete a.fs; });
+  // reflow images into the layout's zones
+  if (s.type === 'content'){
+    const L = contentLayout(s);
+    const zones = L.galleryZones || L.figZones || [];
+    s.images.forEach((im, i) => {
+      const z = zones[i] || zones[0];
+      if (z) Object.assign(im, fitRect(im.w, im.h, z));
+    });
+  }
+  state.sel = null;
+  refreshAll();
+  renderLayoutPanel();
 }
 
 /* ================= image panel ================= */
@@ -1517,8 +1804,14 @@ async function insertImageFromResult(r, at){
 
 function defaultImagePlacement(slide, natW, natH){
   const i = slide.images.length;
+  if (slide.type === 'content'){
+    const L = contentLayout(slide);
+    const zones = L.galleryZones || L.figZones || [{ ...FIGZONE }];
+    if (i < zones.length) return fitRect(natW, natH, zones[i]);
+    const w = 300, h = Math.round(w * natH / natW);
+    return { x: 460 + (i % 4) * 34, y: 190 + (i % 4) * 30, w, h };
+  }
   if (i === 0){
-    if (slide.type === 'content')  return fitRect(natW, natH, FIGZONE);
     if (slide.type === 'section')  return fitRect(natW, natH, { x: 770, y: 130, w: 420, h: 440 });
     if (slide.type === 'title')    return fitRect(natW, natH, { x: 880, y: 170, w: 330, h: 380 });
     return fitRect(natW, natH, { x: 800, y: 150, w: 400, h: 420 });
@@ -1822,39 +2115,65 @@ async function exportPPTX(){
       if (s.annotations.length)
         T(s.annotations.map(a => a.text).join('    ·    '), { x: I(40), y: I(636), w: I(1200), h: I(34), align: 'center', fontSize: 11.5, color: dark ? '9FB2C4' : '5B6B7C' });
     }
-    else { // content
-      rule(80, 50, 54);
-      const annotated = s.images.length && s.annotations.length;
-      T(s.headline || '', { x: I(80), y: I(62), w: I(annotated ? 620 : 1120), h: I(100), fontFace: SERIF, fontSize: 24, bold: true });
+    else { // content — driven by the same layout geometry as the editor
+      const L = contentLayout(s);
+      const pt = px => Math.max(8, Math.round(px * 0.62));   // slide px → PPT points
 
-      if (annotated){
-        const fig = figRectOf(s);
-        s.annotations.forEach((a, i) => {
-          const pos = annPos(s, i);
-          const h = estimateAnnH(a.text);
-          sl.addShape('rect', { x: I(pos.x), y: I(pos.y), w: I(22), h: I(3), fill: { color: acc } });
-          T(a.text, { x: I(pos.x - 4), y: I(pos.y + 8), w: I(ANN_W + 8), h: I(h), fontSize: 12.5, bold: true, valign: 'top' });
-          const { a: A, t: Tg } = connectorFor(fig, pos, h);
-          addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
-          sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
-        });
-      } else if (s.annotations.length){
-        const rects = panelGrid(s.annotations.length, !!s.callout);
-        s.annotations.forEach((a, i) => {
-          const r = rects[i];
-          sl.addShape('roundRect', { x: I(r.x), y: I(r.y), w: I(r.w), h: I(r.h), rectRadius: 0.08,
-            fill: { color: dark ? '22303E' : 'FFFFFF' }, line: { color: dark ? '3A4A5C' : 'E2E9EF', width: 0.75 } });
-          T(pad2(i + 1), { x: I(r.x + 18), y: I(r.y + 12), w: I(70), h: I(34), fontFace: SERIF, fontSize: 15, bold: true, color: acc });
-          T(a.text, { x: I(r.x + 18), y: I(r.y + 46), w: I(r.w - 36), h: I(40), fontSize: 13.5, bold: true });
-          if (a.full && a.full.trim() !== a.text.trim())
-            T(a.full, { x: I(r.x + 18), y: I(r.y + 88), w: I(r.w - 36), h: I(Math.max(30, r.h - 100)), fontSize: 10.5, color: dark ? 'AABBCB' : '5B6B7C' });
-        });
-      }
-      if (s.callout){
-        const annotated2 = s.images.length && s.annotations.length;
-        const cw = annotated2 ? 380 : 800, cy = annotated2 ? 540 : 600;
-        sl.addShape('rect', { x: I(80), y: I(cy), w: I(4), h: I(72), fill: { color: accBar } });
-        T(s.callout, { x: I(92), y: I(cy), w: I(cw), h: I(72), italic: true, fontSize: 12.5 });
+      if (L.bigQuote){
+        T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: 'center',
+          fontFace: SERIF, fontSize: 26, italic: true, bold: true });
+        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C' });
+      } else {
+        rule(L.headline.x, L.headline.y - 14, 54);
+        T(s.headline || '', { x: I(L.headline.x), y: I(L.headline.y), w: I(L.headline.w), h: I(110),
+          fontFace: SERIF, fontSize: pt(L.headline.fs), bold: true, valign: 'top' });
+
+        if (L.annStyle === 'step' && L.timelineGeom){
+          const g = L.timelineGeom;
+          s.annotations.forEach((a, i) => {
+            const st = g.stops[i]; if (!st) return;
+            const r = g.horizontal ? 36 : 26;
+            sl.addText(String(i + 1), { shape: 'ellipse', x: I(st.cx - r), y: I(st.cy - r), w: I(r * 2), h: I(r * 2),
+              align: 'center', fontFace: SERIF, fontSize: g.horizontal ? 18 : 13, color: C(pal.accent2),
+              line: { color: accBar, width: 2 }, fill: { color: C(dark ? pal.darkSolid : pal.lightSolid) } });
+            if (g.horizontal) T(a.text, { x: I(st.cx - 100), y: I(st.cy + 52), w: I(200), h: I(90), align: 'center', fontSize: 11, bold: true });
+            else T(a.text, { x: I(st.cx + 54), y: I(st.cy - 16), w: I(900), h: I(40), fontSize: 13, bold: true });
+            if (i < g.stops.length - 1){
+              const b = g.stops[i + 1];
+              if (g.horizontal) addLine(sl, st.cx + 48, st.cy, b.cx - 52, st.cy, { arrow: true, color: pal.accent });
+              else addLine(sl, st.cx, st.cy + 32, st.cx, b.cy - 36, { arrow: true, color: pal.accent });
+            }
+          });
+        } else {
+          s.annotations.forEach((a, i) => {
+            const def = L.anns[i];
+            if (L.annStyle === 'none' || !def) return;
+            const x = a.x != null ? a.x : def.x, y = a.y != null ? a.y : def.y;
+            const w = a.w != null ? a.w : def.w, fs = a.fs != null ? a.fs : (def.fs || 19);
+            if (L.annStyle === 'panel'){
+              sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(def.h || 120), rectRadius: 0.06,
+                fill: { color: dark ? '22303E' : 'FFFFFF' }, line: { color: dark ? '3A4A5C' : 'E2E9EF', width: 0.75 } });
+              T(pad2(i + 1), { x: I(x + 16), y: I(y + 10), w: I(70), h: I(30), fontFace: SERIF, fontSize: 14, bold: true, color: acc });
+              T(a.text, { x: I(x + 16), y: I(y + 40), w: I(w - 32), h: I(36), fontSize: 12.5, bold: true });
+              if (a.full && a.full.trim() !== a.text.trim())
+                T(a.full, { x: I(x + 16), y: I(y + 76), w: I(w - 32), h: I(Math.max(24, (def.h || 120) - 86)), fontSize: 10, color: dark ? 'AABBCB' : '5B6B7C' });
+            } else {
+              // label / list — accent bar + text
+              sl.addShape('rect', { x: I(x), y: I(y), w: I(22), h: I(3), fill: { color: acc } });
+              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(estimateAnnH(a.text)), fontSize: pt(fs), bold: true, valign: 'top' });
+              if (L.connectors){
+                const fig = figRectOf(s);
+                const { a: A, t: Tg } = connectorFor(fig, { x, y }, estimateAnnH(a.text));
+                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
+                sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
+              }
+            }
+          });
+        }
+        if (s.callout && L.callout){
+          sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(4), h: I(70), fill: { color: accBar } });
+          T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18) });
+        }
       }
     }
 
@@ -2324,6 +2643,7 @@ function wireUI(){
   // image panel
   $('#ip-go').addEventListener('click', () => runImageSearch());
   $('#ip-query').addEventListener('keydown', e => { if (e.key === 'Enter') runImageSearch(); });
+  $$('.ip-tab').forEach(t => t.addEventListener('click', () => showPanelTab(t.dataset.tab)));
   const autoBox = $('#ip-auto');
   if (autoBox){
     autoBox.checked = autoImages;

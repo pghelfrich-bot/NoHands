@@ -164,35 +164,44 @@ Design: free-text notes
     </div>
   </section>
 
-  <!-- right: image panel -->
+  <!-- right: image + layout panel -->
   <aside id="img-panel">
-    <div class="panel-head">
-      <h2>Images</h2>
-      <span class="pill" title="Only openly licensed sources are searched">licensed only</span>
+    <div class="ip-tabs">
+      <button class="ip-tab current" data-tab="images">Images</button>
+      <button class="ip-tab" data-tab="layout">Layout</button>
     </div>
-    <div class="ip-search">
-      <input id="ip-query" type="search" placeholder="Search images…">
-      <button id="ip-go" class="btn primary small">Search</button>
+
+    <div id="tab-images" class="ip-tab-body">
+      <div class="ip-search">
+        <input id="ip-query" type="search" placeholder="Search images…">
+        <button id="ip-go" class="btn primary small">Search</button>
+      </div>
+      <div class="ip-row">
+        <select id="ip-provider" title="Image source">
+          <option value="all">All sources</option>
+          <option value="openverse">Openverse</option>
+          <option value="wikimedia">Wikimedia Commons</option>
+          <option value="unsplash">Unsplash (key)</option>
+          <option value="pexels">Pexels (key)</option>
+        </select>
+        <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
+          <input type="checkbox" id="ip-cutout"> Cutout
+        </label>
+        <label class="check" title="Automatically show relevant images when you open a slide">
+          <input type="checkbox" id="ip-auto" checked> Auto
+        </label>
+      </div>
+      <p class="panel-hint">Openly licensed only. Seeded from this slide's FIGURE; click or drag a
+      result onto the slide. Attribution is kept and carried into exports.</p>
+      <div id="ip-status" class="status" hidden></div>
+      <div id="ip-results"></div>
     </div>
-    <div class="ip-row">
-      <select id="ip-provider" title="Image source">
-        <option value="all">All sources</option>
-        <option value="openverse">Openverse</option>
-        <option value="wikimedia">Wikimedia Commons</option>
-        <option value="unsplash">Unsplash (key)</option>
-        <option value="pexels">Pexels (key)</option>
-      </select>
-      <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
-        <input type="checkbox" id="ip-cutout"> Cutout
-      </label>
-      <label class="check" title="Automatically show relevant images when you open a slide">
-        <input type="checkbox" id="ip-auto" checked> Auto
-      </label>
+
+    <div id="tab-layout" class="ip-tab-body" hidden>
+      <p class="panel-hint">Pick how this slide arranges its content. Your text and images flow into
+      the new layout; fine-tune by dragging afterwards.</p>
+      <div id="layout-list"></div>
     </div>
-    <p class="panel-hint">Seeded from this slide's FIGURE. Click or drag a result onto the slide.
-    Broken images are skipped automatically. Attribution is kept and carried into exports.</p>
-    <div id="ip-status" class="status" hidden></div>
-    <div id="ip-results"></div>
   </aside>
 </main>
 
