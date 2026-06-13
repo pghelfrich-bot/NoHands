@@ -16,7 +16,9 @@
   </div>
   <input id="deck-title" type="text" placeholder="Untitled deck" spellcheck="false">
   <div class="topbar-actions">
-    <button id="btn-decks"   class="btn ghost" title="Open a saved deck">Decks</button>
+    <button id="btn-undo" class="btn ghost" title="Undo (Ctrl/Cmd+Z)" disabled>↶</button>
+    <button id="btn-redo" class="btn ghost" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>↷</button>
+    <button id="btn-decks"   class="btn ghost" title="Home — all your decks">Home</button>
     <button id="btn-outline" class="btn ghost" title="Paste a new outline">＋ Outline</button>
     <div class="dropdown">
       <button id="btn-export" class="btn ghost">Export ▾</button>
@@ -163,6 +165,9 @@ Design: free-text notes
       </select>
       <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
         <input type="checkbox" id="ip-cutout"> Cutout
+      </label>
+      <label class="check" title="Automatically show relevant images when you open a slide">
+        <input type="checkbox" id="ip-auto" checked> Auto
       </label>
     </div>
     <p class="panel-hint">Seeded from this slide's FIGURE. Click or drag a result onto the slide.

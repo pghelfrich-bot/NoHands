@@ -890,6 +890,7 @@ function wireSlideEditing(root, slide){
       const node = h.closest('.lf-img');
       const im = slide.images.find(x => x.id === node.dataset.id);
       if (!im) return;
+      checkpoint();
       const sx = e.clientX, ow = im.w, ratio = im.h / im.w;
       h.setPointerCapture(e.pointerId);
       const move = ev => {
@@ -919,7 +920,11 @@ function wireSlideEditing(root, slide){
     });
   });
 
-  // text edits
+  // text edits — snapshot once when an edit begins
+  root.addEventListener('focusin', e => {
+    const ed = e.target.closest ? e.target.closest('[data-edit]') : null;
+    if (ed && ed.isContentEditable) checkpoint();
+  });
   root.addEventListener('focusout', e => {
     const ed = e.target.closest ? e.target.closest('[data-edit]') : null;
     if (!ed || !ed.isContentEditable) return;
@@ -957,6 +962,7 @@ function beginDrag(e, node, slide, accLine, root){
     const nx = ox + (ev.clientX - sx) / viewScale;
     const ny = oy + (ev.clientY - sy) / viewScale;
     if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return;
+    if (!moved) checkpoint();
     moved = true;
     obj.x = Math.round(clamp(nx, -200, SLIDE_W - 40));
     obj.y = Math.round(clamp(ny, -120, SLIDE_H - 30));
@@ -1046,6 +1052,7 @@ function renderRail(){
       const from = parseInt(e.dataTransfer.getData('text/lf-slide'), 10);
       const to = i;
       if (isNaN(from) || from === to) return;
+      checkpoint();
       const [moved] = state.deck.slides.splice(from, 1);
       state.deck.slides.splice(to, 0, moved);
       state.cur = to;
@@ -1088,6 +1095,47 @@ function refreshAll(){
   renderRail();
   updateToolbar();
   save();
+}
+
+/* ================= undo / redo ================= */
+
+const undoStack = [], redoStack = [];
+const HISTORY_MAX = 60;
+
+function snapshotDeck(){ return JSON.parse(JSON.stringify(state.deck)); }
+
+/* Call BEFORE a mutation to record the state you can return to. */
+function checkpoint(){
+  if (!state.deck) return;
+  undoStack.push({ deck: snapshotDeck(), cur: state.cur });
+  if (undoStack.length > HISTORY_MAX) undoStack.shift();
+  redoStack.length = 0;
+  updateUndoButtons();
+}
+function restore(snap){
+  state.deck = snap.deck;
+  state.cur = clamp(snap.cur, 0, state.deck.slides.length - 1);
+  state.sel = null;
+  $('#deck-title').value = state.deck.title || '';
+  renderRail();
+  selectSlide(state.cur);
+  saveDeckNow();
+  updateUndoButtons();
+}
+function undo(){
+  if (!undoStack.length){ toast('Nothing to undo'); return; }
+  redoStack.push({ deck: snapshotDeck(), cur: state.cur });
+  restore(undoStack.pop());
+}
+function redo(){
+  if (!redoStack.length){ toast('Nothing to redo'); return; }
+  undoStack.push({ deck: snapshotDeck(), cur: state.cur });
+  restore(redoStack.pop());
+}
+function updateUndoButtons(){
+  const u = $('#btn-undo'), r = $('#btn-redo');
+  if (u) u.disabled = !undoStack.length;
+  if (r) r.disabled = !redoStack.length;
 }
 
 /* ================= image panel ================= */
@@ -1179,11 +1227,23 @@ function ipStatus(msg, isErr){
   st.classList.toggle('err', !!isErr);
 }
 
+let autoImages = settings.autoImages !== false;
+const autoSearchSoon = debounce(() => {
+  if (!autoImages || !state.deck || $('#screen-editor').hidden) return;
+  const q = $('#ip-query').value.trim();
+  if (!q || q === lastAutoQuery) return;
+  // don't clobber results the user is actively browsing for the same query
+  runImageSearch({ auto: true });
+}, 500);
+
 function seedImagePanel(){
   const s = cur();
-  if (!s || panelSeedFor === s.id) return;
-  panelSeedFor = s.id;
-  $('#ip-query').value = s.figure || s.headline || state.deck.title || '';
+  if (!s) return;
+  if (panelSeedFor !== s.id){
+    panelSeedFor = s.id;
+    $('#ip-query').value = s.figure || s.headline || state.deck.title || '';
+  }
+  autoSearchSoon();
 }
 
 function interleave(lists){
@@ -1196,12 +1256,14 @@ function interleave(lists){
 }
 
 let searchToken = 0;
-async function runImageSearch(){
+let lastAutoQuery = null;
+async function runImageSearch(opts = {}){
+  const auto = !!opts.auto;
   const q = $('#ip-query').value.trim();
-  if (!q){ ipStatus('Type a search query first.'); return; }
+  if (!q){ if (!auto) ipStatus('Type a search query first.'); return; }
   const sel = $('#ip-provider').value;
   let provs;
-  if (sel === 'all'){
+  if (sel === 'all' || auto){
     provs = Object.keys(PROVIDERS).filter(k => PROVIDERS[k].ready());
   } else {
     if (!PROVIDERS[sel].ready()){
@@ -1210,15 +1272,17 @@ async function runImageSearch(){
     }
     provs = [sel];
   }
+  if (auto) lastAutoQuery = q;
   const token = ++searchToken;
   $('#ip-results').innerHTML = '';
-  ipStatus('Searching ' + provs.map(p => PROVIDERS[p].label).join(', ') + '…');
+  ipStatus((auto ? 'Suggestions for this slide — searching ' : 'Searching ')
+    + provs.map(p => PROVIDERS[p].label).join(', ') + '…');
 
   const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(q)));
   if (token !== searchToken) return;
   const lists = settled.map(s2 => s2.status === 'fulfilled' ? s2.value : []);
   const failedProvs = settled.map((s2, i) => s2.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean);
-  const merged = interleave(lists).slice(0, 48);
+  const merged = interleave(lists).slice(0, auto ? 15 : 48);
 
   if (!merged.length){
     ipStatus('No results.' + (failedProvs.length ? ` (${failedProvs.join(', ')} failed)` : ''), !!failedProvs.length);
@@ -1252,8 +1316,11 @@ function resultCell(r, imEl){
   const cell = el('div', 'ip-cell');
   cell.title = `${r.title || 'Untitled'}\n${r.author} — ${r.sourceName}\n${r.license}\nClick to insert · drag onto the slide`;
   imEl.alt = r.title || '';
-  cell.appendChild(imEl);
+  const wrap = el('div', 'ip-imgwrap');
+  wrap.appendChild(imEl);
+  cell.appendChild(wrap);
   cell.appendChild(el('span', 'ip-src', '', r.sourceName));
+  cell.appendChild(el('span', 'ip-add', '', '＋ Insert'));
   const meta = el('div', 'ip-meta');
   meta.innerHTML = `${escHTML(r.author)} · <span class="lic">${escHTML(r.license)}</span>`;
   cell.appendChild(meta);
@@ -1275,6 +1342,7 @@ function fitRect(natW, natH, zone){
 async function insertImageFromResult(r, at){
   const s = cur();
   if (!s){ toast('Open a deck first'); return; }
+  checkpoint();
   toast('Inserting image…', 6000);
   let src = r.full, dim;
   try { dim = await loadImageDim(src); }
@@ -1365,8 +1433,16 @@ async function cutoutRemoveBg(im){
   return blobToDataURL(await res.blob());
 }
 
-/* built-in fallback: flood-fill similar colors in from the image edges */
-function cutoutLocal(im, tolerance = 38){
+/* built-in fallback background remover.
+   Region-grows from the image border. A pixel joins the background when it is
+   close to a neighbouring background pixel (local test → follows smooth
+   gradients) AND not too far from the nearest border seed colour (global guard
+   → stops the fill leaking into the subject through soft edges). This handles
+   coloured and gently-varying backgrounds, not just flat white. The boundary
+   is feathered for a clean edge. */
+function cutoutLocal(im, opts = {}){
+  const localTol = opts.localTol != null ? opts.localTol : 26;   // step-to-step similarity
+  const globalTol = opts.globalTol != null ? opts.globalTol : 72; // distance from a seed colour
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -1382,32 +1458,73 @@ function cutoutLocal(im, tolerance = 38){
         ctx.drawImage(img, 0, 0, w, h);
         const id = ctx.getImageData(0, 0, w, h);
         const d = id.data;
-        // average border color
-        let r = 0, g = 0, b = 0, n = 0;
-        const addPx = (x, y) => { const k = (y * w + x) * 4; r += d[k]; g += d[k+1]; b += d[k+2]; n++; };
-        for (let x = 0; x < w; x++){ addPx(x, 0); addPx(x, h - 1); }
-        for (let y = 0; y < h; y++){ addPx(0, y); addPx(w - 1, y); }
-        r /= n; g /= n; b /= n;
-        const tolSq = Math.pow(tolerance * 2.2, 2);
-        const visited = new Uint8Array(w * h);
-        const queue = [];
-        const tryPush = (x, y) => {
-          if (x < 0 || y < 0 || x >= w || y >= h) return;
-          const p = y * w + x;
-          if (visited[p]) return;
-          const k = p * 4;
-          const dr = d[k] - r, dg = d[k+1] - g, db = d[k+2] - b;
-          if (dr * dr + dg * dg + db * db > tolSq) return;
-          visited[p] = 1;
-          queue.push(p);
+
+        // Seed colours: average each of the four corner patches separately,
+        // so multi-coloured / two-tone borders are all captured.
+        const patch = Math.max(4, Math.round(Math.min(w, h) * 0.06));
+        const seeds = [];
+        const cornerAvg = (x0, y0) => {
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let y = y0; y < y0 + patch && y < h; y++)
+            for (let x = x0; x < x0 + patch && x < w; x++){
+              const k = (y * w + x) * 4; r += d[k]; g += d[k+1]; b += d[k+2]; n++;
+            }
+          if (n) seeds.push([r / n, g / n, b / n]);
         };
-        for (let x = 0; x < w; x++){ tryPush(x, 0); tryPush(x, h - 1); }
-        for (let y = 0; y < h; y++){ tryPush(0, y); tryPush(w - 1, y); }
+        cornerAvg(0, 0); cornerAvg(w - patch, 0); cornerAvg(0, h - patch); cornerAvg(w - patch, h - patch);
+        const nearSeed = (r, g, b) => {
+          let best = 1e9;
+          for (const s of seeds){
+            const dr = r - s[0], dg = g - s[1], db = b - s[2];
+            best = Math.min(best, dr * dr + dg * dg + db * db);
+          }
+          return best;
+        };
+        const gTolSq = globalTol * globalTol;
+        const lTolSq = localTol * localTol;
+
+        const state = new Uint8Array(w * h);   // 0 unknown, 1 background
+        const queue = [];
+        const seed = p => { if (!state[p]){ state[p] = 1; queue.push(p); } };
+        const px = p => { const k = p * 4; return [d[k], d[k + 1], d[k + 2]]; };
+
+        // start from every border pixel that is close to a seed colour
+        for (let x = 0; x < w; x++){
+          for (const p of [x, (h - 1) * w + x]){ const c = px(p); if (nearSeed(c[0], c[1], c[2]) <= gTolSq) seed(p); }
+        }
+        for (let y = 0; y < h; y++){
+          for (const p of [y * w, y * w + w - 1]){ const c = px(p); if (nearSeed(c[0], c[1], c[2]) <= gTolSq) seed(p); }
+        }
         while (queue.length){
           const p = queue.pop();
           const x = p % w, y = (p / w) | 0;
-          d[p * 4 + 3] = 0;
-          tryPush(x + 1, y); tryPush(x - 1, y); tryPush(x, y + 1); tryPush(x, y - 1);
+          const c = px(p);
+          const consider = q => {
+            if (state[q]) return;
+            const cc = px(q);
+            const dr = cc[0] - c[0], dg = cc[1] - c[1], db = cc[2] - c[2];
+            if (dr * dr + dg * dg + db * db > lTolSq) return;          // local gradient step
+            if (nearSeed(cc[0], cc[1], cc[2]) > gTolSq) return;        // global guard
+            state[q] = 1; queue.push(q);
+          };
+          if (x + 1 < w) consider(p + 1);
+          if (x - 1 >= 0) consider(p - 1);
+          if (y + 1 < h) consider(p + w);
+          if (y - 1 >= 0) consider(p - w);
+        }
+
+        // apply transparency, feathering pixels that border the kept subject
+        for (let y = 0; y < h; y++){
+          for (let x = 0; x < w; x++){
+            const p = y * w + x;
+            if (!state[p]) continue;
+            let edge = false;
+            if (x + 1 < w && !state[p + 1]) edge = true;
+            else if (x - 1 >= 0 && !state[p - 1]) edge = true;
+            else if (y + 1 < h && !state[p + w]) edge = true;
+            else if (y - 1 >= 0 && !state[p - w]) edge = true;
+            d[p * 4 + 3] = edge ? 90 : 0;   // soft halo on the boundary, fully clear inside
+          }
         }
         ctx.putImageData(id, 0, 0);
         resolve(cv.toDataURL('image/png'));
@@ -1783,16 +1900,19 @@ function wireUI(){
   // canvas toolbar
   $('#type-select').addEventListener('change', e => {
     const s = cur(); if (!s) return;
+    checkpoint();
     s.type = e.target.value;
     refreshAll();
   });
   $('#theme-select').addEventListener('change', e => {
     const s = cur(); if (!s) return;
+    checkpoint();
     s.theme = e.target.value || null;
     refreshAll();
   });
   $('#btn-relayout').addEventListener('click', () => {
     const s = cur(); if (!s) return;
+    checkpoint();
     s.annotations.forEach(a => { a.x = a.y = null; });
     const imgs = s.images;
     s.images = [];
@@ -1808,24 +1928,31 @@ function wireUI(){
   });
   $('#btn-add-label').addEventListener('click', () => {
     const s = cur(); if (!s) return;
+    checkpoint();
     s.annotations.push({ id: uid(), text: 'New label', full: '', x: null, y: null });
     refreshAll();
   });
-  $('#sel-front').addEventListener('click', () => reorderImage(+1));
-  $('#sel-back').addEventListener('click', () => reorderImage(-1));
-  $('#sel-delete').addEventListener('click', deleteSelected);
+  $('#sel-front').addEventListener('click', () => { checkpoint(); reorderImage(+1); });
+  $('#sel-back').addEventListener('click', () => { checkpoint(); reorderImage(-1); });
+  $('#sel-delete').addEventListener('click', () => { checkpoint(); deleteSelected(); });
   $('#sel-cutout').addEventListener('click', async () => {
     const s = cur();
     if (!s || !state.sel || state.sel.kind !== 'img') return;
     const im = s.images.find(x => x.id === state.sel.id);
     if (!im) return;
+    checkpoint();
     await applyCutout(im);
     refreshAll();
   });
 
+  // undo / redo
+  $('#btn-undo').addEventListener('click', undo);
+  $('#btn-redo').addEventListener('click', redo);
+
   // slide management
   $('#btn-add-slide').addEventListener('click', () => {
     if (!state.deck) return;
+    checkpoint();
     const s = blankSlide('content');
     s.headline = 'New slide';
     state.deck.slides.splice(state.cur + 1, 0, s);
@@ -1836,6 +1963,7 @@ function wireUI(){
   });
   $('#btn-dup-slide').addEventListener('click', () => {
     const s = cur(); if (!s) return;
+    checkpoint();
     const copy = JSON.parse(JSON.stringify(s));
     copy.id = uid();
     copy.annotations.forEach(a => a.id = uid());
@@ -1848,6 +1976,7 @@ function wireUI(){
   });
   $('#btn-del-slide').addEventListener('click', () => {
     if (!state.deck || state.deck.slides.length <= 1){ toast('A deck needs at least one slide'); return; }
+    checkpoint();
     state.deck.slides.splice(state.cur, 1);
     state.cur = clamp(state.cur, 0, state.deck.slides.length - 1);
     renderRail();
@@ -1856,14 +1985,25 @@ function wireUI(){
   });
 
   // speaker notes
+  $('#speaker-notes').addEventListener('focus', () => { if (cur()) checkpoint(); });
   $('#speaker-notes').addEventListener('input', e => {
     const s = cur();
     if (s){ s.notes = e.target.value; save(); }
   });
 
   // image panel
-  $('#ip-go').addEventListener('click', runImageSearch);
+  $('#ip-go').addEventListener('click', () => runImageSearch());
   $('#ip-query').addEventListener('keydown', e => { if (e.key === 'Enter') runImageSearch(); });
+  const autoBox = $('#ip-auto');
+  if (autoBox){
+    autoBox.checked = autoImages;
+    autoBox.addEventListener('change', () => {
+      autoImages = autoBox.checked;
+      settings.autoImages = autoImages;
+      localStorage.setItem(LS.settings, JSON.stringify(settings));
+      if (autoImages){ lastAutoQuery = null; autoSearchSoon(); }
+    });
+  }
 
   // drop images onto the canvas
   const wrap = $('#canvas-wrap');
@@ -1894,11 +2034,19 @@ function wireUI(){
       return;
     }
     const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const editing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === 'z' || e.key === 'Z') && !editing && state.deck && !$('#screen-editor').hidden){
+      e.preventDefault(); e.shiftKey ? redo() : undo(); return;
+    }
+    if (mod && (e.key === 'y' || e.key === 'Y') && !editing && state.deck && !$('#screen-editor').hidden){
+      e.preventDefault(); redo(); return;
+    }
+    if (editing) return;
     if (!state.deck || $('#screen-editor').hidden) return;
     if (e.key === 'ArrowDown' || e.key === 'PageDown'){ e.preventDefault(); selectSlide(state.cur + 1); }
     else if (e.key === 'ArrowUp' || e.key === 'PageUp'){ e.preventDefault(); selectSlide(state.cur - 1); }
-    else if (e.key === 'Delete' || e.key === 'Backspace'){ if (state.sel){ e.preventDefault(); deleteSelected(); } }
+    else if (e.key === 'Delete' || e.key === 'Backspace'){ if (state.sel){ e.preventDefault(); checkpoint(); deleteSelected(); } }
   });
   $('#present-overlay').addEventListener('click', e => {
     if (e.target.closest('#present-notes')) return;
