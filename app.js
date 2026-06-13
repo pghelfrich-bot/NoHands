@@ -72,7 +72,14 @@ const SLIDE_CSS = `
 .slide .lf-img{position:absolute}
 .slide .lf-img img{display:block;width:100%;height:100%;-webkit-user-drag:none;user-select:none;pointer-events:none}
 .slide .lf-img.photo img{object-fit:cover;border-radius:10px;box-shadow:0 16px 36px rgba(6,14,24,.35)}
+.slide .lf-img.bleed img{object-fit:cover;border-radius:0;box-shadow:none}
 .slide .lf-img.cut img{object-fit:contain;filter:drop-shadow(0 16px 24px rgba(6,14,24,.38))}
+.slide .lf-cinescrim{position:absolute;inset:0;z-index:3;pointer-events:none;
+  background:linear-gradient(to top, rgba(6,12,20,.86) 0%, rgba(6,12,20,.55) 24%, rgba(6,12,20,.12) 46%, rgba(6,12,20,0) 64%)}
+.slide.cine{color:#fff}
+.slide.cine .lf-box,.slide.cine .serif,.slide.cine .lf-ann{color:#fff}
+.slide.cine .lf-box{text-shadow:0 2px 16px rgba(0,0,0,.6)}
+.slide.cine .lf-ann{text-shadow:0 1px 10px rgba(0,0,0,.7)}
 .slide .lf-conn{position:absolute;inset:0;width:100%;height:100%;z-index:20;pointer-events:none}
 .slide .lf-ann{position:absolute;z-index:30;width:${ANN_W}px;font-size:19px;line-height:1.32;font-weight:600;letter-spacing:.1px}
 .slide .lf-ann::before{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--lf-accent);margin-bottom:7px}
@@ -574,6 +581,7 @@ function galleryZones(n){
 /* The set of layouts offered per slide type, with tiny schematic icons. */
 const LAYOUTS = {
   content: [
+    { key: 'cinematic',  label: 'Cinematic',        needs: 'image' },
     { key: 'annotated',  label: 'Annotated figure',  needs: 'image' },
     { key: 'cards',      label: 'Annotated cards',   needs: 'image' },
     { key: 'figureRight',label: 'Figure right' },
@@ -608,7 +616,16 @@ function contentLayout(slide){
                 callout: null, figZones: [{ ...FIGZONE }], wantFigure: true, connectors: false,
                 bigQuote: false, annDetail: true };
 
-  if (lay === 'panels'){
+  if (lay === 'cinematic'){
+    // one photo runs edge-to-edge; headline + a few short points sit low-left over a scrim
+    out.fullBleed = true; out.scrim = true;
+    out.figZones = [{ x: 0, y: 0, w: 1280, h: 720 }];
+    const head = slide.headline || '';
+    out.headline = { x: 80, y: 486, w: 980, fs: head.length > 50 ? 44 : 58 };
+    out.annStyle = 'list'; out.annDetail = false;
+    out.anns = slide.annotations.slice(0, 3).map((a, i) => ({ x: 80, y: 372 + i * 34, w: 900, fs: 18 }));
+    if (slide.callout) out.callout = { x: 80, y: 600, w: 940, fs: 21 };
+  } else if (lay === 'panels'){
     out.wantFigure = false; out.annStyle = 'panel';
     out.anns = panelGrid(n, !!slide.callout).map(r => ({ ...r }));
     if (slide.callout){
@@ -704,10 +721,11 @@ function renderSlide(slide, deck, opts = {}){
   const dark = isDark(slide);
   const accLine = dark ? pal.accent : pal.accentInk;
   const bg = deck.background;
-  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + (bg && bg.src ? ' has-bg' : ''));
+  const cine = slide.type === 'content' && slide.images.length && effContentLayout(slide) === 'cinematic';
+  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + (bg && bg.src ? ' has-bg' : '') + (cine ? ' cine' : ''));
   root.dataset.type = slide.type;
   root.style.background = dark ? pal.darkBg : pal.lightBg;
-  root.style.setProperty('--lf-accent', accLine);
+  root.style.setProperty('--lf-accent', cine ? pal.accent : accLine);
 
   if (bg && bg.src){
     const img = el('img', 'lf-bg');
@@ -728,6 +746,7 @@ function renderSlide(slide, deck, opts = {}){
   }
 
   renderImages(root, slide, opts);
+  if (cine) root.appendChild(el('div', 'lf-cinescrim'));
   if (slide.type === 'content' && root.dataset.conn && slide.images.length && slide.annotations.length){
     drawConnectors(root, slide, accLine);
   }
@@ -928,11 +947,17 @@ function renderContent(root, slide, deck, pal, dark, opts){
 
   // callout
   if (slide.callout && L.callout){
-    const cb = mkBox(slide, 'callout', { ...L.callout, z: 35 }, slide.callout,
-      'border-left:4px solid var(--lf-accent);padding:10px 16px;line-height:1.45;font-style:italic;'
-      + 'border-radius:0 10px 10px 0;' + calloutBg(dark), opts);
-    if (cb) cb.classList.add('lf-callout');
-    appendBox(root, cb);
+    if (L.lay === 'cinematic'){
+      // plain subtitle line over the scrim, not a boxed callout
+      appendBox(root, mkBox(slide, 'callout', { ...L.callout, z: 36 }, slide.callout,
+        'font-style:italic;line-height:1.4;opacity:.92;', { ...opts, editKey: 'callout' }));
+    } else {
+      const cb = mkBox(slide, 'callout', { ...L.callout, z: 35 }, slide.callout,
+        'border-left:4px solid var(--lf-accent);padding:10px 16px;line-height:1.45;font-style:italic;'
+        + 'border-radius:0 10px 10px 0;' + calloutBg(dark), opts);
+      if (cb) cb.classList.add('lf-callout');
+      appendBox(root, cb);
+    }
   }
 
   // suggested-figure hint when no image is placed yet
@@ -1005,9 +1030,11 @@ function addFigHint(root, slide, def){
 }
 
 function renderImages(root, slide, opts){
+  const fullBleed = slide.type === 'content' && contentLayout(slide).fullBleed;
   slide.images.forEach((im, i) => {
-    const z = im.z != null ? im.z : 10 + i;
-    const node = el('div', 'lf-img ' + (im.cutout ? 'cut' : 'photo'),
+    const bleed = fullBleed && i === 0;
+    const z = bleed ? 1 : (im.z != null ? im.z : 10 + i);
+    const node = el('div', 'lf-img ' + (bleed ? 'bleed ' : '') + (im.cutout ? 'cut' : 'photo'),
       `left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px;z-index:${z};`);
     node.dataset.id = im.id;
     node.dataset.sel = 'img:' + im.id;
@@ -1549,6 +1576,9 @@ function layoutIcon(key){
   const panel = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${P}"/>`;
   const dot = (cx, cy) => `<circle cx="${cx}" cy="${cy}" r="4" fill="none" stroke="${A}" stroke-width="1.5"/>`;
   switch (key){
+    case 'cinematic': return svg(img(0, 0, 120, 68)
+      + `<rect x="0" y="40" width="120" height="28" fill="rgba(6,12,20,.55)"/>`
+      + bar(8, 48, 64, 8, A) + tline(8, 60, 40));
     case 'annotated': return svg(img(44, 18, 32, 36) + tline(10, 22, 26) + tline(10, 30, 22) + tline(84, 22, 26) + tline(84, 30, 20)
       + `<line x1="38" y1="28" x2="44" y2="30" stroke="${A}" stroke-width="1"/><line x1="76" y1="30" x2="82" y2="28" stroke="${A}" stroke-width="1"/>`);
     case 'cards': return svg(img(44, 18, 32, 36)
@@ -1612,6 +1642,7 @@ function applyLayout(key){
     const L = contentLayout(s);
     const zones = L.galleryZones || L.figZones || [];
     s.images.forEach((im, i) => {
+      if (L.fullBleed && i === 0){ Object.assign(im, { x: 0, y: 0, w: 1280, h: 720 }); return; }
       const z = zones[i] || zones[0];
       if (z) Object.assign(im, fitRect(im.w, im.h, z));
     });
@@ -2016,6 +2047,7 @@ function defaultImagePlacement(slide, natW, natH){
   const i = slide.images.length;
   if (slide.type === 'content'){
     const L = contentLayout(slide);
+    if (L.fullBleed && i === 0) return { x: 0, y: 0, w: 1280, h: 720 };
     const zones = L.galleryZones || L.figZones || [{ ...FIGZONE }];
     if (i < zones.length) return fitRect(natW, natH, zones[i]);
     const w = 300, h = Math.round(w * natH / natW);
@@ -2330,7 +2362,7 @@ async function exportPPTX(){
     const sl = p.addSlide();
     sl.background = { color: C(dark ? pal.darkSolid : pal.lightSolid) };
     addBackground(sl, dark);
-    const ink = dark ? 'EDF3F9' : '17252F';
+    let ink = dark ? 'EDF3F9' : '17252F';
     const acc = C(dark ? pal.accent : pal.accentInk);
     const accBar = C(pal.accent);
 
@@ -2380,6 +2412,19 @@ async function exportPPTX(){
     else { // content — driven by the same layout geometry as the editor
       const L = contentLayout(s);
       const pt = px => Math.max(8, Math.round(px * 0.62));   // slide px → PPT points
+
+      // cinematic: full-bleed photo + dark scrim drawn first, white text on top
+      const cine = L.fullBleed && s.images.length;
+      if (cine){
+        const im0 = s.images[0];
+        const data0 = (im0.cutout && im0.cutSrc) ? im0.cutSrc : im0.src;
+        if (data0.startsWith('data:')){
+          sl.addImage({ data: data0, x: 0, y: 0, w: 13.333, h: 7.5, sizing: { type: 'cover', w: 13.333, h: 7.5 } });
+          sl.addShape('rect', { x: 0, y: I(300), w: 13.333, h: I(420), fill: { color: '060C14', transparency: 15 }, line: { type: 'none' } });
+          sl.addShape('rect', { x: 0, y: I(150), w: 13.333, h: I(150), fill: { color: '060C14', transparency: 55 }, line: { type: 'none' } });
+          ink = 'FFFFFF';
+        }
+      }
 
       if (L.bigQuote){
         T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: 'center',
@@ -2466,7 +2511,9 @@ async function exportPPTX(){
     }
 
     // images (only embeddable ones survive into PPTX)
+    const cineFirst = (contentLayout(s).fullBleed && s.images.length) ? s.images[0] : null;
     for (const im of s.images){
+      if (im === cineFirst) continue;   // already drawn full-bleed beneath the text
       const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
       if (!data.startsWith('data:')) continue;
       sl.addImage({ data, x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h),

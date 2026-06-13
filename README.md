@@ -52,8 +52,9 @@ Parsing is lenient: `## Headings` and `---` separators also start slides, field 
 
 Every slide is auto-laid-out with a consistent design system — dark layouts for **title / roadmap / section / takeaway**, light for **content** (override per slide with the Theme selector). The **Layout tab** in the right sidebar offers pickable, schematic-previewed arrangements; switching one reflows the slide's text and images, and you can fine-tune by dragging afterwards.
 
-Content slides have **12 layouts**:
+Content slides have **13 layouts**:
 
+- **Cinematic** — one photo runs edge-to-edge as the whole slide, with the headline and a few short points sitting low over an automatic dark-to-clear scrim that keeps the text legible. The most direct, image-forward layout; carries through to HTML/PDF/PPTX with the photo full-bleed beneath the text.
 - **Annotated figure** — points become short labels around a central image, linked by curved connector lines that re-route live as you drag.
 - **Annotated cards** — points become discrete, bordered, numbered cards you can freely move and resize around a central image, linked by the same curved connectors.
 - **Figure left / right**, **Spotlight** — image beside a list of points.
