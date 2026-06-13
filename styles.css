@@ -249,9 +249,9 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;
 }
 .ip-search input:focus{outline:none;border-color:var(--accent)}
-.ip-row{display:flex;gap:10px;align-items:center;padding:8px 14px 0}
+.ip-row{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:8px 14px 0}
 .ip-row select{
-  flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+  flex:1;min-width:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
   border-radius:7px;padding:5px 7px;font:inherit;font-size:12.5px;
 }
 .check{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink-dim);cursor:pointer}
@@ -270,12 +270,12 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   border:1px solid var(--line);background:#0c1117;
 }
 .ip-cell:hover{border-color:var(--accent)}
-/* full image, never cropped or overlapping — natural aspect, capped height */
+/* full image, never cropped or overlapping — letterboxed into a consistent-height frame */
 .ip-cell .ip-imgwrap{
   display:flex;align-items:center;justify-content:center;
-  background:#0c1117;width:100%;max-height:220px;overflow:hidden;
+  background:#0c1117;width:100%;height:190px;overflow:hidden;
 }
-.ip-cell img{display:block;width:100%;height:auto;max-height:220px;object-fit:contain}
+.ip-cell img{display:block;width:100%;height:100%;object-fit:contain}
 .ip-cell .ip-meta{
   padding:6px 8px 7px;font-size:10.5px;line-height:1.35;color:#cdd9e6;
   border-top:1px solid var(--line);

@@ -77,6 +77,8 @@ const SLIDE_CSS = `
 .slide .lf-ann{position:absolute;z-index:30;width:${ANN_W}px;font-size:19px;line-height:1.32;font-weight:600;letter-spacing:.1px}
 .slide .lf-ann::before{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--lf-accent);margin-bottom:7px}
 .slide.light .lf-ann{color:#1d3142}
+.slide .lf-ann-full{font-size:0.68em;font-weight:450;line-height:1.4;opacity:.7;margin-top:5px;letter-spacing:0;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .slide .lf-footer{position:absolute;z-index:40;font-size:13px;opacity:.55;bottom:18px;left:26px;letter-spacing:.5px}
 .slide .lf-credit{position:absolute;z-index:40;bottom:15px;left:84px;right:170px;font-size:11px;opacity:.55;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -467,13 +469,6 @@ function parseOutline(text){
 
 /* ================= layout geometry (shared by DOM renderer & PPTX export) ================= */
 
-function annPos(slide, i){
-  const a = slide.annotations[i];
-  if (a.x != null && a.y != null) return { x: a.x, y: a.y };
-  const base = ANN_SLOTS[i % ANN_SLOTS.length];
-  const wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-  return { x: base.x + wrap, y: base.y + wrap };
-}
 function estimateAnnH(text){
   const lines = Math.max(1, Math.ceil((text || ' ').length / 23));
   return 10 + lines * 25;
@@ -572,7 +567,7 @@ function contentLayout(slide){
   const lay = effContentLayout(slide);
   const out = { lay, annStyle: 'label', anns: [], headline: { x: 80, y: 64, w: 1120, fs: 38 },
                 callout: null, figZones: [{ ...FIGZONE }], wantFigure: true, connectors: false,
-                bigQuote: false };
+                bigQuote: false, annDetail: true };
 
   if (lay === 'panels'){
     out.wantFigure = false; out.annStyle = 'panel';
@@ -600,8 +595,8 @@ function contentLayout(slide){
   } else if (lay === 'spotlight'){
     out.figZones = [{ x: 80, y: 150, w: 620, h: 490 }];
     out.headline = { x: 742, y: 130, w: 458, fs: 40 };
-    out.annStyle = 'list';
-    out.anns = listPositions(Math.min(n, 3), 742, 270, 458).map(r => ({ ...r, fs: 22 }));
+    out.annStyle = 'list'; out.annDetail = false;
+    out.anns = listPositions(Math.min(n, 3), 742, 270, 458, 18, slide.callout ? 540 : 640).map(r => ({ ...r, fs: 22 }));
     if (slide.callout) out.callout = { x: 742, y: 560, w: 458, fs: 18 };
   } else if (lay === 'bandTop'){
     out.figZones = [{ x: 80, y: 150, w: 1120, h: 286 }];
@@ -625,7 +620,7 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 60, w: 1120, fs: 33 };
     out.timelineGeom = roadmapGeom(n);
   } else if (lay === 'statement'){
-    out.wantFigure = false; out.annStyle = 'list';
+    out.wantFigure = false; out.annStyle = 'list'; out.annDetail = false;
     out.headline = { x: 96, y: 150, w: 760, fs: 52 };
     const bottom = slide.callout ? 568 : 632;
     out.anns = listPositions(Math.min(n, 4), 96, 332, 700, 14, bottom).map(r => ({ ...r, fs: 19 }));
@@ -865,7 +860,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
       // timeline rendered separately below
     } else {
       // 'label' or 'list' → movable annotation box
-      renderAnnBox(root, slide, a, i, def, opts);
+      renderAnnBox(root, slide, a, i, def, opts, L.annDetail);
     }
   });
 
@@ -892,7 +887,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
 }
 
 /* one annotation as a movable/resizable label box (merges per-annotation overrides) */
-function renderAnnBox(root, slide, a, i, def, opts){
+function renderAnnBox(root, slide, a, i, def, opts, showDetail = true){
   const x = a.x != null ? a.x : def.x;
   const y = a.y != null ? a.y : def.y;
   const w = a.w != null ? a.w : def.w;
@@ -900,10 +895,9 @@ function renderAnnBox(root, slide, a, i, def, opts){
   const node = el('div', 'lf-ann lf-box', `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`);
   node.dataset.id = a.id;
   node.dataset.sel = 'ann:' + a.id;
-  const inner = el('div', 'lf-ann-text', '', a.text);
-  if (opts.editor){ inner.dataset.edit = 'ann:' + a.id; inner.dataset.editable = '1'; }
-  node.appendChild(inner);
-  node.title = a.full && a.full !== a.text ? a.full : '';
+  node.appendChild(editable(el('div', 'lf-ann-text', '', a.text), 'ann:' + a.id, opts));
+  if (showDetail && a.full && a.full.trim() !== a.text.trim())
+    node.appendChild(editable(el('div', 'lf-ann-full', '', a.full), 'annfull:' + a.id, opts));
   root.appendChild(node);
 }
 
@@ -959,21 +953,6 @@ function renderImages(root, slide, opts){
     img.alt = (im.attr && im.attr.title) || '';
     img.draggable = false;
     node.appendChild(img);
-    root.appendChild(node);
-  });
-}
-
-function renderAnnotations(root, slide, opts){
-  slide.annotations.forEach((a, i) => {
-    const p = annPos(slide, i);
-    const node = el('div', 'lf-ann lf-box', `left:${p.x}px;top:${p.y}px;`
-      + (a.w != null ? `width:${a.w}px;` : '') + (a.fs != null ? `font-size:${a.fs}px;` : ''));
-    node.dataset.id = a.id;
-    node.dataset.sel = 'ann:' + a.id;
-    const inner = el('div', 'lf-ann-text', '', a.text);
-    if (opts.editor){ inner.dataset.edit = 'ann:' + a.id; inner.dataset.editable = '1'; }
-    node.appendChild(inner);
-    node.title = a.full && a.full !== a.text ? a.full : '';
     root.appendChild(node);
   });
 }
@@ -2160,7 +2139,11 @@ async function exportPPTX(){
             } else {
               // label / list — accent bar + text
               sl.addShape('rect', { x: I(x), y: I(y), w: I(22), h: I(3), fill: { color: acc } });
-              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(estimateAnnH(a.text)), fontSize: pt(fs), bold: true, valign: 'top' });
+              const labelH = estimateAnnH(a.text);
+              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(labelH), fontSize: pt(fs), bold: true, valign: 'top' });
+              if (L.annDetail && a.full && a.full.trim() !== a.text.trim())
+                T(a.full, { x: I(x - 2), y: I(y + 8 + labelH), w: I(w + 6), h: I(estimateAnnH(a.full) * 0.75),
+                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
               if (L.connectors){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = connectorFor(fig, { x, y }, estimateAnnH(a.text));
