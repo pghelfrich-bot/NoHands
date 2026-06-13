@@ -79,6 +79,14 @@ const SLIDE_CSS = `
 .slide.light .lf-ann{color:#1d3142}
 .slide .lf-ann-full{font-size:0.68em;font-weight:450;line-height:1.4;opacity:.7;margin-top:5px;letter-spacing:0;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.slide .lf-anncard{border-radius:12px;padding:12px 16px}
+.slide .lf-anncard::before{display:none}
+.slide .lf-anncard .lf-ann-full{-webkit-line-clamp:3}
+.slide .lf-ann-num{display:flex;align-items:center;justify-content:center;width:24px;height:24px;
+  border-radius:50%;background:var(--lf-accent);color:#06222f;font-size:12.5px;font-weight:800;
+  margin-bottom:8px;font-family:ui-sans-serif,system-ui,sans-serif}
+.slide.light .lf-anncard{background:#ffffff;border:1.5px solid var(--lf-accent);box-shadow:0 8px 22px rgba(15,30,45,.08);color:#1d3142}
+.slide.dark .lf-anncard{background:rgba(255,255,255,.06);border:1.5px solid var(--lf-accent)}
 .slide .lf-footer{position:absolute;z-index:40;font-size:13px;opacity:.55;bottom:18px;left:26px;letter-spacing:.5px}
 .slide .lf-credit{position:absolute;z-index:40;bottom:15px;left:84px;right:170px;font-size:11px;opacity:.55;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -537,6 +545,7 @@ function galleryZones(n){
 const LAYOUTS = {
   content: [
     { key: 'annotated',  label: 'Annotated figure',  needs: 'image' },
+    { key: 'cards',      label: 'Annotated cards',   needs: 'image' },
     { key: 'figureRight',label: 'Figure right' },
     { key: 'figureLeft', label: 'Figure left' },
     { key: 'spotlight',  label: 'Spotlight' },
@@ -582,6 +591,15 @@ function contentLayout(slide){
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
       return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 19 };
+    });
+    if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
+  } else if (lay === 'cards'){
+    // each point is its own bordered, draggable/resizable card around the figure
+    out.annStyle = 'card'; out.connectors = true;
+    out.headline = { x: 80, y: 64, w: 620, fs: 38 };
+    out.anns = slide.annotations.map((a, i) => {
+      const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 16 };
     });
     if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
   } else if (lay === 'figureLeft' || lay === 'figureRight'){
@@ -858,6 +876,8 @@ function renderContent(root, slide, deck, pal, dark, opts){
       root.appendChild(p);
     } else if (L.annStyle === 'step'){
       // timeline rendered separately below
+    } else if (L.annStyle === 'card'){
+      renderAnnBox(root, slide, a, i, def, opts, true, i + 1);
     } else {
       // 'label' or 'list' → movable annotation box
       renderAnnBox(root, slide, a, i, def, opts, L.annDetail);
@@ -886,15 +906,18 @@ function renderContent(root, slide, deck, pal, dark, opts){
   }
 }
 
-/* one annotation as a movable/resizable label box (merges per-annotation overrides) */
-function renderAnnBox(root, slide, a, i, def, opts, showDetail = true){
+/* one annotation as a movable/resizable label box (merges per-annotation overrides).
+   `cardNum` truthy → render as a discrete bordered card with a numbered badge. */
+function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum = 0){
   const x = a.x != null ? a.x : def.x;
   const y = a.y != null ? a.y : def.y;
   const w = a.w != null ? a.w : def.w;
   const fs = a.fs != null ? a.fs : (def.fs || 19);
-  const node = el('div', 'lf-ann lf-box', `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`);
+  const cls = cardNum ? 'lf-ann lf-anncard lf-box' : 'lf-ann lf-box';
+  const node = el('div', cls, `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`);
   node.dataset.id = a.id;
   node.dataset.sel = 'ann:' + a.id;
+  if (cardNum) node.appendChild(el('div', 'lf-ann-num', '', String(cardNum)));
   node.appendChild(editable(el('div', 'lf-ann-text', '', a.text), 'ann:' + a.id, opts));
   if (showDetail && a.full && a.full.trim() !== a.text.trim())
     node.appendChild(editable(el('div', 'lf-ann-full', '', a.full), 'annfull:' + a.id, opts));
@@ -1476,6 +1499,11 @@ function layoutIcon(key){
   switch (key){
     case 'annotated': return svg(img(44, 18, 32, 36) + tline(10, 22, 26) + tline(10, 30, 22) + tline(84, 22, 26) + tline(84, 30, 20)
       + `<line x1="38" y1="28" x2="44" y2="30" stroke="${A}" stroke-width="1"/><line x1="76" y1="30" x2="82" y2="28" stroke="${A}" stroke-width="1"/>`);
+    case 'cards': return svg(img(44, 18, 32, 36)
+      + `<rect x="6" y="8" width="32" height="18" rx="3" fill="none" stroke="${A}" stroke-width="1.5"/>` + tline(11, 20, 20)
+      + `<rect x="82" y="12" width="32" height="18" rx="3" fill="none" stroke="${A}" stroke-width="1.5"/>` + tline(87, 24, 20)
+      + `<rect x="6" y="42" width="32" height="18" rx="3" fill="none" stroke="${A}" stroke-width="1.5"/>` + tline(11, 54, 20)
+      + `<line x1="38" y1="20" x2="44" y2="28" stroke="${A}" stroke-width="1"/><line x1="82" y1="24" x2="76" y2="30" stroke="${A}" stroke-width="1"/><line x1="38" y1="50" x2="44" y2="44" stroke="${A}" stroke-width="1"/>`);
     case 'figureRight': return svg(head(8, 10, 44) + tline(8, 26, 40) + tline(8, 34, 36) + tline(8, 42, 38) + img(66, 14, 46, 44));
     case 'figureLeft': return svg(img(8, 14, 46, 44) + head(64, 10, 44) + tline(64, 26, 40) + tline(64, 34, 36) + tline(64, 42, 38));
     case 'spotlight': return svg(img(8, 12, 56, 46) + head(72, 16, 40) + tline(72, 32, 36) + tline(72, 40, 30));
@@ -1516,7 +1544,7 @@ function renderLayoutPanel(){
   }
   if (s.type !== 'content')
     list.appendChild(el('div', 'layout-note', '',
-      'Switch the slide Type to “Content” for the full set of 11 content layouts.'));
+      'Switch the slide Type to “Content” for the full set of 12 content layouts.'));
 }
 
 function applyLayout(key){
@@ -2136,6 +2164,28 @@ async function exportPPTX(){
               T(a.text, { x: I(x + 16), y: I(y + 40), w: I(w - 32), h: I(36), fontSize: 12.5, bold: true });
               if (a.full && a.full.trim() !== a.text.trim())
                 T(a.full, { x: I(x + 16), y: I(y + 76), w: I(w - 32), h: I(Math.max(24, (def.h || 120) - 86)), fontSize: 10, color: dark ? 'AABBCB' : '5B6B7C' });
+            } else if (L.annStyle === 'card'){
+              // discrete bordered card with a numbered badge, like .lf-anncard
+              const badgeD = 26;
+              const textH = estimateAnnH(a.text);
+              const hasFull = a.full && a.full.trim() !== a.text.trim();
+              const fullH = hasFull ? estimateAnnH(a.full) * 0.75 : 0;
+              const cardH = badgeD + 18 + textH + fullH;
+              sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(cardH), rectRadius: 0.07,
+                fill: { color: dark ? '263747' : 'FFFFFF' }, line: { color: acc, width: 1.25 } });
+              sl.addShape('ellipse', { x: I(x + 16), y: I(y + 12), w: I(badgeD), h: I(badgeD), fill: { color: accBar } });
+              sl.addText(String(i + 1), { x: I(x + 16), y: I(y + 12), w: I(badgeD), h: I(badgeD),
+                align: 'center', valign: 'middle', fontFace: SERIF, fontSize: 11, bold: true, color: '06222F' });
+              T(a.text, { x: I(x + 16), y: I(y + 12 + badgeD + 8), w: I(w - 32), h: I(textH), fontSize: pt(fs), bold: true, valign: 'top' });
+              if (hasFull)
+                T(a.full, { x: I(x + 16), y: I(y + 12 + badgeD + 8 + textH), w: I(w - 32), h: I(fullH),
+                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
+              if (L.connectors){
+                const fig = figRectOf(s);
+                const { a: A, t: Tg } = connectorFor(fig, { x, y }, cardH);
+                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
+                sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
+              }
             } else {
               // label / list — accent bar + text
               sl.addShape('rect', { x: I(x), y: I(y), w: I(22), h: I(3), fill: { color: acc } });
