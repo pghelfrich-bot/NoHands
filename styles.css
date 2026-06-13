@@ -269,7 +269,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   background:var(--panel2);border:1px solid var(--line);color:var(--ink-dim);
 }
 .status.err{color:var(--danger);border-color:#5c2e2e}
-#ip-results{
+#ip-results,#bg-results{
   flex:1;overflow-y:auto;padding:8px 14px 14px;
   display:flex;flex-direction:column;gap:12px;align-content:start;
 }
@@ -299,6 +299,15 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   border-radius:6px;font-size:11px;font-weight:700;padding:3px 8px;opacity:0;transition:opacity .12s;
 }
 .ip-cell:hover .ip-add{opacity:1}
+
+.bg-current{display:flex;gap:10px;align-items:center;padding:10px 14px 0}
+.bg-current img{width:88px;height:58px;object-fit:cover;border-radius:6px;border:1px solid var(--line);background:#0c1117}
+.bg-current-info{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.bg-current-info .ip-meta{font-size:11px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bg-current-info .ip-meta .lic{color:var(--accent2)}
+#tab-background .field{padding:0 14px;margin:10px 0}
+#tab-background .check{padding:0 14px;margin:10px 0}
+#bg-blur{accent-color:var(--accent);padding:0;height:auto;width:100%;margin-top:5px;background:none;border:none}
 
 /* ---------- modals ---------- */
 .modal{

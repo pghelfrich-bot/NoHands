@@ -100,6 +100,11 @@ const SLIDE_CSS = `
 .slide.dark .lf-callout{background:rgba(255,255,255,.06)}
 .slide .lf-fighint{position:absolute;z-index:6;border:2px dashed var(--lf-accent);border-radius:12px;
   padding:10px 14px;font-size:13.5px;line-height:1.4;opacity:.75}
+.slide .lf-bg{position:absolute;left:-5%;top:-5%;width:110%;height:110%;object-fit:cover;z-index:0}
+.slide .lf-bgscrim{position:absolute;inset:0;z-index:0}
+.slide .lf-frame{position:absolute;inset:16px;border:1px solid rgba(20,32,44,.14);border-radius:8px;z-index:46;pointer-events:none}
+.slide.dark .lf-frame{border-color:rgba(255,255,255,.35)}
+.slide.has-bg .lf-frame{border-color:rgba(255,255,255,.55)}
 `;
 
 const SAMPLE_OUTLINE = `# How Rivers Shape the Land
@@ -218,6 +223,13 @@ function splitFigureTerms(text){
   return { primary, alternates };
 }
 
+/* '#rrggbb' + alpha (0-1) -> 'rgba(r,g,b,a)' */
+function hexA(hex, alpha){
+  const h = (hex || '#000000').replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 let toastTimer = null;
 function toast(msg, ms = 2600){
   const t = $('#toast');
@@ -298,10 +310,12 @@ function migrateDeck(d){
     if (!Array.isArray(s.annotations)) s.annotations = [];
     if (!Array.isArray(s.images)) s.images = [];
   }
+  if (d.background === undefined) d.background = null;
+  if (!d.frame) d.frame = false;
   return d;
 }
 function newDeck(){
-  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[] };
+  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false };
 }
 function cur(){ return state.deck ? state.deck.slides[state.cur] : null; }
 function palette(deck){ return PALETTES[deck.accent] || PALETTES.indigo; }
@@ -689,10 +703,19 @@ function renderSlide(slide, deck, opts = {}){
   const pal = palette(deck);
   const dark = isDark(slide);
   const accLine = dark ? pal.accent : pal.accentInk;
-  const root = el('div', 'slide ' + (dark ? 'dark' : 'light'));
+  const bg = deck.background;
+  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + (bg && bg.src ? ' has-bg' : ''));
   root.dataset.type = slide.type;
   root.style.background = dark ? pal.darkBg : pal.lightBg;
   root.style.setProperty('--lf-accent', accLine);
+
+  if (bg && bg.src){
+    const img = el('img', 'lf-bg');
+    img.src = bg.src; img.alt = '';
+    img.style.filter = `blur(${bg.blur || 0}px)`;
+    root.appendChild(img);
+    root.appendChild(el('div', 'lf-bgscrim', `background:${hexA(dark ? pal.darkSolid : pal.lightSolid, dark ? 0.55 : 0.78)};`));
+  }
 
   root.appendChild(motifSVG(pal, dark));
 
@@ -710,6 +733,7 @@ function renderSlide(slide, deck, opts = {}){
   }
   renderTexts(root, slide, opts);
   renderFooter(root, slide, deck, pal, dark, opts);
+  if (deck.frame) root.appendChild(el('div', 'lf-frame'));
   return root;
 }
 
@@ -1092,9 +1116,17 @@ function renderCreditsSlide(deck){
   const attrs = collectAttributions(deck);
   if (!attrs.length) return null;
   const pal = palette(deck);
-  const root = el('div', 'slide dark');
+  const bg = deck.background;
+  const root = el('div', 'slide dark' + (bg && bg.src ? ' has-bg' : ''));
   root.style.background = pal.darkBg;
   root.style.setProperty('--lf-accent', pal.accent);
+  if (bg && bg.src){
+    const img = el('img', 'lf-bg');
+    img.src = bg.src; img.alt = '';
+    img.style.filter = `blur(${bg.blur || 0}px)`;
+    root.appendChild(img);
+    root.appendChild(el('div', 'lf-bgscrim', `background:${hexA(pal.darkSolid, 0.55)};`));
+  }
   root.appendChild(motifSVG(pal, true));
   root.appendChild(el('div', '', `position:absolute;left:96px;top:74px;width:54px;height:5px;border-radius:3px;background:${pal.accent};z-index:5;`));
   root.appendChild(el('div', 'serif', 'position:absolute;left:96px;top:90px;font-size:44px;font-weight:600;z-index:5;', 'Image credits'));
@@ -1105,6 +1137,7 @@ function renderCreditsSlide(deck){
   }
   if (attrs.length > 16) list.appendChild(el('div', '', 'opacity:.6;', `…and ${attrs.length - 16} more`));
   root.appendChild(list);
+  if (deck.frame) root.appendChild(el('div', 'lf-frame'));
   return root;
 }
 
@@ -1433,6 +1466,7 @@ function selectSlide(i){
   updateToolbar();
   seedImagePanel();
   if (!$('#tab-layout').hidden) renderLayoutPanel();
+  if (!$('#tab-background').hidden) showBgCurrent();
 }
 
 function updateToolbar(){
@@ -1498,7 +1532,9 @@ function showPanelTab(which){
   $$('.ip-tab').forEach(t => t.classList.toggle('current', t.dataset.tab === which));
   $('#tab-images').hidden = which !== 'images';
   $('#tab-layout').hidden = which !== 'layout';
+  $('#tab-background').hidden = which !== 'background';
   if (which === 'layout') renderLayoutPanel();
+  if (which === 'background') showBgCurrent();
 }
 
 /* small schematic preview for each layout option */
@@ -1778,26 +1814,34 @@ async function runImageSearch(opts = {}){
   }
 
   // load thumbnails; silently skip any that fail so only working images appear
-  let shown = 0, skipped = 0;
   const grid = $('#ip-results');
-  await Promise.allSettled(merged.map(r => new Promise(resolve => {
+  const { shown, skipped } = await loadResultCells(grid, merged, resultCell,
+    n => ipStatus(`${n} image${n === 1 ? '' : 's'}…`), () => token !== searchToken);
+  if (token !== searchToken) return;
+  ipStatus(`${shown} image${shown === 1 ? '' : 's'}`
+    + (skipped ? ` · ${skipped} broken skipped` : '')
+    + (failedProvs.length ? ` · ${failedProvs.join(', ')} failed` : ''));
+}
+
+/* load thumbnails for search results, appending a cell for each that loads OK;
+   silently skip any that fail so only working images appear */
+async function loadResultCells(grid, results, cellFn, onProgress, isStale){
+  let shown = 0, skipped = 0;
+  await Promise.allSettled(results.map(r => new Promise(resolve => {
     const im = new Image();
     const t = setTimeout(() => { im.src = ''; skipped++; resolve(); }, 14000);
     im.onload = () => {
       clearTimeout(t);
-      if (token !== searchToken) return resolve();
-      grid.appendChild(resultCell(r, im));
+      if (isStale()) return resolve();
+      grid.appendChild(cellFn(r, im));
       shown++;
-      ipStatus(`${shown} image${shown === 1 ? '' : 's'}…`);
+      onProgress(shown);
       resolve();
     };
     im.onerror = () => { clearTimeout(t); skipped++; resolve(); };
     im.src = r.thumb;
   })));
-  if (token !== searchToken) return;
-  ipStatus(`${shown} image${shown === 1 ? '' : 's'}`
-    + (skipped ? ` · ${skipped} broken skipped` : '')
-    + (failedProvs.length ? ` · ${failedProvs.join(', ')} failed` : ''));
+  return { shown, skipped };
 }
 
 function resultCell(r, imEl){
@@ -1819,6 +1863,108 @@ function resultCell(r, imEl){
     e.dataTransfer.effectAllowed = 'copy';
   });
   return cell;
+}
+
+function bgResultCell(r, imEl){
+  const cell = el('div', 'ip-cell');
+  cell.title = `${r.title || 'Untitled'}\n${r.author} — ${r.sourceName}\n${r.license}\nClick to use as the deck background`;
+  imEl.alt = r.title || '';
+  const wrap = el('div', 'ip-imgwrap');
+  wrap.appendChild(imEl);
+  cell.appendChild(wrap);
+  cell.appendChild(el('span', 'ip-src', '', r.sourceName));
+  cell.appendChild(el('span', 'ip-add', '', '🖼 Use'));
+  const meta = el('div', 'ip-meta');
+  meta.innerHTML = `${escHTML(r.author)} · <span class="lic">${escHTML(r.license)}</span>`;
+  cell.appendChild(meta);
+  cell.addEventListener('click', () => setBackgroundFromResult(r));
+  return cell;
+}
+
+let bgSearchToken = 0;
+async function runBgSearch(){
+  if (!guardDeck()) return;
+  const q = $('#bg-query').value.trim();
+  if (!q){ bgStatus('Type a search query first.'); return; }
+  const provs = Object.keys(PROVIDERS).filter(k => PROVIDERS[k].ready());
+  const token = ++bgSearchToken;
+  $('#bg-results').innerHTML = '';
+  bgStatus('Searching ' + provs.map(p => PROVIDERS[p].label).join(', ') + '…');
+
+  const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(q)));
+  if (token !== bgSearchToken) return;
+  const lists = settled.map(s2 => s2.status === 'fulfilled' ? s2.value : []);
+  const failedProvs = settled.map((s2, i) => s2.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean);
+  const merged = interleave(lists).slice(0, 48);
+
+  if (!merged.length){
+    bgStatus('No results.' + (failedProvs.length ? ` (${failedProvs.join(', ')} failed)` : ''), !!failedProvs.length);
+    return;
+  }
+
+  const grid = $('#bg-results');
+  const { shown, skipped } = await loadResultCells(grid, merged, bgResultCell,
+    n => bgStatus(`${n} image${n === 1 ? '' : 's'}…`), () => token !== bgSearchToken);
+  if (token !== bgSearchToken) return;
+  bgStatus(`${shown} image${shown === 1 ? '' : 's'}`
+    + (skipped ? ` · ${skipped} broken skipped` : '')
+    + (failedProvs.length ? ` · ${failedProvs.join(', ')} failed` : ''));
+}
+
+function bgStatus(msg, isErr){
+  const st = $('#bg-status');
+  if (!msg){ st.hidden = true; return; }
+  st.hidden = false;
+  st.textContent = msg;
+  st.classList.toggle('err', !!isErr);
+}
+
+async function setBackgroundFromResult(r){
+  if (!guardDeck()) return;
+  checkpoint();
+  toast('Setting background…', 6000);
+  let src = r.full;
+  try { await loadImageDim(src); }
+  catch (e) {
+    src = r.thumb;
+    try { await loadImageDim(src); }
+    catch (e2) { toast('That image failed to load — skipped'); return; }
+  }
+  state.deck.background = {
+    src, blur: +$('#bg-blur').value || 0,
+    attr: { title: r.title, author: r.author, authorUrl: r.authorUrl, license: r.license,
+            licenseUrl: r.licenseUrl, pageUrl: r.pageUrl, sourceName: r.sourceName },
+  };
+  showBgCurrent();
+  refreshAll();
+  toast('Background set' + (r.author ? ` — ${r.author} / ${r.sourceName}` : ''));
+
+  // Unsplash API guidelines: report the download
+  if (r.provider === 'unsplash' && r.downloadLocation && settings.unsplashKey){
+    fetch(r.downloadLocation, { headers: { Authorization: 'Client-ID ' + settings.unsplashKey } }).catch(() => {});
+  }
+  // embed as data-URL so exports are self-contained
+  await embedImage(state.deck.background);
+  showBgCurrent();
+  refreshAll();
+}
+
+/* reflect deck.background / deck.frame in the Background tab controls */
+function showBgCurrent(){
+  const bg = state.deck && state.deck.background;
+  const box = $('#bg-current');
+  if (!bg || !bg.src){ box.hidden = true; }
+  else {
+    box.hidden = false;
+    $('#bg-current-img').src = bg.src;
+    const a = bg.attr || {};
+    $('#bg-current-attr').innerHTML = a.author
+      ? `${escHTML(a.author)} · <span class="lic">${escHTML(a.license || '')}</span>` : '';
+  }
+  const blur = bg ? (bg.blur || 0) : 8;
+  $('#bg-blur').value = blur;
+  $('#bg-blur-val').textContent = blur + 'px';
+  $('#bg-frame').checked = !!(state.deck && state.deck.frame);
 }
 
 function fitRect(natW, natH, zone){
@@ -1893,6 +2039,36 @@ async function embedImage(im){
     if (blob.size > 7 * 1024 * 1024) return;        // too big for localStorage — keep the URL
     im.src = await blobToDataURL(blob);
   } catch (e) { /* CORS-blocked: keep remote URL; export will retry */ }
+}
+
+// Pre-bake a CSS-style blur(blurPx) for export formats that can't filter live.
+// blurPx is expressed in the 1280px-wide slide coordinate space (refW).
+function blurImageDataURL(src, blurPx, refW = 1280){
+  if (!blurPx) return Promise.resolve(src);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || refW, h = img.naturalHeight || Math.round(refW * 9 / 16);
+        const scaledBlur = blurPx * (w / refW);
+        // blur an oversized copy, then crop the inset center so the soft
+        // edges of the blur fall outside the cropped frame (matches the
+        // overflow-hidden trick used for the live CSS background).
+        const big = document.createElement('canvas');
+        big.width = Math.round(w * 1.1); big.height = Math.round(h * 1.1);
+        const bctx = big.getContext('2d');
+        bctx.filter = `blur(${scaledBlur}px)`;
+        bctx.drawImage(img, 0, 0, big.width, big.height);
+        const out = document.createElement('canvas');
+        out.width = w; out.height = h;
+        out.getContext('2d').drawImage(big, Math.round(w * 0.05), Math.round(h * 0.05), w, h, 0, 0, w, h);
+        resolve(out.toDataURL('image/jpeg', 0.88));
+      } catch (e) { resolve(src); }
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
 }
 
 /* ================= cutout (background removal) ================= */
@@ -2044,6 +2220,8 @@ async function ensureEmbedded(deck){
   for (const s of deck.slides)
     for (const im of s.images)
       if (!im.src.startsWith('data:')) jobs.push(embedImage(im));
+  if (deck.background && deck.background.src && !deck.background.src.startsWith('data:'))
+    jobs.push(embedImage(deck.background));
   if (jobs.length) await Promise.allSettled(jobs);
 }
 
@@ -2117,6 +2295,25 @@ async function exportPPTX(){
   const C = c => (c || '#000000').replace('#', '');
   const SERIF = 'Georgia', SANS = 'Arial';
 
+  const bg = deck.background;
+  const bgData = (bg && bg.src && bg.src.startsWith('data:'))
+    ? await blurImageDataURL(bg.src, bg.blur || 0) : null;
+  const addBackground = (sl, dark) => {
+    if (!bgData) return;
+    sl.addImage({ data: bgData, x: 0, y: 0, w: 13.333, h: 7.5, sizing: { type: 'cover', w: 13.333, h: 7.5 } });
+    sl.addShape('rect', { x: 0, y: 0, w: 13.333, h: 7.5,
+      fill: { color: C(dark ? pal.darkSolid : pal.lightSolid), transparency: dark ? 45 : 22 },
+      line: { type: 'none' } });
+  };
+  const addFrame = (sl, dark) => {
+    if (!deck.frame) return;
+    const onBg = !!bgData;
+    sl.addShape('rect', { x: I(16), y: I(16), w: I(1280 - 32), h: I(720 - 32),
+      fill: { type: 'none' },
+      line: { color: (onBg || dark) ? 'FFFFFF' : '141C2C', width: 0.75,
+              transparency: onBg ? 45 : (dark ? 65 : 86) } });
+  };
+
   const addLine = (sl, x1, y1, x2, y2, opt = {}) => {
     const dx = x2 - x1, dy = y2 - y1;
     sl.addShape('line', {
@@ -2132,6 +2329,7 @@ async function exportPPTX(){
     const dark = isDark(s);
     const sl = p.addSlide();
     sl.background = { color: C(dark ? pal.darkSolid : pal.lightSolid) };
+    addBackground(sl, dark);
     const ink = dark ? 'EDF3F9' : '17252F';
     const acc = C(dark ? pal.accent : pal.accentInk);
     const accBar = C(pal.accent);
@@ -2282,6 +2480,7 @@ async function exportPPTX(){
     if (attrs.length)
       sl.addText('Photo: ' + [...new Set(attrs)].join(' · '), { x: I(84), y: I(688), w: I(1000), h: I(24), fontSize: 7.5, color: dark ? '7E8FA0' : '8A98A6' });
     if (s.notes) sl.addNotes(s.notes);
+    addFrame(sl, dark);
   });
 
   // credits slide
@@ -2289,10 +2488,12 @@ async function exportPPTX(){
   if (attrs.length){
     const sl = p.addSlide();
     sl.background = { color: C(pal.darkSolid) };
+    addBackground(sl, true);
     sl.addShape('rect', { x: I(96), y: I(74), w: I(54), h: I(5), fill: { color: C(pal.accent) } });
     sl.addText('Image credits', { x: I(96), y: I(88), w: I(800), h: I(70), fontFace: SERIF, fontSize: 28, bold: true, color: 'EDF3F9' });
     sl.addText(attrs.map(a => `Slide ${a.slide} — ${a.author} · ${a.sourceName} · ${a.license}${a.pageUrl ? ' · ' + a.pageUrl : ''}`).join('\n'),
       { x: I(96), y: I(180), w: I(1090), h: I(480), fontSize: 10.5, color: 'C6D3DF', valign: 'top' });
+    addFrame(sl, true);
   }
 
   await p.writeFile({ fileName: safeName(deck.title) + '.pptx' });
@@ -2538,6 +2739,7 @@ function openDeck(deck){
   showScreen('editor');
   renderRail();
   selectSlide(0);
+  showBgCurrent();
   saveDeckNow();
 }
 
@@ -2744,6 +2946,37 @@ function wireUI(){
       if (autoImages){ lastAutoQuery = null; autoSearchSoon(); }
     });
   }
+
+  // background panel
+  $('#bg-go').addEventListener('click', () => runBgSearch());
+  $('#bg-query').addEventListener('keydown', e => { if (e.key === 'Enter') runBgSearch(); });
+  $('#bg-remove').addEventListener('click', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.background = null;
+    showBgCurrent();
+    refreshAll();
+  });
+  let blurCheckpointed = false;
+  $('#bg-blur').addEventListener('pointerdown', () => { blurCheckpointed = false; });
+  $('#bg-blur').addEventListener('input', () => {
+    $('#bg-blur-val').textContent = $('#bg-blur').value + 'px';
+    if (state.deck && state.deck.background){
+      if (!blurCheckpointed){ checkpoint(); blurCheckpointed = true; }
+      state.deck.background.blur = +$('#bg-blur').value;
+      renderEditor();
+      renderRail();
+    }
+  });
+  $('#bg-blur').addEventListener('change', () => {
+    if (state.deck && state.deck.background) save();
+  });
+  $('#bg-frame').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.frame = $('#bg-frame').checked;
+    refreshAll();
+  });
 
   // drop images onto the canvas
   const wrap = $('#canvas-wrap');

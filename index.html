@@ -169,6 +169,7 @@ Design: free-text notes
     <div class="ip-tabs">
       <button class="ip-tab current" data-tab="images">Images</button>
       <button class="ip-tab" data-tab="layout">Layout</button>
+      <button class="ip-tab" data-tab="background">Background</button>
     </div>
 
     <div id="tab-images" class="ip-tab-body">
@@ -202,6 +203,33 @@ Design: free-text notes
       <p class="panel-hint">Pick how this slide arranges its content. Your text and images flow into
       the new layout; fine-tune by dragging afterwards.</p>
       <div id="layout-list"></div>
+    </div>
+
+    <div id="tab-background" class="ip-tab-body" hidden>
+      <p class="panel-hint">Search for an HD photo to use as the background behind every slide.
+      Blur it so it stays out of the way, and add a thin frame for a polished look.</p>
+
+      <div id="bg-current" class="bg-current" hidden>
+        <img id="bg-current-img" alt="">
+        <div class="bg-current-info">
+          <div id="bg-current-attr" class="ip-meta"></div>
+          <button id="bg-remove" class="btn small danger">Remove background</button>
+        </div>
+      </div>
+
+      <label class="field">Blur <span id="bg-blur-val">8px</span>
+        <input id="bg-blur" type="range" min="0" max="20" step="1" value="8">
+      </label>
+      <label class="check">
+        <input type="checkbox" id="bg-frame"> Thin frame around the slide
+      </label>
+
+      <div class="ip-search">
+        <input id="bg-query" type="search" placeholder="Search background photos…">
+        <button id="bg-go" class="btn primary small">Search</button>
+      </div>
+      <div id="bg-status" class="status" hidden></div>
+      <div id="bg-results"></div>
     </div>
   </aside>
 </main>

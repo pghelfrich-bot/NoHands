@@ -73,10 +73,13 @@ Tied to the selected slide; the query is auto-seeded from that slide's `FIGURE` 
 
 - **Providers:** Openverse and Wikimedia Commons (keyless), plus Unsplash and Pexels with your own API keys (⚙ Settings; keys live only in your browser's localStorage). **No AI-generated images.**
 - **Auto-suggest:** opening a slide automatically shows the ~15 most relevant images (seeded from its FIGURE) so you can drop one in immediately — toggle with the **Auto** switch.
+- The search query is **simplified to the main subject** of the FIGURE text (dropping articles, age/gender modifiers, and "alternatively…" asides). If the FIGURE mentions alternates (e.g. "a peacock, alternatively a bird of paradise or a kingfisher"), those appear as **optional chips** above the results — check one to also search for that subject and merge its results in.
 - Results are shown **one per row at full size** (never cropped or overlapping) with the **author and license** beneath each. Attribution is stored with the image, shown as a credit line on the slide, and carried into every export (plus an auto-generated *Image credits* slide).
 - Thumbnails that fail to load are **silently skipped** — you only see images that work.
 - Insert by **click or drag** onto the slide. Inserted images are embedded as data-URLs so exports are self-contained (Unsplash inserts also ping the official download endpoint per API guidelines).
 - **Cutout** — toggle in the panel (applies on insert) or the ✂ button (selected image): removes the background so the subject floats over the slide. Uses remove.bg if you add a key in Settings, otherwise a built-in in-browser remover that **region-grows along colour gradients** with feathered edges, so it handles coloured and softly-varying backgrounds, not just flat white. Toggle off restores the original.
+
+The **Background tab** lets you search the same licensed sources for an HD photo to use as a deck-wide background behind every slide, with a **blur slider** to keep it from competing with your content and an optional **thin frame** just inside the slide edges for a polished look. Applies across the editor, present mode, and every export.
 
 ### 4. Editing
 
