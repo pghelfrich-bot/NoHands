@@ -259,7 +259,19 @@ let panelSeedFor = null;
 
 function blankSlide(type = 'content'){
   return { id: uid(), type, headline:'', callout:'', figure:'', notes:'',
-           theme:null, annotations:[], images:[] };
+           theme:null, layout:null, annotations:[], images:[], boxes:{}, texts:[] };
+}
+/* fill in fields added in later versions so older saved decks keep working */
+function migrateDeck(d){
+  if (!d || !d.slides) return d;
+  for (const s of d.slides){
+    if (!s.boxes) s.boxes = {};
+    if (!s.texts) s.texts = [];
+    if (s.layout === undefined) s.layout = null;
+    if (!Array.isArray(s.annotations)) s.annotations = [];
+    if (!Array.isArray(s.images)) s.images = [];
+  }
+  return d;
 }
 function newDeck(){
   return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[] };
@@ -287,7 +299,7 @@ function saveDeckNow(){
 const save = debounce(saveDeckNow, 400);
 
 function loadDeck(id){
-  try { return JSON.parse(localStorage.getItem(LS.deck(id))); } catch (e) { return null; }
+  try { return migrateDeck(JSON.parse(localStorage.getItem(LS.deck(id)))); } catch (e) { return null; }
 }
 function deleteDeck(id){
   localStorage.removeItem(LS.deck(id));
@@ -533,6 +545,7 @@ function renderSlide(slide, deck, opts = {}){
     renderAnnotations(root, slide, opts);
     drawConnectors(root, slide, accLine);
   }
+  renderTexts(root, slide, opts);
   renderFooter(root, slide, deck, pal, dark, opts);
   return root;
 }
@@ -549,29 +562,51 @@ function motifSVG(pal, dark){
 function editable(node, key, opts){
   if (!opts.editor) return node;
   node.dataset.edit = key;
-  try { node.contentEditable = 'plaintext-only'; }
-  catch (e) { node.contentEditable = 'true'; }
-  node.spellcheck = false;
+  node.dataset.editable = '1';
+  return node;
+}
+
+/* A positioned text box whose geometry (x, y, width, font-size) and
+   visibility can be overridden per slide and edited on the canvas.
+   `def` supplies the layout default; slide.boxes[key] supplies overrides.
+   Returns null when the user has deleted (hidden) the box. */
+function mkBox(slide, key, def, content, css, opts){
+  const o = (slide.boxes && slide.boxes[key]) || {};
+  if (o.hidden) return null;
+  const x = o.x != null ? o.x : def.x;
+  const y = o.y != null ? o.y : def.y;
+  const w = o.w != null ? o.w : def.w;
+  const fs = o.fs != null ? o.fs : def.fs;
+  const node = el('div', 'lf-box', `position:absolute;left:${x}px;top:${y}px;width:${w}px;`
+    + (fs != null ? `font-size:${fs}px;` : '') + `z-index:${def.z || 5};` + (css || ''));
+  node.dataset.box = key;
+  node.dataset.sel = 'box:' + key;
+  if (content != null) node.textContent = content;
+  if (opts && opts.editor){
+    node.dataset.edit = (opts.editKey || key);
+    node.dataset.editable = '1';
+  }
   return node;
 }
 
 function renderTitle(root, slide, deck, pal, dark, opts){
-  const wrap = el('div', '', `position:absolute;left:96px;top:0;bottom:40px;width:1010px;
-    display:flex;flex-direction:column;justify-content:center;gap:26px;z-index:5;`);
   const kicker = deck.date || 'Lecture';
-  wrap.appendChild(el('div', '', `font-size:16px;letter-spacing:3.5px;text-transform:uppercase;
-    opacity:.8;color:${pal.accent2};font-weight:600;`, kicker));
-  wrap.appendChild(el('div', '', `width:64px;height:5px;border-radius:3px;background:${pal.accent};`));
+  appendBox(root, mkBox(slide, 'kicker', { x: 96, y: 232, w: 1010, fs: 16, z: 5 }, kicker,
+    `letter-spacing:3.5px;text-transform:uppercase;opacity:.8;color:${pal.accent2};font-weight:600;`,
+    { ...opts, editKey: 'date' }));
+  root.appendChild(el('div', '', `position:absolute;left:96px;top:272px;width:64px;height:5px;
+    border-radius:3px;background:${pal.accent};z-index:5;`));
   const txt = slide.headline || deck.title;
-  const size = txt.length > 48 ? 56 : 74;
-  wrap.appendChild(editable(el('div', 'serif',
-    `font-size:${size}px;line-height:1.06;font-weight:600;max-width:980px;`, txt), 'headline', opts));
+  appendBox(root, withSerif(mkBox(slide, 'headline',
+    { x: 96, y: 292, w: 1000, fs: txt.length > 48 ? 56 : 74, z: 5 },
+    txt, 'line-height:1.06;font-weight:600;', opts)));
   if (deck.presenter || opts.editor){
-    wrap.appendChild(editable(el('div', '', 'font-size:22px;opacity:.78;',
-      deck.presenter || 'Presenter name'), 'presenter', opts));
+    appendBox(root, mkBox(slide, 'presenter', { x: 96, y: 470, w: 900, fs: 22, z: 5 },
+      deck.presenter || 'Presenter name', 'opacity:.78;', { ...opts, editKey: 'presenter' }));
   }
-  root.appendChild(wrap);
 }
+function withSerif(node){ if (node) node.classList.add('serif'); return node; }
+function appendBox(root, node){ if (node) root.appendChild(node); return node; }
 
 function renderRoadmap(root, slide, deck, pal, dark, opts){
   root.appendChild(editable(el('div', 'serif',
@@ -623,24 +658,23 @@ function renderSection(root, slide, deck, pal, dark, opts){
   root.appendChild(el('div', '', `position:absolute;left:96px;top:266px;font-size:15px;letter-spacing:4px;
     text-transform:uppercase;font-weight:650;z-index:5;color:${dark ? pal.accent2 : pal.accentInk};`,
     'Part ' + pad2(partNo)));
-  root.appendChild(editable(el('div', 'serif',
-    'position:absolute;left:96px;top:298px;width:820px;font-size:62px;font-weight:600;line-height:1.1;z-index:5;',
-    slide.headline || 'Section'), 'headline', opts));
-  if (opts.editor && slide.figure && !slide.images.length) addFigHint(root, slide, 'right:80px;top:80px;width:300px;');
+  appendBox(root, withSerif(mkBox(slide, 'headline', { x: 96, y: 298, w: 820, fs: 62, z: 5 },
+    slide.headline || 'Section', 'font-weight:600;line-height:1.1;', opts)));
+  if (opts.editor && slide.figure && !slide.images.length)
+    addFigHint(root, slide, { x: 900, y: 80, w: 300 });
 }
 
 function renderTakeaway(root, slide, deck, pal, dark, opts){
-  const wrap = el('div', '', `position:absolute;inset:0 150px 90px 150px;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:28px;z-index:5;text-align:center;`);
-  wrap.appendChild(el('div', '', `width:64px;height:5px;border-radius:3px;background:${pal.accent};`));
+  root.appendChild(el('div', '', `position:absolute;left:608px;top:188px;width:64px;height:5px;
+    border-radius:3px;background:${pal.accent};z-index:5;`));
   const txt = slide.headline || 'The one thing to remember';
-  wrap.appendChild(editable(el('div', 'serif',
-    `font-size:${txt.length > 90 ? 42 : 54}px;font-weight:600;line-height:1.18;`, txt), 'headline', opts));
+  appendBox(root, withSerif(mkBox(slide, 'headline', { x: 150, y: 232, w: 980, fs: txt.length > 90 ? 42 : 54, z: 5 },
+    txt, 'font-weight:600;line-height:1.18;text-align:center;', opts)));
   if (slide.callout || opts.editor){
-    wrap.appendChild(editable(el('div', '', 'font-size:22px;opacity:.78;font-style:italic;max-width:880px;',
-      slide.callout || (opts.editor ? 'Optional supporting line (CALLOUT)' : '')), 'callout', opts));
+    appendBox(root, mkBox(slide, 'callout', { x: 200, y: 470, w: 880, fs: 22, z: 5 },
+      slide.callout || (opts.editor ? 'Optional supporting line (CALLOUT)' : ''),
+      'opacity:.78;font-style:italic;text-align:center;', opts));
   }
-  root.appendChild(wrap);
   if (slide.annotations.length){
     root.appendChild(el('div', '', `position:absolute;left:0;right:0;bottom:54px;text-align:center;
       font-size:16px;letter-spacing:.6px;opacity:.72;z-index:5;`,
@@ -653,9 +687,9 @@ function renderContent(root, slide, deck, pal, dark, opts){
   const annotated = slide.images.length && slide.annotations.length;
   root.appendChild(el('div', '', `position:absolute;left:80px;top:50px;width:54px;height:5px;
     border-radius:3px;background:${pal.accent};z-index:5;`));
-  root.appendChild(editable(el('div', 'serif', `position:absolute;left:80px;top:64px;
-    width:${annotated ? 620 : 1120}px;font-size:38px;font-weight:650;line-height:1.14;z-index:5;`,
-    slide.headline || 'Slide headline'), 'headline', opts));
+  appendBox(root, withSerif(mkBox(slide, 'headline',
+    { x: 80, y: 64, w: annotated ? 620 : 1120, fs: 38, z: 5 },
+    slide.headline || 'Slide headline', 'font-weight:650;line-height:1.14;', opts)));
 
   if (!slide.images.length && slide.annotations.length){
     // no figure → clean multi-panel layout (never an empty image box)
@@ -677,17 +711,29 @@ function renderContent(root, slide, deck, pal, dark, opts){
 
   if (slide.callout){
     const w = annotated ? 380 : 800;
-    root.appendChild(editable(el('div', 'lf-callout',
-      `left:80px;bottom:${annotated ? 88 : 48}px;max-width:${w}px;`, slide.callout), 'callout', opts));
+    const cy = annotated ? 540 : 600;
+    appendBox(root, mkBox(slide, 'callout', { x: 80, y: cy, w, fs: 18, z: 35 }, slide.callout,
+      'border-left:4px solid var(--lf-accent);padding:10px 16px;line-height:1.45;font-style:italic;'
+      + 'border-radius:0 10px 10px 0;' + calloutBg(dark), opts));
   }
   if (opts.editor && slide.figure && !slide.images.length){
     addFigHint(root, slide, slide.annotations.length
-      ? 'right:80px;top:58px;width:330px;' : 'left:425px;top:300px;width:430px;');
+      ? { x: 870, y: 58, w: 330 } : { x: 425, y: 300, w: 430 });
   }
 }
+function calloutBg(dark){
+  return dark ? 'background:rgba(255,255,255,.06);'
+              : 'background:rgba(255,255,255,.88);color:#22323e;box-shadow:0 6px 16px rgba(15,30,45,.07);';
+}
 
-function addFigHint(root, slide, pos){
-  const hint = el('div', 'lf-fighint', pos);
+function addFigHint(root, slide, def){
+  const o = (slide.boxes && slide.boxes.fig) || {};
+  if (o.hidden) return;
+  const x = o.x != null ? o.x : def.x, y = o.y != null ? o.y : def.y, w = o.w != null ? o.w : def.w;
+  const hint = el('div', 'lf-fighint lf-box', `position:absolute;left:${x}px;top:${y}px;width:${w}px;z-index:6;`);
+  hint.dataset.box = 'fig';
+  hint.dataset.sel = 'box:fig';
+  hint.dataset.fighint = '1';
   hint.appendChild(el('div', '', 'font-weight:650;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;opacity:.8;', 'Suggested figure — click to search'));
   hint.appendChild(el('div', '', 'margin-top:4px;', slide.figure));
   root.appendChild(hint);
@@ -695,15 +741,16 @@ function addFigHint(root, slide, pos){
 
 function renderImages(root, slide, opts){
   slide.images.forEach((im, i) => {
+    const z = im.z != null ? im.z : 10 + i;
     const node = el('div', 'lf-img ' + (im.cutout ? 'cut' : 'photo'),
-      `left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px;z-index:${10 + i};`);
+      `left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px;z-index:${z};`);
     node.dataset.id = im.id;
+    node.dataset.sel = 'img:' + im.id;
     const img = document.createElement('img');
     img.src = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
     img.alt = (im.attr && im.attr.title) || '';
     img.draggable = false;
     node.appendChild(img);
-    if (opts.editor) node.appendChild(el('div', 'lf-resize'));
     root.appendChild(node);
   });
 }
@@ -711,10 +758,12 @@ function renderImages(root, slide, opts){
 function renderAnnotations(root, slide, opts){
   slide.annotations.forEach((a, i) => {
     const p = annPos(slide, i);
-    const node = el('div', 'lf-ann', `left:${p.x}px;top:${p.y}px;`);
+    const node = el('div', 'lf-ann lf-box', `left:${p.x}px;top:${p.y}px;`
+      + (a.w != null ? `width:${a.w}px;` : '') + (a.fs != null ? `font-size:${a.fs}px;` : ''));
     node.dataset.id = a.id;
+    node.dataset.sel = 'ann:' + a.id;
     const inner = el('div', 'lf-ann-text', '', a.text);
-    inner.dataset.edit = 'ann:' + a.id;   // editing enabled on dblclick
+    if (opts.editor){ inner.dataset.edit = 'ann:' + a.id; inner.dataset.editable = '1'; }
     node.appendChild(inner);
     node.title = a.full && a.full !== a.text ? a.full : '';
     root.appendChild(node);
@@ -755,6 +804,18 @@ function drawConnectors(root, slide, color){
   const svg = svgEl(inner, 'lf-conn');
   svg.dataset.role = 'ann';
   root.appendChild(svg);
+}
+
+function renderTexts(root, slide, opts){
+  (slide.texts || []).forEach(t => {
+    const node = el('div', 'lf-box', `position:absolute;left:${t.x}px;top:${t.y}px;width:${t.w}px;`
+      + `font-size:${t.fs || 24}px;font-weight:600;line-height:1.3;z-index:60;`
+      + (t.italic ? 'font-style:italic;' : ''));
+    node.dataset.sel = 'text:' + t.id;
+    node.textContent = t.text;
+    if (opts.editor){ node.dataset.edit = 'text:' + t.id; node.dataset.editable = '1'; }
+    root.appendChild(node);
+  });
 }
 
 function renderFooter(root, slide, deck, pal, dark, opts){
@@ -845,17 +906,53 @@ function renderEditor(){
   applySelection(node);
 }
 
+/* resolve the current selection (a string like 'img:ID' / 'ann:ID' / 'box:KEY')
+   to the object whose geometry we read & write */
+function selInfo(slide, sel){
+  if (!sel) return null;
+  if (sel.startsWith('img:')){
+    const obj = slide.images.find(x => x.id === sel.slice(4));
+    return obj && { type: 'img', obj, isImg: true };
+  }
+  if (sel.startsWith('ann:')){
+    const obj = slide.annotations.find(x => x.id === sel.slice(4));
+    return obj && { type: 'ann', obj, isText: true };
+  }
+  if (sel.startsWith('box:')){
+    slide.boxes = slide.boxes || {};
+    const key = sel.slice(4);
+    const obj = slide.boxes[key] || (slide.boxes[key] = {});
+    return { type: 'box', key, obj, isText: true, isFig: key === 'fig' };
+  }
+  return null;
+}
+
+const HANDLE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+function addHandles(node){
+  if (node.querySelector('.lf-h')) return;
+  for (const dir of HANDLE_DIRS){
+    const h = el('div', 'lf-h lf-h-' + dir);
+    h.dataset.dir = dir;
+    node.appendChild(h);
+  }
+}
+
 function applySelection(root){
-  root.querySelectorAll('.selected').forEach(n => n.classList.remove('selected'));
+  root.querySelectorAll('.lf-box.selected,.lf-img.selected').forEach(n => {
+    n.classList.remove('selected');
+    n.querySelectorAll('.lf-h').forEach(h => h.remove());
+  });
+  let info = null;
   if (state.sel){
-    const n = root.querySelector(`[data-id="${state.sel.id}"]`);
-    if (n) n.classList.add('selected');
+    const n = root.querySelector(`[data-sel="${state.sel}"]`);
+    if (n){ n.classList.add('selected'); addHandles(n); info = selInfo(cur(), state.sel); }
     else state.sel = null;
   }
   const tools = $('#sel-tools');
   tools.hidden = !state.sel;
-  $('#sel-cutout').disabled = !state.sel || state.sel.kind !== 'img';
-  $('#sel-front').disabled = $('#sel-back').disabled = !state.sel || state.sel.kind !== 'img';
+  const isImg = info && info.isImg;
+  $('#sel-cutout').disabled = !isImg;
+  $('#sel-front').disabled = $('#sel-back').disabled = !isImg;
 }
 
 function setSel(sel){
@@ -869,58 +966,36 @@ function wireSlideEditing(root, slide){
   const accLine = isDark(slide) ? pal.accent : pal.accentInk;
 
   root.addEventListener('pointerdown', e => {
-    if (e.target.closest('.lf-resize')) return;
-    const imgEl = e.target.closest('.lf-img');
-    const annEl = e.target.closest('.lf-ann');
-    const node = imgEl || annEl;
+    const handle = e.target.closest('.lf-h');
+    if (handle){
+      const node = handle.closest('[data-sel]');
+      const info = selInfo(slide, node && node.dataset.sel);
+      if (info) startResize(e, handle.dataset.dir, node, slide, info, root, accLine);
+      return;
+    }
+    const node = e.target.closest('[data-sel]');
     if (!node){
       if (!e.target.closest('[contenteditable="true"],[contenteditable="plaintext-only"]')) setSel(null);
       return;
     }
+    // already editing this element's text → let the caret work
     if (document.activeElement && node.contains(document.activeElement) && document.activeElement.isContentEditable) return;
     e.preventDefault();
-    setSel({ kind: imgEl ? 'img' : 'ann', id: node.dataset.id });
-    beginDrag(e, node, slide, accLine, root);
+    setSel(node.dataset.sel);
+    const info = selInfo(slide, node.dataset.sel);
+    if (info) startMove(e, node, slide, info, root, accLine);
   });
 
-  // resize handles
-  root.querySelectorAll('.lf-img .lf-resize').forEach(h => {
-    h.addEventListener('pointerdown', e => {
-      e.stopPropagation(); e.preventDefault();
-      const node = h.closest('.lf-img');
-      const im = slide.images.find(x => x.id === node.dataset.id);
-      if (!im) return;
-      checkpoint();
-      const sx = e.clientX, ow = im.w, ratio = im.h / im.w;
-      h.setPointerCapture(e.pointerId);
-      const move = ev => {
-        const nw = clamp(ow + (ev.clientX - sx) / viewScale, 50, 1500);
-        im.w = Math.round(nw); im.h = Math.round(nw * ratio);
-        node.style.width = im.w + 'px'; node.style.height = im.h + 'px';
-        drawConnectors(root, slide, accLine);
-      };
-      const up = () => {
-        h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up);
-        commitChange();
-      };
-      h.addEventListener('pointermove', move);
-      h.addEventListener('pointerup', up);
-    });
+  // double-click any editable text to edit in place
+  root.addEventListener('dblclick', e => {
+    const ed = e.target.closest('[data-edit]');
+    if (!ed) return;
+    try { ed.contentEditable = 'plaintext-only'; } catch (err) { ed.contentEditable = 'true'; }
+    ed.focus();
+    const r = document.createRange(); r.selectNodeContents(ed);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
   });
 
-  // dblclick = edit annotation label text
-  root.querySelectorAll('.lf-ann').forEach(n => {
-    n.addEventListener('dblclick', () => {
-      const inner = n.querySelector('.lf-ann-text');
-      if (!inner) return;
-      try { inner.contentEditable = 'plaintext-only'; } catch (e) { inner.contentEditable = 'true'; }
-      inner.focus();
-      const r = document.createRange(); r.selectNodeContents(inner);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    });
-  });
-
-  // text edits — snapshot once when an edit begins
   root.addEventListener('focusin', e => {
     const ed = e.target.closest ? e.target.closest('[data-edit]') : null;
     if (ed && ed.isContentEditable) checkpoint();
@@ -929,7 +1004,7 @@ function wireSlideEditing(root, slide){
     const ed = e.target.closest ? e.target.closest('[data-edit]') : null;
     if (!ed || !ed.isContentEditable) return;
     applyEdit(slide, ed.dataset.edit, ed.textContent.trim());
-    if (ed.classList.contains('lf-ann-text')) ed.contentEditable = 'false';
+    ed.contentEditable = 'false';
     drawConnectors(root, slide, accLine);
     refreshRailThumb(state.cur);
     save();
@@ -939,50 +1014,84 @@ function wireSlideEditing(root, slide){
       e.preventDefault(); e.target.blur();
     }
   });
-
-  // figure hint → seed + run the image search
-  const hint = root.querySelector('.lf-fighint');
-  if (hint) hint.addEventListener('click', () => {
-    $('#ip-query').value = slide.figure || slide.headline;
-    runImageSearch();
-  });
 }
 
-function beginDrag(e, node, slide, accLine, root){
-  const id = node.dataset.id;
-  const isImg = node.classList.contains('lf-img');
-  const obj = isImg ? slide.images.find(x => x.id === id)
-                    : slide.annotations.find(x => x.id === id);
-  if (!obj) return;
+function startMove(e, node, slide, info, root, accLine){
   const sx = e.clientX, sy = e.clientY;
-  const ox = parseFloat(node.style.left), oy = parseFloat(node.style.top);
+  const ox = node.offsetLeft, oy = node.offsetTop;
   let moved = false;
   node.setPointerCapture(e.pointerId);
   const move = ev => {
-    const nx = ox + (ev.clientX - sx) / viewScale;
-    const ny = oy + (ev.clientY - sy) / viewScale;
     if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return;
-    if (!moved) checkpoint();
-    moved = true;
-    obj.x = Math.round(clamp(nx, -200, SLIDE_W - 40));
-    obj.y = Math.round(clamp(ny, -120, SLIDE_H - 30));
-    node.style.left = obj.x + 'px'; node.style.top = obj.y + 'px';
-    if (slide.type === 'content') drawConnectors(root, slide, accLine);
+    if (!moved){ checkpoint(); moved = true; }
+    const nx = Math.round(clamp(ox + (ev.clientX - sx) / viewScale, -300, SLIDE_W - 30));
+    const ny = Math.round(clamp(oy + (ev.clientY - sy) / viewScale, -200, SLIDE_H - 20));
+    node.style.left = nx + 'px'; node.style.top = ny + 'px';
+    Object.assign(info.obj, { x: nx, y: ny });
+    drawConnectors(root, slide, accLine);
   };
   const up = () => {
     node.removeEventListener('pointermove', move);
     node.removeEventListener('pointerup', up);
     if (moved) commitChange();
+    else if (info.isFig){ $('#ip-query').value = slide.figure || slide.headline || ''; lastAutoQuery = null; runImageSearch(); }
+  };
+  node.addEventListener('pointermove', move);
+  node.addEventListener('pointerup', up);
+}
+
+function startResize(e, dir, node, slide, info, root, accLine){
+  e.stopPropagation(); e.preventDefault();
+  checkpoint();
+  const sx = e.clientX, sy = e.clientY;
+  const x0 = node.offsetLeft, y0 = node.offsetTop, w0 = node.offsetWidth, h0 = node.offsetHeight;
+  const fs0 = parseFloat(getComputedStyle(node).fontSize) || 20;
+  const ratio = w0 / Math.max(1, h0);
+  node.setPointerCapture(e.pointerId);
+  const move = ev => {
+    const dx = (ev.clientX - sx) / viewScale, dy = (ev.clientY - sy) / viewScale;
+    let nx = x0, ny = y0, nw = w0, nh = h0;
+    if (dir.includes('e')) nw = w0 + dx;
+    if (dir.includes('w')){ nw = w0 - dx; nx = x0 + dx; }
+    if (dir.includes('s')) nh = h0 + dy;
+    if (dir.includes('n')){ nh = h0 - dy; ny = y0 + dy; }
+    nw = Math.max(40, nw); nh = Math.max(22, nh);
+    if (info.isImg){
+      if (dir.length === 2){ nh = nw / ratio; if (dir.includes('n')) ny = y0 + (h0 - nh); }
+      node.style.left = Math.round(nx) + 'px'; node.style.top = Math.round(ny) + 'px';
+      node.style.width = Math.round(nw) + 'px'; node.style.height = Math.round(nh) + 'px';
+      Object.assign(info.obj, { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) });
+    } else {
+      const patch = { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw) };
+      node.style.left = patch.x + 'px'; node.style.top = patch.y + 'px'; node.style.width = patch.w + 'px';
+      // vertical / corner drags rescale the text
+      if (dir.includes('n') || dir.includes('s')){
+        const nfs = clamp(Math.round(fs0 * nh / h0), 8, 200);
+        node.style.fontSize = nfs + 'px';
+        patch.fs = nfs;
+      }
+      Object.assign(info.obj, patch);
+    }
+    drawConnectors(root, slide, accLine);
+  };
+  const up = () => {
+    node.removeEventListener('pointermove', move);
+    node.removeEventListener('pointerup', up);
+    commitChange();
   };
   node.addEventListener('pointermove', move);
   node.addEventListener('pointerup', up);
 }
 
 function applyEdit(slide, key, val){
-  if (key === 'headline')      slide.headline = val;
-  else if (key === 'callout')  slide.callout = val;
+  if (key === 'headline')       slide.headline = val;
+  else if (key === 'callout')   slide.callout = val;
   else if (key === 'presenter') state.deck.presenter = val;
-  else if (key.startsWith('ann:')){
+  else if (key === 'date')      state.deck.date = val;
+  else if (key.startsWith('text:')){
+    const t = (slide.texts || []).find(x => x.id === key.slice(5));
+    if (t) t.text = val;
+  } else if (key.startsWith('ann:')){
     const a = slide.annotations.find(x => x.id === key.slice(4));
     if (a) a.text = val;
   } else if (key.startsWith('annfull:')){
@@ -999,19 +1108,37 @@ function commitChange(){
 function deleteSelected(){
   const s = cur();
   if (!s || !state.sel) return;
-  if (state.sel.kind === 'img') s.images = s.images.filter(i => i.id !== state.sel.id);
-  else s.annotations = s.annotations.filter(a => a.id !== state.sel.id);
+  const info = selInfo(s, state.sel);
+  if (!info) return;
+  if (info.type === 'img')      s.images = s.images.filter(i => ('img:' + i.id) !== state.sel);
+  else if (info.type === 'ann') s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== state.sel);
+  else if (info.type === 'box'){
+    if (info.key.startsWith('text:')) s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== info.key);
+    else { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
+  }
   state.sel = null;
   refreshAll();
 }
 
 function reorderImage(dir){
   const s = cur();
-  if (!s || !state.sel || state.sel.kind !== 'img') return;
-  const i = s.images.findIndex(x => x.id === state.sel.id);
+  if (!s || !state.sel || !state.sel.startsWith('img:')) return;
+  const i = s.images.findIndex(x => ('img:' + x.id) === state.sel);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= s.images.length) return;
   [s.images[i], s.images[j]] = [s.images[j], s.images[i]];
+  refreshAll();
+}
+
+/* add a free-floating text box the user can place anywhere */
+function addTextBox(){
+  const s = cur();
+  if (!s) return;
+  checkpoint();
+  s.texts = s.texts || [];
+  const t = { id: uid(), text: 'Text', x: 480, y: 320, w: 320, fs: 26 };
+  s.texts.push(t);
+  state.sel = 'text:' + t.id;
   refreshAll();
 }
 
@@ -1937,13 +2064,15 @@ function wireUI(){
   $('#sel-delete').addEventListener('click', () => { checkpoint(); deleteSelected(); });
   $('#sel-cutout').addEventListener('click', async () => {
     const s = cur();
-    if (!s || !state.sel || state.sel.kind !== 'img') return;
-    const im = s.images.find(x => x.id === state.sel.id);
+    if (!s || !state.sel || !state.sel.startsWith('img:')) return;
+    const im = s.images.find(x => ('img:' + x.id) === state.sel);
     if (!im) return;
     checkpoint();
     await applyCutout(im);
     refreshAll();
   });
+  const addTextBtn = $('#btn-add-text');
+  if (addTextBtn) addTextBtn.addEventListener('click', addTextBox);
 
   // undo / redo
   $('#btn-undo').addEventListener('click', undo);

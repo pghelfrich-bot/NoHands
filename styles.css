@@ -276,16 +276,24 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 #print-area{display:none}
 
 /* ---------- editor-only affordances on the slide ---------- */
+#canvas .lf-img,#canvas .lf-box{cursor:grab}
+#canvas .lf-img:active,#canvas .lf-box:active{cursor:grabbing}
 #canvas .lf-img.selected{outline:2px solid #38bdf8;outline-offset:1px}
-#canvas .lf-ann.selected{outline:2px dashed #38bdf8;outline-offset:3px;border-radius:4px}
-#canvas .lf-img,#canvas .lf-ann{cursor:grab}
-#canvas .lf-img:active,#canvas .lf-ann:active{cursor:grabbing}
-#canvas .lf-resize{
-  position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;border-radius:4px;
-  background:#38bdf8;border:2px solid #fff;cursor:nwse-resize;display:none;z-index:99;
-}
-#canvas .lf-img.selected .lf-resize{display:block}
-#canvas [contenteditable]:hover{outline:1px dashed rgba(56,189,248,.55);outline-offset:3px;border-radius:3px}
-#canvas [contenteditable]:focus{outline:2px solid #38bdf8;outline-offset:3px;border-radius:3px}
+#canvas .lf-box.selected{outline:2px dashed #38bdf8;outline-offset:3px;border-radius:4px}
+#canvas [data-editable]:hover{outline:1px dashed rgba(56,189,248,.5);outline-offset:3px;border-radius:3px}
+#canvas [contenteditable]:focus{outline:2px solid #38bdf8;outline-offset:3px;border-radius:3px;cursor:text}
 #canvas .lf-fighint{cursor:pointer}
-#canvas .lf-fighint:hover{filter:brightness(1.15)}
+
+/* 8-direction resize handles on the selected element */
+#canvas .lf-h{
+  position:absolute;width:12px;height:12px;border-radius:3px;
+  background:#38bdf8;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);z-index:120;
+}
+#canvas .lf-h-nw{left:-6px;top:-6px;cursor:nwse-resize}
+#canvas .lf-h-n {left:50%;top:-6px;transform:translateX(-50%);cursor:ns-resize}
+#canvas .lf-h-ne{right:-6px;top:-6px;cursor:nesw-resize}
+#canvas .lf-h-e {right:-6px;top:50%;transform:translateY(-50%);cursor:ew-resize}
+#canvas .lf-h-se{right:-6px;bottom:-6px;cursor:nwse-resize}
+#canvas .lf-h-s {left:50%;bottom:-6px;transform:translateX(-50%);cursor:ns-resize}
+#canvas .lf-h-sw{left:-6px;bottom:-6px;cursor:nesw-resize}
+#canvas .lf-h-w {left:-6px;top:50%;transform:translateY(-50%);cursor:ew-resize}
