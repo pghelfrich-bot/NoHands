@@ -92,6 +92,24 @@ Design: free-text notes
   </div>
 </main>
 
+<!-- ===================== HOME SCREEN ===================== -->
+<main id="screen-home" class="screen" hidden>
+  <aside id="home-side">
+    <h2>Folders</h2>
+    <ul id="folder-list"></ul>
+    <button id="btn-new-folder" class="btn small wide">＋ New folder</button>
+  </aside>
+  <section id="home-main">
+    <div id="home-head">
+      <h1 id="home-title">All decks</h1>
+      <span class="spacer"></span>
+      <button id="btn-import-deck" class="btn ghost">Import deck</button>
+      <button id="btn-new-deck" class="btn primary">＋ New deck</button>
+    </div>
+    <div id="home-grid"></div>
+  </section>
+</main>
+
 <!-- ===================== EDITOR SCREEN ===================== -->
 <main id="screen-editor" class="screen" hidden>
 
@@ -225,6 +243,7 @@ Design: free-text notes
 
 <div id="print-area" aria-hidden="true"></div>
 <input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
+<input type="file" id="file-import" accept=".json,application/json" hidden>
 <div id="toast" hidden></div>
 
 <script src="app.js"></script>

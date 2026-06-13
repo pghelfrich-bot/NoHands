@@ -16,6 +16,7 @@ const LS = {
   settings: 'lectureflow.settings',
   index:    'lectureflow.decks',
   current:  'lectureflow.current',
+  folders:  'lectureflow.folders',
   deck:   id => 'lectureflow.deck.' + id,
 };
 
@@ -283,14 +284,23 @@ function isDark(slide){ return slide.theme ? slide.theme === 'dark' : slide.type
 function deckIndex(){
   try { return JSON.parse(localStorage.getItem(LS.index) || '[]'); } catch (e) { return []; }
 }
+function saveIndex(idx){ localStorage.setItem(LS.index, JSON.stringify(idx.slice(0, 100))); }
+function folders(){
+  try { return JSON.parse(localStorage.getItem(LS.folders) || '[]'); } catch (e) { return []; }
+}
+function saveFolders(f){ localStorage.setItem(LS.folders, JSON.stringify(f)); }
+
 function saveDeckNow(){
   const d = state.deck;
   if (!d) return;
   try {
     localStorage.setItem(LS.deck(d.id), JSON.stringify(d));
-    const idx = deckIndex().filter(e => e.id !== d.id);
-    idx.unshift({ id: d.id, title: d.title || 'Untitled deck', updated: Date.now(), count: d.slides.length });
-    localStorage.setItem(LS.index, JSON.stringify(idx.slice(0, 50)));
+    const all = deckIndex();
+    const prev = all.find(e => e.id === d.id);
+    const idx = all.filter(e => e.id !== d.id);
+    idx.unshift({ id: d.id, title: d.title || 'Untitled deck', updated: Date.now(),
+                  count: d.slides.length, folder: prev ? (prev.folder || null) : null });
+    saveIndex(idx);
     localStorage.setItem(LS.current, d.id);
   } catch (e) {
     toast('Could not save (browser storage full?) — large images count against the quota');
@@ -1923,9 +1933,191 @@ function renderPresent(){
 /* ================= screens & UI wiring ================= */
 
 function showScreen(which){
+  $('#screen-home').hidden = which !== 'home';
   $('#screen-outline').hidden = which !== 'outline';
   $('#screen-editor').hidden = which !== 'editor';
-  if (which === 'editor'){ fitCanvas(); }
+  document.body.dataset.screen = which;
+  // editor-only topbar controls
+  const editorOnly = ['#deck-title', '#btn-undo', '#btn-redo', '#btn-outline', '#btn-present'];
+  editorOnly.forEach(s => { const n = $(s); if (n) n.style.display = which === 'editor' ? '' : 'none'; });
+  const exp = $('#btn-export').closest('.dropdown');
+  if (exp) exp.style.display = which === 'editor' ? '' : 'none';
+  if (which === 'editor') fitCanvas();
+  if (which === 'home') renderHome();
+}
+
+/* ================= home screen (decks + folders) ================= */
+
+let homeFolder = 'all';   // 'all' | folder id
+
+function renderHome(){
+  renderFolderList();
+  renderDeckGrid();
+}
+
+function renderFolderList(){
+  const list = $('#folder-list');
+  list.innerHTML = '';
+  const idx = deckIndex();
+  const fs = folders();
+  const mk = (id, name, count) => {
+    const li = el('li', homeFolder === id ? 'current' : '');
+    li.appendChild(el('span', '', '', name));
+    li.appendChild(el('span', 'fl-count', '', String(count)));
+    if (id !== 'all'){
+      const del = el('span', 'fl-del', '', '✕');
+      del.title = 'Delete folder (decks are kept, just unfiled)';
+      del.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (!confirm(`Delete folder “${name}”? The decks inside are kept and moved to All decks.`)) return;
+        saveFolders(folders().filter(f => f.id !== id));
+        const all = deckIndex();
+        all.forEach(e => { if (e.folder === id) e.folder = null; });
+        saveIndex(all);
+        if (homeFolder === id) homeFolder = 'all';
+        renderHome();
+      });
+      li.appendChild(del);
+    }
+    li.addEventListener('click', () => { homeFolder = id; renderHome(); });
+    // accept decks dragged onto a folder
+    li.addEventListener('dragover', ev => { if (ev.dataTransfer.types.includes('text/lf-deck')){ ev.preventDefault(); li.classList.add('drop-target'); } });
+    li.addEventListener('dragleave', () => li.classList.remove('drop-target'));
+    li.addEventListener('drop', ev => {
+      ev.preventDefault(); li.classList.remove('drop-target');
+      const deckId = ev.dataTransfer.getData('text/lf-deck');
+      if (deckId) moveDeckToFolder(deckId, id === 'all' ? null : id);
+    });
+    list.appendChild(li);
+  };
+  mk('all', 'All decks', idx.length);
+  for (const f of fs) mk(f.id, f.name, idx.filter(e => e.folder === f.id).length);
+}
+
+function folderName(id){ const f = folders().find(x => x.id === id); return f ? f.name : null; }
+
+function moveDeckToFolder(deckId, folderId){
+  const idx = deckIndex();
+  const e = idx.find(x => x.id === deckId);
+  if (!e) return;
+  e.folder = folderId;
+  saveIndex(idx);
+  renderHome();
+  toast(folderId ? `Moved to “${folderName(folderId)}”` : 'Moved to All decks');
+}
+
+function renderDeckGrid(){
+  const grid = $('#home-grid');
+  grid.innerHTML = '';
+  $('#home-title').textContent = homeFolder === 'all' ? 'All decks' : (folderName(homeFolder) || 'Folder');
+  let idx = deckIndex();
+  if (homeFolder !== 'all') idx = idx.filter(e => e.folder === homeFolder);
+  if (!idx.length){
+    grid.appendChild(el('div', 'home-empty', '',
+      homeFolder === 'all' ? 'No decks yet. Click “＋ New deck” to paste an outline.'
+                           : 'This folder is empty. Drag a deck here, or use a card’s folder menu.'));
+    return;
+  }
+  for (const e of idx) grid.appendChild(deckCard(e));
+}
+
+function deckCard(entry){
+  const card = el('div', 'deck-card');
+  card.draggable = true;
+  card.addEventListener('dragstart', ev => {
+    ev.dataTransfer.setData('text/lf-deck', entry.id);
+    ev.dataTransfer.effectAllowed = 'move';
+  });
+  const thumb = el('div', 'dc-thumb');
+  const d = loadDeck(entry.id);
+  if (d && d.slides && d.slides.length){
+    const scaleWrap = el('div', '', `transform:scale(${260 / SLIDE_W});transform-origin:top left;width:${SLIDE_W}px;height:${SLIDE_H}px;pointer-events:none;`);
+    scaleWrap.appendChild(renderSlide(d.slides[0], d, { index: 0, total: d.slides.length }));
+    thumb.appendChild(scaleWrap);
+  }
+  card.appendChild(thumb);
+  const body = el('div', 'dc-body');
+  body.appendChild(el('div', 'dc-title', '', entry.title || 'Untitled deck'));
+  body.appendChild(el('div', 'dc-meta', '',
+    `${entry.count} slide${entry.count === 1 ? '' : 's'} · ${new Date(entry.updated).toLocaleDateString()}`));
+  card.appendChild(body);
+  const open = () => { const dk = loadDeck(entry.id); if (dk) openDeck(dk); else toast('Could not load that deck'); };
+  thumb.addEventListener('click', open);
+  body.addEventListener('click', open);
+
+  const actions = el('div', 'dc-actions');
+  const mkBtn = (label, cls, title, fn) => {
+    const b = el('button', 'btn ' + cls, '', label); b.type = 'button'; b.title = title;
+    b.addEventListener('click', ev => { ev.stopPropagation(); fn(); });
+    return b;
+  };
+  actions.appendChild(mkBtn('Open', 'primary', 'Open this deck', open));
+  actions.appendChild(mkBtn('Copy', 'ghost', 'Duplicate this deck', () => copyDeck(entry.id)));
+  actions.appendChild(mkBtn('Download', 'ghost', 'Download as a .json project', () => downloadDeck(entry.id)));
+  actions.appendChild(mkBtn('✕', 'ghost danger', 'Delete this deck', () => {
+    if (!confirm(`Delete “${entry.title}”? This cannot be undone.`)) return;
+    deleteDeck(entry.id);
+    if (state.deck && state.deck.id === entry.id) state.deck = null;
+    renderHome();
+  }));
+  // move-to-folder select
+  const sel = document.createElement('select');
+  sel.title = 'Move to folder';
+  sel.appendChild(new Option('No folder', ''));
+  for (const f of folders()) sel.appendChild(new Option(f.name, f.id));
+  sel.value = entry.folder || '';
+  sel.addEventListener('click', ev => ev.stopPropagation());
+  sel.addEventListener('change', () => moveDeckToFolder(entry.id, sel.value || null));
+  actions.appendChild(sel);
+  card.appendChild(actions);
+  return card;
+}
+
+function copyDeck(id){
+  const d = loadDeck(id);
+  if (!d) return;
+  const copy = JSON.parse(JSON.stringify(d));
+  copy.id = uid();
+  copy.title = (d.title || 'Untitled deck') + ' (copy)';
+  localStorage.setItem(LS.deck(copy.id), JSON.stringify(copy));
+  const idx = deckIndex();
+  const src = idx.find(e => e.id === id);
+  idx.unshift({ id: copy.id, title: copy.title, updated: Date.now(), count: copy.slides.length,
+                folder: src ? (src.folder || null) : null });
+  saveIndex(idx);
+  renderHome();
+  toast('Deck copied');
+}
+
+function downloadDeck(id){
+  const d = loadDeck(id);
+  if (!d) return;
+  downloadText(safeName(d.title) + '.lectureflow.json', JSON.stringify(d, null, 2), 'application/json');
+}
+
+function newFolder(){
+  const name = (prompt('Folder name (e.g. “Biology 101”):') || '').trim();
+  if (!name) return;
+  const fs = folders();
+  const f = { id: uid(), name };
+  fs.push(f);
+  saveFolders(fs);
+  homeFolder = f.id;
+  renderHome();
+}
+
+function importDeckFile(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const d = migrateDeck(JSON.parse(reader.result));
+      if (!d || !Array.isArray(d.slides)) throw new Error('not a deck');
+      d.id = uid();
+      openDeck(d);
+      toast('Deck imported');
+    } catch (e) { toast('That file is not a LectureFlow deck'); }
+  };
+  reader.readAsText(file);
 }
 
 function openDeck(deck){
@@ -1996,9 +2188,18 @@ function wireUI(){
     if (state.deck){ state.deck.title = e.target.value; save(); }
   });
   $('#btn-outline').addEventListener('click', () => showScreen('outline'));
-  $('#btn-decks').addEventListener('click', () => { renderDecksModal(); $('#decks-modal').showModal(); });
-  $('#decks-new').addEventListener('click', () => { $('#decks-modal').close(); showScreen('outline'); });
+  $('#btn-decks').addEventListener('click', () => showScreen('home'));
+  const brand = $('#brand');
+  if (brand){ brand.style.cursor = 'pointer'; brand.addEventListener('click', () => showScreen('home')); }
   $('#btn-present').addEventListener('click', startPresent);
+
+  // home screen
+  $('#btn-new-deck').addEventListener('click', () => showScreen('outline'));
+  $('#btn-new-folder').addEventListener('click', newFolder);
+  $('#btn-import-deck').addEventListener('click', () => $('#file-import').click());
+  $('#file-import').addEventListener('change', e => {
+    const f = e.target.files[0]; if (f) importDeckFile(f); e.target.value = '';
+  });
 
   // export dropdown
   const dd = $('#btn-export').closest('.dropdown');
@@ -2206,6 +2407,8 @@ function init(){
   const d = curId && loadDeck(curId);
   if (d && d.slides && d.slides.length){
     openDeck(d);
+  } else if (deckIndex().length){
+    showScreen('home');
   } else {
     showScreen('outline');
   }
