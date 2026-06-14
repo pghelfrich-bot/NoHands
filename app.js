@@ -600,6 +600,17 @@ function estimateAnnH(text){
   const lines = Math.max(1, Math.ceil((text || ' ').length / 23));
   return 10 + lines * 25;
 }
+// the full original point if there is one, else the (already short) text —
+// used by the Annotated figure chips, which auto-size to show the whole point
+function annDisplayText(a){
+  return (a.full && a.full.trim()) ? a.full : a.text;
+}
+// height of a filled "chip" label box that fits its text at the given width/font-size
+function chipBoxH(text, w, fs, padY){
+  const charsPerLine = Math.max(4, Math.floor(w / (fs * 0.56)));
+  const lines = Math.max(1, Math.ceil((text || ' ').length / charsPerLine));
+  return lines * fs * 1.42 + padY * 2;
+}
 function figRectOf(slide){
   if (!slide.images.length) return { ...FIGZONE };
   let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
@@ -734,20 +745,32 @@ function contentLayout(slide){
       out.callout = { x: 80, y: Math.min(maxY + 14, 632), w: 1120, fs: 18 };
     }
   } else if (lay === 'annotated'){
-    // filled "chip" labels stacked in two columns beside the figure, sized to
-    // fit their text (no clipping); the slide's one big takeaway — the
-    // CALLOUT if there is one, else the last point — becomes a wide banner
-    // across the bottom instead of competing with the other chips.
+    // filled "chip" labels stacked in two columns beside the figure, showing
+    // each point's full text (sized to fit, no clipping); the slide's one big
+    // takeaway — the CALLOUT if there is one, else the last point — becomes a
+    // wide banner across the bottom instead of competing with the other chips.
     out.annStyle = 'label'; out.connectors = true; out.annDetail = false;
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
     const pts = slide.annotations;
     const bannerIdx = (!slide.callout && pts.length > 1) ? pts.length - 1 : -1;
-    const colY = [216, 216], colX = [64, 928];
+    const chipPts = pts.filter((a, i) => i !== bannerIdx);
+    const colTop = 216, colBottom = 596, gap = 20;
+    // pick the largest chip font size whose two-column stack fits above the banner
+    let fs = 20;
+    for (; fs > 14; fs -= 2){
+      const colY = [colTop, colTop];
+      for (const a of chipPts){
+        const col = colY[0] <= colY[1] ? 0 : 1;
+        colY[col] += chipBoxH(annDisplayText(a), ANN_W, fs, 12) + gap;
+      }
+      if (Math.max(colY[0], colY[1]) - gap <= colBottom) break;
+    }
+    const colY = [colTop, colTop], colX = [64, 928];
     out.anns = pts.map((a, i) => {
       if (i === bannerIdx) return { x: 80, y: 596, w: 1120, fs: 22, banner: true };
       const col = colY[0] <= colY[1] ? 0 : 1;
-      const pos = { x: colX[col], y: colY[col], w: ANN_W, fs: 20 };
-      colY[col] += estimateAnnH(a.text) + 44;   // text height + chip padding + gap
+      const pos = { x: colX[col], y: colY[col], w: ANN_W, fs };
+      colY[col] += chipBoxH(annDisplayText(a), ANN_W, fs, 12) + gap;
       return pos;
     });
     if (slide.callout) out.callout = { x: 80, y: 596, w: 1120, fs: 22, banner: true };
@@ -1094,9 +1117,10 @@ function renderContent(root, slide, deck, pal, dark, opts){
     } else if (L.annStyle === 'label'){
       // filled "chip" label — dark fill/white text by default, or a beige/dark
       // pairing when the label's chip is set to 'light'; the slide's one big
-      // takeaway point (if any) gets the wide bottom-banner variant
+      // takeaway point (if any) gets the wide bottom-banner variant. Chips show
+      // the full point (not the short label) since they auto-size to fit it.
       const extra = 'lf-chip' + (a.chip === 'light' ? ' lf-chip-light' : '') + (def.banner ? ' lf-takeaway-banner' : '');
-      renderAnnBox(root, slide, a, i, def, opts, L.annDetail, 0, extra);
+      renderAnnBox(root, slide, a, i, def, opts, L.annDetail, 0, extra, true);
     } else {
       // 'list' → movable annotation box, no chip background
       renderAnnBox(root, slide, a, i, def, opts, L.annDetail);
@@ -1139,7 +1163,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
 
 /* one annotation as a movable/resizable label box (merges per-annotation overrides).
    `cardNum` truthy → render as a discrete bordered card with a numbered badge. */
-function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum = 0, extraCls = ''){
+function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum = 0, extraCls = '', useFull = false){
   const x = a.x != null ? a.x : def.x;
   const y = a.y != null ? a.y : def.y;
   const w = a.w != null ? a.w : def.w;
@@ -1152,8 +1176,11 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   node.dataset.id = a.id;
   node.dataset.sel = 'ann:' + a.id;
   if (cardNum) node.appendChild(el('div', 'lf-ann-num', '', String(cardNum)));
-  node.appendChild(editable(el('div', 'lf-ann-text', '', a.text), 'ann:' + a.id, opts));
-  if (showDetail && a.full && a.full.trim() !== a.text.trim())
+  const hasFull = a.full && a.full.trim() && a.full.trim() !== a.text.trim();
+  const mainText = (useFull && hasFull) ? a.full : a.text;
+  const mainKey = (useFull && hasFull) ? 'annfull:' + a.id : 'ann:' + a.id;
+  node.appendChild(editable(el('div', 'lf-ann-text', '', mainText), mainKey, opts));
+  if (showDetail && hasFull)
     node.appendChild(editable(el('div', 'lf-ann-full', '', a.full), 'annfull:' + a.id, opts));
   root.appendChild(node);
 }
@@ -3054,12 +3081,6 @@ async function exportPPTX(){
               transparency: onBg ? 30 : (dark ? 55 : 80) } });
   };
   const arrowC = arrowColor(deck);
-  // height of a filled "chip" label box that fits its text at the given width/font-size
-  const chipBoxH = (text, w, fs, padY) => {
-    const charsPerLine = Math.max(4, Math.floor(w / (fs * 0.56)));
-    const lines = Math.max(1, Math.ceil((text || ' ').length / charsPerLine));
-    return lines * fs * 1.42 + padY * 2;
-  };
 
   const addLine = (sl, x1, y1, x2, y2, opt = {}) => {
     const dx = x2 - x1, dy = y2 - y1;
@@ -3249,12 +3270,13 @@ async function exportPPTX(){
               // big takeaway (CALLOUT or last point) gets the bottom-banner variant
               const isLight = a.chip === 'light';
               const padY = def.banner ? 18 : 12;
-              const boxH = chipBoxH(a.text, w, fs, padY);
+              const dispText = annDisplayText(a);
+              const boxH = chipBoxH(dispText, w, fs, padY);
               sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(boxH), rectRadius: 0.05,
                 fill: { color: a.bg ? C(a.bg) : (isLight ? 'F6EFE2' : '0A121C'), transparency: a.bg ? 0 : (isLight ? 0 : 28) },
                 line: { type: 'none' } });
               sl.addShape('rect', { x: I(x), y: I(y), w: I(def.banner ? 6 : 4), h: I(boxH), fill: { color: accBar } });
-              T(a.text, { x: I(x + 14), y: I(y), w: I(w - 22), h: I(boxH), fontSize: pt(fs), bold: true,
+              T(dispText, { x: I(x + 14), y: I(y), w: I(w - 22), h: I(boxH), fontSize: pt(fs), bold: true,
                 valign: 'middle', align: a.align, color: a.color ? C(a.color) : (isLight ? '23303D' : 'FFFFFF') });
               if (L.connectors && !def.banner && arrowC){
                 const fig = figRectOf(s);
