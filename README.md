@@ -92,6 +92,7 @@ Direct manipulation on the canvas: drag labels and images, resize images (corner
 - **PDF** — one slide per page through the browser's print dialog.
 - **Standalone HTML** — a single self-contained file with keyboard/click navigation.
 - **Present mode** — fullscreen; `←`/`→` navigate, `S` toggles speaker notes, `Esc` exits.
+- **Cinematic motion** (Background tab, deck-wide, opt-in) — in Present mode, full-slide photos and backgrounds get a slow Ken Burns drift, and points reveal one at a time as you press `→` (each `→` builds the next point, then advances the slide). The Ken Burns drift also carries into the exported standalone HTML; the step-by-step reveal is a presenter-mode feature.
 
 Decks autosave to localStorage; the **Decks** button lists, reopens, and deletes them.
 

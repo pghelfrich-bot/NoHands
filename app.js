@@ -109,6 +109,10 @@ const SLIDE_CSS = `
   padding:10px 14px;font-size:13.5px;line-height:1.4;opacity:.75}
 .slide .lf-bg{position:absolute;left:-5%;top:-5%;width:110%;height:110%;object-fit:cover;z-index:0}
 .slide .lf-bgscrim{position:absolute;inset:0;z-index:0}
+@keyframes lf-kenburns{from{transform:scale(1.02)}to{transform:scale(1.13) translate(-1.4%,-1%)}}
+.slide.lf-motion .lf-img.bleed img,.slide.lf-motion .lf-bg{animation:lf-kenburns 26s ease-out both;will-change:transform}
+.slide.lf-motion .lf-ann,.slide.lf-motion .lf-panel{transition:opacity .55s ease,transform .55s ease}
+.slide .lf-unrevealed{opacity:0;transform:translateY(12px);pointer-events:none}
 .slide .lf-anchor{position:absolute;z-index:48;width:15px;height:15px;margin:-7.5px 0 0 -7.5px;border-radius:50%;
   border:2.5px solid #fff;background:var(--lf-accent);box-shadow:0 0 0 2px rgba(0,0,0,.4),0 2px 6px rgba(0,0,0,.45);
   cursor:grab;touch-action:none;opacity:.6}
@@ -325,10 +329,11 @@ function migrateDeck(d){
   }
   if (d.background === undefined) d.background = null;
   if (!d.frame) d.frame = false;
+  if (!d.motion) d.motion = false;
   return d;
 }
 function newDeck(){
-  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false };
+  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false, motion:false };
 }
 function cur(){ return state.deck ? state.deck.slides[state.cur] : null; }
 function palette(deck){ return PALETTES[deck.accent] || PALETTES.indigo; }
@@ -1073,7 +1078,7 @@ function renderImages(root, slide, opts){
 /* connector lines from labels to the figure — reads live DOM positions so it stays correct mid-drag */
 function drawConnectors(root, slide, color){
   root.querySelector('.lf-conn[data-role="ann"]')?.remove();
-  const annNodes = Array.from(root.querySelectorAll('.lf-ann'));
+  const annNodes = Array.from(root.querySelectorAll('.lf-ann')).filter(n => !n.classList.contains('lf-unrevealed'));
   if (!annNodes.length) return;
   const imgNodes = Array.from(root.querySelectorAll('.lf-img'));
   let fig;
@@ -2084,6 +2089,7 @@ function showBgCurrent(){
   $('#bg-blur').value = blur;
   $('#bg-blur-val').textContent = blur + 'px';
   $('#bg-frame').checked = !!(state.deck && state.deck.frame);
+  $('#bg-motion').checked = !!(state.deck && state.deck.motion);
 }
 
 function fitRect(natW, natH, zone){
@@ -2364,11 +2370,11 @@ body>.slide.on{display:block}
 ${slidesHTML(deck)}
 <div id="hud"><span id="ctr"></span><span>← → / click to navigate · made with LectureFlow</span></div>
 <script>
-var i=0,S=Array.prototype.slice.call(document.querySelectorAll('body>.slide'));
+var i=0,M=${deck.motion ? 'true' : 'false'},S=Array.prototype.slice.call(document.querySelectorAll('body>.slide'));
 function fit(){var s=Math.min(innerWidth/1280,innerHeight/720);
   S.forEach(function(x){x.style.transform='translate(-50%,-50%) scale('+s+')'})}
 function show(n){i=Math.max(0,Math.min(S.length-1,n));
-  S.forEach(function(x,k){x.classList.toggle('on',k===i)});
+  S.forEach(function(x,k){x.classList.toggle('on',k===i);if(M)x.classList.toggle('lf-motion',k===i)});
   document.getElementById('ctr').textContent=(i+1)+' / '+S.length}
 addEventListener('resize',fit);
 addEventListener('keydown',function(e){
@@ -2643,11 +2649,13 @@ function guardDeck(){
 /* ================= present mode ================= */
 
 let presenting = false, presentIdx = 0, presentNotesOn = false;
+let presentNode = null, presentSteps = [], presentReveal = 0;
 
 function startPresent(){
   if (!guardDeck()) return;
   presenting = true;
   presentIdx = state.cur;
+  presentReveal = 0;
   $('#present-overlay').hidden = false;
   document.documentElement.requestFullscreen?.().catch(() => {});
   renderPresent();
@@ -2665,14 +2673,29 @@ function renderPresent(){
   const sc = Math.min(innerWidth / SLIDE_W, (innerHeight - 10) / SLIDE_H);
   stage.style.width = (SLIDE_W * sc) + 'px';
   stage.style.height = (SLIDE_H * sc) + 'px';
-  const node = renderSlide(deck.slides[presentIdx], deck, { index: presentIdx, total: deck.slides.length });
+  const slide = deck.slides[presentIdx];
+  const node = renderSlide(slide, deck, { index: presentIdx, total: deck.slides.length });
+  if (deck.motion) node.classList.add('lf-motion');
   node.style.transform = `scale(${sc})`;
   node.style.transformOrigin = 'top left';
   stage.appendChild(node);
+  presentNode = node;
+  // sequential reveal: each annotation / panel is a build step you advance into
+  presentSteps = deck.motion ? Array.from(node.querySelectorAll('.lf-ann, .lf-panel')) : [];
+  applyPresentReveal();
   $('#present-counter').textContent = `${presentIdx + 1} / ${deck.slides.length}`;
   const notes = $('#present-notes');
   notes.hidden = !presentNotesOn;
-  notes.textContent = deck.slides[presentIdx].notes || '(no notes)';
+  notes.textContent = slide.notes || '(no notes)';
+}
+
+/* hide build steps beyond presentReveal; redraw connectors for what's shown */
+function applyPresentReveal(){
+  if (!presentNode) return;
+  presentSteps.forEach((eln, i) => eln.classList.toggle('lf-unrevealed', i >= presentReveal));
+  if (presentNode.dataset.conn)
+    drawConnectors(presentNode, state.deck.slides[presentIdx],
+      presentNode.style.getPropertyValue('--lf-accent') || '#38bdf8');
 }
 
 /* ================= screens & UI wiring ================= */
@@ -3112,6 +3135,12 @@ function wireUI(){
     state.deck.frame = $('#bg-frame').checked;
     refreshAll();
   });
+  $('#bg-motion').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.motion = $('#bg-motion').checked;
+    save();
+  });
 
   // drop images onto the canvas
   const wrap = $('#canvas-wrap');
@@ -3135,8 +3164,16 @@ function wireUI(){
   // keyboard
   document.addEventListener('keydown', e => {
     if (presenting){
-      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown'){ e.preventDefault(); presentIdx++; renderPresent(); }
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp'){ e.preventDefault(); presentIdx--; renderPresent(); }
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown'){
+        e.preventDefault();
+        if (presentReveal < presentSteps.length){ presentReveal++; applyPresentReveal(); }  // reveal next build step
+        else { presentIdx++; presentReveal = 0; renderPresent(); }                          // then advance the slide
+      }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp'){
+        e.preventDefault();
+        if (presentReveal > 0){ presentReveal--; applyPresentReveal(); }                     // step the build back
+        else { presentIdx--; presentReveal = 1e9; renderPresent(); }                         // prior slide shown fully built
+      }
       else if (e.key.toLowerCase() === 's'){ e.preventDefault(); presentNotesOn = !presentNotesOn; renderPresent(); }
       else if (e.key === 'Escape'){ stopPresent(); }
       return;
