@@ -58,6 +58,10 @@ const ANN_SLOTS = [
   {x:496, y:622}, {x:706, y:80},
 ];
 const ANN_W = 288;
+// Free text boxes hug their content by default (so no word is ever clipped and
+// you move rather than resize them); they only wrap once they hit this cap, and
+// an explicit drag-resize switches them to a fixed pixel width.
+const TEXT_AUTO_MAX = 620;
 
 /* Slide visual styles — shared by editor, thumbnails, present mode, and exports */
 const SLIDE_CSS = `
@@ -1189,7 +1193,9 @@ function drawConnectors(root, slide, color){
 
 function renderTexts(root, slide, opts){
   (slide.texts || []).forEach(t => {
-    const node = el('div', 'lf-box', `position:absolute;left:${t.x}px;top:${t.y}px;width:${t.w}px;`
+    // auto-fit to content until the user drags a side handle (which sets t.w)
+    const sizing = t.w != null ? `width:${t.w}px;` : `width:max-content;max-width:${TEXT_AUTO_MAX}px;`;
+    const node = el('div', 'lf-box', `position:absolute;left:${t.x}px;top:${t.y}px;${sizing}`
       + `font-size:${t.fs || 32}px;font-weight:600;line-height:1.3;z-index:60;`
       + (t.italic ? 'font-style:italic;' : '') + (t.align ? `text-align:${t.align};` : '')
       + (t.color ? `color:${t.color};` : '')
@@ -1787,7 +1793,7 @@ function addTextBox(){
   if (!s) return;
   checkpoint();
   s.texts = s.texts || [];
-  const t = { id: uid(), text: 'Text', x: 480, y: 320, w: 360, fs: 32 };
+  const t = { id: uid(), text: 'Text', x: 480, y: 320, fs: 32 };   // w omitted → auto-fit to content
   s.texts.push(t);
   state.sel = 'text:' + t.id;
   refreshAll();
@@ -2941,9 +2947,13 @@ async function exportPPTX(){
     // free-floating text boxes
     (s.texts || []).forEach(t => {
       const fs = t.fs || 32;
-      const charsPerLine = Math.max(4, Math.floor((t.w || 320) / (fs * 0.56)));
+      // auto-fit boxes have no stored width — estimate one from the text so the
+      // PPTX box hugs the content the same way the editor does
+      const autoW = Math.min(TEXT_AUTO_MAX, Math.max(40, Math.round((t.text || ' ').length * fs * 0.56)));
+      const w = t.w != null ? t.w : autoW;
+      const charsPerLine = Math.max(4, Math.floor(w / (fs * 0.56)));
       const lines = Math.max(1, Math.ceil((t.text || ' ').length / charsPerLine));
-      T(t.text, { x: I(t.x), y: I(t.y), w: I(t.w), h: I(lines * fs * 1.3 + 10),
+      T(t.text, { x: I(t.x), y: I(t.y), w: I(w), h: I(lines * fs * 1.3 + 10),
         fontSize: pt(fs), bold: true, italic: !!t.italic, valign: 'top', align: t.align, ...colorOpts(t) });
     });
 
