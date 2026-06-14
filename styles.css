@@ -276,6 +276,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .ip-cell{
   position:relative;border-radius:9px;overflow:hidden;cursor:pointer;
   border:1px solid var(--line);background:#0c1117;
+  flex:0 0 auto;                 /* don't let the column flex squeeze cells flat — let the list scroll */
 }
 .ip-cell:hover{border-color:var(--accent)}
 /* full image, never cropped or overlapping — letterboxed into a consistent-height frame */

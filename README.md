@@ -52,11 +52,11 @@ Parsing is lenient: `## Headings` and `---` separators also start slides, field 
 
 Every slide is auto-laid-out with a consistent design system — dark layouts for **title / roadmap / section / takeaway**, light for **content** (override per slide with the Theme selector). The **Layout tab** in the right sidebar offers pickable, schematic-previewed arrangements; switching one reflows the slide's text and images, and you can fine-tune by dragging afterwards.
 
-Content slides have **13 layouts**:
+Content slides have **13 layouts** (**Annotated figure** is the default for image/figure slides):
 
+- **Annotated figure** — points become large, readable, freely movable blurbs around a central image. Connector lines are off by default; turn on **black or white arrows** (Background tab) to point each label at the figure. Select a label and a draggable dot appears on the photo: drop it on a specific feature to **pin** that label's arrow to that exact spot (double-click the dot to unpin). The pin is relative to the image, so it tracks as you move or resize the photo, and it carries into PPTX.
 - **Cinematic** — one photo runs edge-to-edge as the whole slide, with the headline and a few short points sitting low over an automatic dark-to-clear scrim that keeps the text legible. The most direct, image-forward layout; carries through to HTML/PDF/PPTX with the photo full-bleed beneath the text.
-- **Annotated figure** — points become short labels around a central image, linked by curved connector lines that re-route live as you drag. Select a label and a draggable dot appears on the photo: drop it on a specific feature to **pin** that label's line to that exact spot (double-click the dot to unpin). The pin is relative to the image, so it tracks as you move or resize the photo, and it carries into PPTX.
-- **Annotated cards** — points become discrete, bordered, numbered cards you can freely move and resize around a central image, linked by the same curved connectors.
+- **Annotated cards** — points become discrete, bordered, numbered cards you can freely move and resize around a central image, with the same optional arrows.
 - **Figure left / right**, **Spotlight** — image beside a list of points.
 - **Image band** — a wide image with panels beneath.
 - **Numbered panels** — clean cards (the default when there's no image; never an empty image box).
@@ -80,7 +80,7 @@ Tied to the selected slide; the query is auto-seeded from that slide's `FIGURE` 
 - Insert by **click or drag** onto the slide. Inserted images are embedded as data-URLs so exports are self-contained (Unsplash inserts also ping the official download endpoint per API guidelines).
 - **Cutout** — toggle in the panel (applies on insert) or the ✂ button (selected image): removes the background so the subject floats over the slide. Uses remove.bg if you add a key in Settings, otherwise a built-in in-browser remover that **region-grows along colour gradients** with feathered edges, so it handles coloured and softly-varying backgrounds, not just flat white. Toggle off restores the original.
 
-The **Background tab** lets you search the same licensed sources for an HD photo to use as a deck-wide background behind every slide, with a **blur slider** to keep it from competing with your content and an optional **thin frame** just inside the slide edges for a polished look. Applies across the editor, present mode, and every export.
+The **Background tab** lets you search the same licensed sources for an HD photo to use as a deck-wide background behind every slide, with a **blur slider** to soften it. The blurred photo shows through directly — there's no colour wash over it — and the slide text automatically switches between light and dark (with a legibility halo) to match the photo's brightness, so it stays readable on either a dark or a light background. The tab also has an optional **thin frame** just inside the slide edges and an **annotation arrows** option (off by default, or **black/white arrows** that point from each label to the figure on the Annotated layout). Applies across the editor, present mode, and every export.
 
 ### 4. Editing
 

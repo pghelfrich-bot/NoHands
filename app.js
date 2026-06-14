@@ -57,7 +57,7 @@ const ANN_SLOTS = [
   {x:85,  y:515}, {x:945, y:515},
   {x:520, y:622}, {x:730, y:88},
 ];
-const ANN_W = 250;
+const ANN_W = 264;
 
 /* Slide visual styles — shared by editor, thumbnails, present mode, and exports */
 const SLIDE_CSS = `
@@ -84,8 +84,8 @@ const SLIDE_CSS = `
 .slide .lf-ann{position:absolute;z-index:30;width:${ANN_W}px;font-size:19px;line-height:1.32;font-weight:600;letter-spacing:.1px}
 .slide .lf-ann::before{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--lf-accent);margin-bottom:7px}
 .slide.light .lf-ann{color:#1d3142}
-.slide .lf-ann-full{font-size:0.68em;font-weight:450;line-height:1.4;opacity:.7;margin-top:5px;letter-spacing:0;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.slide .lf-ann-full{font-size:0.8em;font-weight:500;line-height:1.42;opacity:.85;margin-top:6px;letter-spacing:0;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .slide .lf-anncard{border-radius:12px;padding:12px 16px}
 .slide .lf-anncard::before{display:none}
 .slide .lf-anncard .lf-ann-full{-webkit-line-clamp:3}
@@ -119,9 +119,17 @@ const SLIDE_CSS = `
 .slide .lf-anchor.pinned{opacity:1}
 .slide .lf-anchor:hover{opacity:1;transform:scale(1.15)}
 .slide .lf-anchor:active{cursor:grabbing}
-.slide .lf-frame{position:absolute;inset:16px;border:1px solid rgba(20,32,44,.14);border-radius:8px;z-index:46;pointer-events:none}
-.slide.dark .lf-frame{border-color:rgba(255,255,255,.35)}
-.slide.has-bg .lf-frame{border-color:rgba(255,255,255,.55)}
+.slide .lf-frame{position:absolute;inset:16px;border:2px solid rgba(20,32,44,.16);border-radius:8px;z-index:46;pointer-events:none}
+.slide.dark .lf-frame{border-color:rgba(255,255,255,.4)}
+.slide.has-bg .lf-frame{border-color:rgba(255,255,255,.6)}
+/* with an HD background showing through (no wash), pick text colour to match the
+   photo's brightness and add a legibility halo so it reads on any photo */
+.slide.has-bg.bg-light:not(.cine),
+.slide.has-bg.bg-light:not(.cine) .lf-box,.slide.has-bg.bg-light:not(.cine) .serif,.slide.has-bg.bg-light:not(.cine) .lf-ann{
+  color:#16222c;text-shadow:0 1px 2px rgba(255,255,255,.92),0 0 18px rgba(255,255,255,.7)}
+.slide.has-bg.bg-dark:not(.cine),
+.slide.has-bg.bg-dark:not(.cine) .lf-box,.slide.has-bg.bg-dark:not(.cine) .serif,.slide.has-bg.bg-dark:not(.cine) .lf-ann{
+  color:#f4f8fb;text-shadow:0 1px 4px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.65)}
 `;
 
 const SAMPLE_OUTLINE = `# How Rivers Shape the Land
@@ -224,19 +232,43 @@ function escHTML(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<'
 function stripHTML(s){ const d = document.createElement('div'); d.innerHTML = s || ''; return d.textContent.trim(); }
 function pad2(n){ return String(n).padStart(2, '0'); }
 
+/* words that add no search value — articles, age/sex modifiers, and the
+   "photo of / aerial view / detailed" descriptive filler that makes a FIGURE
+   prompt too specific for stock image search to match */
+const FIGURE_FILLER = new Set([
+  'a', 'an', 'the', 'male', 'female', 'juvenile', 'adult', 'baby', 'young', 'old',
+  'photo', 'photograph', 'image', 'picture', 'pic', 'illustration', 'diagram', 'render',
+  'rendering', 'drawing', 'showing', 'depicting', 'featuring', 'illustrating', 'view',
+  'closeup', 'close', 'up', 'detailed', 'high', 'resolution', 'hd', 'aerial', 'shot',
+  'scene', 'across', 'through', 'between', 'among', 'amongst', 'comparison', 'versus', 'vs',
+]);
+/* reduce a phrase to a few concrete search keywords: take the part before any
+   comma, split compounds, drop filler words, and cap the length */
+function keywordize(text){
+  return (text || '')
+    .split(',')[0]
+    .replace(/[-/]/g, ' ')
+    .replace(/[^\w\s]/g, ' ')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w && !FIGURE_FILLER.has(w))
+    .slice(0, 4)
+    .join(' ');
+}
+
 /* break a FIGURE prompt like "peacock male, alternatively a bird of paradise
    or a kingfisher" into one simple primary search term plus optional
-   alternates, so image search gets short queries instead of one long one */
+   alternates, so image search gets short keyword queries instead of one long one */
 function splitFigureTerms(text){
   text = (text || '').trim();
   if (!text) return { primary: '', alternates: [] };
   const parts = text
     .split(/\s*,?\s*(?:or\s+)?alternatively\s*,?\s*|\s+or\s+|\s*\/\s*/i)
-    .map(p => p.replace(/^(?:a|an|the)\s+/i, '').trim())
+    .map(p => p.trim())
     .filter(Boolean);
   let [primary, ...rest] = parts;
-  primary = primary.replace(/\b(?:male|female|juvenile|adult|baby|young)\b/gi, '').replace(/\s+/g, ' ').trim() || primary;
-  const alternates = [...new Set(rest)];
+  primary = keywordize(primary) || keywordize(text);
+  const alternates = [...new Set(rest.map(keywordize).filter(Boolean))];
   return { primary, alternates };
 }
 
@@ -246,6 +278,10 @@ function hexA(hex, alpha){
   const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
+
+/* annotation connector arrows are opt-in and either black or white (off by default) */
+const ARROW_COLORS = { black: '#10161d', white: '#ffffff' };
+function arrowColor(deck){ return (deck && ARROW_COLORS[deck.arrows]) || null; }
 
 let toastTimer = null;
 function toast(msg, ms = 2600){
@@ -330,10 +366,11 @@ function migrateDeck(d){
   if (d.background === undefined) d.background = null;
   if (!d.frame) d.frame = false;
   if (!d.motion) d.motion = false;
+  if (!d.arrows) d.arrows = 'none';
   return d;
 }
 function newDeck(){
-  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false, motion:false };
+  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false, motion:false, arrows:'none' };
 }
 function cur(){ return state.deck ? state.deck.slides[state.cur] : null; }
 function palette(deck){ return PALETTES[deck.accent] || PALETTES.indigo; }
@@ -609,8 +646,8 @@ function galleryZones(n){
 /* The set of layouts offered per slide type, with tiny schematic icons. */
 const LAYOUTS = {
   content: [
-    { key: 'cinematic',  label: 'Cinematic',        needs: 'image' },
     { key: 'annotated',  label: 'Annotated figure',  needs: 'image' },
+    { key: 'cinematic',  label: 'Cinematic',        needs: 'image' },
     { key: 'cards',      label: 'Annotated cards',   needs: 'image' },
     { key: 'figureRight',label: 'Figure right' },
     { key: 'figureLeft', label: 'Figure left' },
@@ -632,7 +669,8 @@ const LAYOUTS = {
 function effContentLayout(slide){
   const valid = LAYOUTS.content.map(l => l.key);
   if (slide.layout && valid.includes(slide.layout)) return slide.layout;
-  return slide.images.length ? 'annotated' : 'panels';
+  // annotated figure is the go-to for image-first slides; plain text slides fall back to panels
+  return (slide.images.length || slide.figure) ? 'annotated' : 'panels';
 }
 
 /* Geometry for a content slide under its chosen layout. Consumed by both the
@@ -665,7 +703,7 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 19 };
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 22 };
     });
     if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
   } else if (lay === 'cards'){
@@ -749,18 +787,19 @@ function renderSlide(slide, deck, opts = {}){
   const dark = isDark(slide);
   const accLine = dark ? pal.accent : pal.accentInk;
   const bg = deck.background;
+  const bgCls = (bg && bg.src) ? ' has-bg ' + (bg.dark ? 'bg-dark' : 'bg-light') : '';
   const cine = slide.type === 'content' && slide.images.length && effContentLayout(slide) === 'cinematic';
-  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + (bg && bg.src ? ' has-bg' : '') + (cine ? ' cine' : ''));
+  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + bgCls + (cine ? ' cine' : ''));
   root.dataset.type = slide.type;
   root.style.background = dark ? pal.darkBg : pal.lightBg;
   root.style.setProperty('--lf-accent', cine ? pal.accent : accLine);
 
   if (bg && bg.src){
+    // no colour wash — let the blurred HD photo show; text gets a legibility halo (.has-bg) instead
     const img = el('img', 'lf-bg');
     img.src = bg.src; img.alt = '';
     img.style.filter = `blur(${bg.blur || 0}px)`;
     root.appendChild(img);
-    root.appendChild(el('div', 'lf-bgscrim', `background:${hexA(dark ? pal.darkSolid : pal.lightSolid, dark ? 0.55 : 0.78)};`));
   }
 
   root.appendChild(motifSVG(pal, dark));
@@ -776,7 +815,7 @@ function renderSlide(slide, deck, opts = {}){
   renderImages(root, slide, opts);
   if (cine) root.appendChild(el('div', 'lf-cinescrim'));
   if (slide.type === 'content' && root.dataset.conn && slide.images.length && slide.annotations.length){
-    drawConnectors(root, slide, accLine);
+    drawConnectors(root, slide, arrowColor(deck));
   }
   renderTexts(root, slide, opts);
   renderFooter(root, slide, deck, pal, dark, opts);
@@ -1078,6 +1117,7 @@ function renderImages(root, slide, opts){
 /* connector lines from labels to the figure — reads live DOM positions so it stays correct mid-drag */
 function drawConnectors(root, slide, color){
   root.querySelector('.lf-conn[data-role="ann"]')?.remove();
+  if (!color) return;                       // arrows turned off
   const annNodes = Array.from(root.querySelectorAll('.lf-ann')).filter(n => !n.classList.contains('lf-unrevealed'));
   if (!annNodes.length) return;
   const imgNodes = Array.from(root.querySelectorAll('.lf-img'));
@@ -1092,7 +1132,11 @@ function drawConnectors(root, slide, color){
     fig = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
   } else fig = { ...FIGZONE };
 
-  let inner = '';
+  const isWhite = color.toLowerCase() === '#ffffff';
+  const halo = isWhite ? 'rgba(0,0,0,.5)' : 'rgba(255,255,255,.7)';   // opposite-colour underlay keeps the arrow legible on busy photos
+  const mid = 'lfarr-' + slide.id;
+  let inner = `<defs><marker id="${mid}" markerWidth="11" markerHeight="11" refX="7.5" refY="4.5" orient="auto">`
+    + `<path d="M1 1 L8.6 4.5 L1 8" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>`;
   annNodes.forEach((n, i) => {
     const pos = { x: parseFloat(n.style.left), y: parseFloat(n.style.top) };
     const w = n.offsetWidth || ANN_W;
@@ -1104,9 +1148,9 @@ function drawConnectors(root, slide, color){
     const bow = Math.min(34, len * 0.18) * (i % 2 ? 1 : -1);
     const cx = (a.x + t.x) / 2 - dy / len * bow;
     const cy = (a.y + t.y) / 2 + dx / len * bow;
-    inner += `<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${t.x.toFixed(1)} ${t.y.toFixed(1)}"
-      fill="none" stroke="${color}" stroke-width="2" opacity=".85"/>
-      <circle cx="${t.x.toFixed(1)}" cy="${t.y.toFixed(1)}" r="4.5" fill="${color}"/>`;
+    const d = `M${a.x.toFixed(1)} ${a.y.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${t.x.toFixed(1)} ${t.y.toFixed(1)}`;
+    inner += `<path d="${d}" fill="none" stroke="${halo}" stroke-width="4.5" stroke-linecap="round" opacity=".55"/>`
+      + `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" marker-end="url(#${mid})"/>`;
   });
   const svg = svgEl(inner, 'lf-conn');
   svg.dataset.role = 'ann';
@@ -1281,7 +1325,7 @@ function updateAnchorHandle(root, slide){
   if (!slide || !state.sel || !state.sel.startsWith('ann:')) return;
   if (!slide.images.length) return;
   const L = contentLayout(slide);
-  if (!L.connectors) return;
+  if (!L.connectors || !arrowColor(state.deck)) return;   // pins only matter when arrows are on
   const ann = slide.annotations.find(a => ('ann:' + a.id) === state.sel);
   if (!ann) return;
   const node = root.querySelector(`[data-sel="${state.sel}"]`);
@@ -1310,7 +1354,7 @@ function updateAnchorHandle(root, slide){
       dot.classList.add('pinned');
       dot.style.left = clamp(px, f.x, f.x + f.w) + 'px';
       dot.style.top = clamp(py, f.y, f.y + f.h) + 'px';
-      drawConnectors(root, slide, root.style.getPropertyValue('--lf-accent') || '#38bdf8');
+      drawConnectors(root, slide, arrowColor(state.deck));
     };
     const up = () => {
       dot.removeEventListener('pointermove', move);
@@ -1325,7 +1369,7 @@ function updateAnchorHandle(root, slide){
     if (!ann.anchor) return;
     checkpoint();
     delete ann.anchor;
-    drawConnectors(root, slide, root.style.getPropertyValue('--lf-accent') || '#38bdf8');
+    drawConnectors(root, slide, arrowColor(state.deck));
     updateAnchorHandle(root, slide);
     commitChange();
   });
@@ -1382,7 +1426,7 @@ function wireSlideEditing(root, slide){
     if (!ed || !ed.isContentEditable) return;
     applyEdit(slide, ed.dataset.edit, ed.textContent.trim());
     ed.contentEditable = 'false';
-    drawConnectors(root, slide, accLine);
+    drawConnectors(root, slide, arrowColor(state.deck));
     updateAnchorHandle(root, slide);
     refreshRailThumb(state.cur);
     save();
@@ -1406,7 +1450,7 @@ function startMove(e, node, slide, info, root, accLine){
     const ny = Math.round(clamp(oy + (ev.clientY - sy) / viewScale, -200, SLIDE_H - 20));
     node.style.left = nx + 'px'; node.style.top = ny + 'px';
     Object.assign(info.obj, { x: nx, y: ny });
-    drawConnectors(root, slide, accLine);
+    drawConnectors(root, slide, arrowColor(state.deck));
     updateAnchorHandle(root, slide);
   };
   const up = () => {
@@ -1451,7 +1495,7 @@ function startResize(e, dir, node, slide, info, root, accLine){
       }
       Object.assign(info.obj, patch);
     }
-    drawConnectors(root, slide, accLine);
+    drawConnectors(root, slide, arrowColor(state.deck));
   };
   const up = () => {
     node.removeEventListener('pointermove', move);
@@ -2056,6 +2100,7 @@ async function setBackgroundFromResult(r){
   }
   state.deck.background = {
     src, blur: +$('#bg-blur').value || 0,
+    dark: (await imageAvgLum(src)) < 0.5,    // pick light vs dark text to match the photo
     attr: { title: r.title, author: r.author, authorUrl: r.authorUrl, license: r.license,
             licenseUrl: r.licenseUrl, pageUrl: r.pageUrl, sourceName: r.sourceName },
   };
@@ -2090,6 +2135,7 @@ function showBgCurrent(){
   $('#bg-blur-val').textContent = blur + 'px';
   $('#bg-frame').checked = !!(state.deck && state.deck.frame);
   $('#bg-motion').checked = !!(state.deck && state.deck.motion);
+  $('#bg-arrows').value = (state.deck && state.deck.arrows) || 'none';
 }
 
 function fitRect(natW, natH, zone){
@@ -2165,6 +2211,29 @@ async function embedImage(im){
     if (blob.size > 7 * 1024 * 1024) return;        // too big for localStorage — keep the URL
     im.src = await blobToDataURL(blob);
   } catch (e) { /* CORS-blocked: keep remote URL; export will retry */ }
+}
+
+// Average perceived luminance (0-1) of an image — used to choose light vs dark
+// text over a deck background photo so it stays readable on any photo.
+function imageAvgLum(src){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = 24; c.height = 24;
+        const x = c.getContext('2d');
+        x.drawImage(img, 0, 0, 24, 24);
+        const d = x.getImageData(0, 0, 24, 24).data;
+        let sum = 0, n = 0;
+        for (let i = 0; i < d.length; i += 4){ sum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; n++; }
+        resolve(n ? sum / n : 0.5);
+      } catch (e) { resolve(0.5); }
+    };
+    img.onerror = () => resolve(0.5);
+    img.src = src;
+  });
 }
 
 // Pre-bake a CSS-style blur(blurPx) for export formats that can't filter live.
@@ -2424,21 +2493,25 @@ async function exportPPTX(){
   const bg = deck.background;
   const bgData = (bg && bg.src && bg.src.startsWith('data:'))
     ? await blurImageDataURL(bg.src, bg.blur || 0) : null;
-  const addBackground = (sl, dark) => {
+  // no colour wash — let the photo show; text colour follows the photo brightness
+  // with a contrasting drop shadow for legibility
+  const bgTextLight = !!(bgData && bg.dark);
+  const txtShadow = bgData
+    ? { type: 'outer', color: bgTextLight ? '000000' : 'FFFFFF', blur: 4, offset: 2, angle: 90, opacity: 0.6 }
+    : undefined;
+  const addBackground = (sl) => {
     if (!bgData) return;
     sl.addImage({ data: bgData, x: 0, y: 0, w: 13.333, h: 7.5, sizing: { type: 'cover', w: 13.333, h: 7.5 } });
-    sl.addShape('rect', { x: 0, y: 0, w: 13.333, h: 7.5,
-      fill: { color: C(dark ? pal.darkSolid : pal.lightSolid), transparency: dark ? 45 : 22 },
-      line: { type: 'none' } });
   };
   const addFrame = (sl, dark) => {
     if (!deck.frame) return;
     const onBg = !!bgData;
     sl.addShape('rect', { x: I(16), y: I(16), w: I(1280 - 32), h: I(720 - 32),
       fill: { type: 'none' },
-      line: { color: (onBg || dark) ? 'FFFFFF' : '141C2C', width: 0.75,
-              transparency: onBg ? 45 : (dark ? 65 : 86) } });
+      line: { color: (onBg || dark) ? 'FFFFFF' : '141C2C', width: 1.5,
+              transparency: onBg ? 30 : (dark ? 55 : 80) } });
   };
+  const arrowC = arrowColor(deck);
 
   const addLine = (sl, x1, y1, x2, y2, opt = {}) => {
     const dx = x2 - x1, dy = y2 - y1;
@@ -2457,11 +2530,12 @@ async function exportPPTX(){
     sl.background = { color: C(dark ? pal.darkSolid : pal.lightSolid) };
     addBackground(sl, dark);
     let ink = dark ? 'EDF3F9' : '17252F';
+    if (bgData) ink = bgTextLight ? 'F4F8FB' : '16222C';
     const acc = C(dark ? pal.accent : pal.accentInk);
     const accBar = C(pal.accent);
 
     const rule = (x, y, w) => sl.addShape('rect', { x: I(x), y: I(y), w: I(w), h: I(5), fill: { color: accBar } });
-    const T = (text, o) => sl.addText(text, { fontFace: SANS, color: ink, ...o });
+    const T = (text, o) => sl.addText(text, { fontFace: SANS, color: ink, shadow: txtShadow, ...o });
 
     if (s.type === 'title'){
       T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12, charSpacing: 4, color: C(pal.accent2) });
@@ -2574,11 +2648,10 @@ async function exportPPTX(){
               if (hasFull)
                 T(a.full, { x: I(x + 16), y: I(y + 12 + badgeD + 8 + textH), w: I(w - 32), h: I(fullH),
                   fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
-              if (L.connectors){
+              if (L.connectors && arrowC){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, cardH);
-                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
-                sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
+                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: arrowC, width: 2, arrow: true });
               }
             } else {
               // label / list — accent bar + text
@@ -2588,11 +2661,10 @@ async function exportPPTX(){
               if (L.annDetail && a.full && a.full.trim() !== a.text.trim())
                 T(a.full, { x: I(x - 2), y: I(y + 8 + labelH), w: I(w + 6), h: I(estimateAnnH(a.full) * 0.75),
                   fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
-              if (L.connectors){
+              if (L.connectors && arrowC){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, estimateAnnH(a.text));
-                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: dark ? pal.accent : pal.accentInk, width: 1.25 });
-                sl.addShape('ellipse', { x: I(Tg.x - 4), y: I(Tg.y - 4), w: I(8), h: I(8), fill: { color: acc } });
+                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: arrowC, width: 2, arrow: true });
               }
             }
           });
@@ -2694,8 +2766,7 @@ function applyPresentReveal(){
   if (!presentNode) return;
   presentSteps.forEach((eln, i) => eln.classList.toggle('lf-unrevealed', i >= presentReveal));
   if (presentNode.dataset.conn)
-    drawConnectors(presentNode, state.deck.slides[presentIdx],
-      presentNode.style.getPropertyValue('--lf-accent') || '#38bdf8');
+    drawConnectors(presentNode, state.deck.slides[presentIdx], arrowColor(state.deck));
 }
 
 /* ================= screens & UI wiring ================= */
@@ -2899,6 +2970,14 @@ function openDeck(deck){
   selectSlide(0);
   showBgCurrent();
   saveDeckNow();
+  // backfill the light/dark text choice for decks saved before brightness sampling existed
+  if (deck.background && deck.background.src && deck.background.dark === undefined){
+    imageAvgLum(deck.background.src).then(lum => {
+      if (state.deck !== deck) return;
+      deck.background.dark = lum < 0.5;
+      refreshAll();
+    });
+  }
 }
 
 function renderDecksModal(){
@@ -3140,6 +3219,12 @@ function wireUI(){
     checkpoint();
     state.deck.motion = $('#bg-motion').checked;
     save();
+  });
+  $('#bg-arrows').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.arrows = $('#bg-arrows').value;
+    refreshAll();
   });
 
   // drop images onto the canvas
