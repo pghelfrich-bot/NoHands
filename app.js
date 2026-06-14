@@ -104,6 +104,10 @@ const SLIDE_CSS = `
 .slide.dark .lf-anncard{background:rgba(255,255,255,.06);border:1.5px solid var(--lf-accent)}
 .slide .lf-take-chip{position:absolute;z-index:6;height:34px;border-radius:17px;display:flex;align-items:center;
   justify-content:center;font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#06222f}
+/* caption overlaid on its own figure in a multi-figure "scene" layout */
+.slide .lf-ann.lf-figcap{background:rgba(8,16,26,.6);border-radius:8px;padding:9px 12px;
+  text-align:center;line-height:1.3;backdrop-filter:blur(1px)}
+.slide.light .lf-ann.lf-figcap,.slide.dark .lf-ann.lf-figcap{color:#fff}
 .slide .lf-anncard.lf-take{border-width:2.5px;box-shadow:0 14px 30px rgba(15,30,45,.18)}
 .slide .lf-anncard.lf-take .lf-ann-num{width:28px;height:28px;font-size:14px}
 .slide .lf-anncard.lf-take .lf-ann-text{font-size:1.05em}
@@ -680,6 +684,7 @@ const LAYOUTS = {
     { key: 'statement',  label: 'Statement' },
     { key: 'quote',      label: 'Quote' },
     { key: 'gallery',    label: 'Gallery' },
+    { key: 'figureGrid', label: 'Figure grid' },
   ],
   title:    [{ key: 'titleLeft', label: 'Left' }, { key: 'titleCenter', label: 'Centered' }],
   section:  [{ key: 'sectionLeft', label: 'Left' }, { key: 'sectionCenter', label: 'Centered' }],
@@ -785,6 +790,15 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 52, w: 1120, fs: 32 };
     out.galleryZones = galleryZones(Math.max(slide.images.length, 1));
     out.figZones = out.galleryZones;
+  } else if (lay === 'figureGrid'){
+    // a multi-figure "scene": several photos side by side, each with its own
+    // caption label overlaid at the bottom — for comparing specimens, stages, etc.
+    out.annStyle = 'caption';
+    out.headline = { x: 80, y: 52, w: 1120, fs: 32 };
+    const m = Math.max(slide.images.length, slide.annotations.length, 1);
+    out.galleryZones = galleryZones(m);
+    out.figZones = out.galleryZones;
+    out.anns = out.galleryZones.map(z => ({ x: z.x + 10, y: z.y + z.h - 54, w: z.w - 20, fs: 17 }));
   }
   return out;
 }
@@ -1055,6 +1069,9 @@ function renderContent(root, slide, deck, pal, dark, opts){
       // timeline rendered separately below
     } else if (L.annStyle === 'card'){
       renderAnnBox(root, slide, a, i, def, opts, true, i + 1);
+    } else if (L.annStyle === 'caption'){
+      // a label overlaid on the bottom of its own figure in a multi-figure scene
+      renderAnnBox(root, slide, a, i, def, opts, false, 0, 'lf-figcap');
     } else {
       // 'label' or 'list' → movable annotation box
       renderAnnBox(root, slide, a, i, def, opts, L.annDetail);
@@ -1079,7 +1096,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
   }
 
   // suggested-figure hint when no image is placed yet
-  if (opts.editor && slide.figure && !slide.images.length && L.annStyle !== 'step' && !L.bigQuote && L.lay !== 'gallery'){
+  if (opts.editor && slide.figure && !slide.images.length && L.annStyle !== 'step' && !L.bigQuote && L.lay !== 'gallery' && L.lay !== 'figureGrid'){
     if (L.wantFigure){
       const z = L.figZones[0];
       addFigHint(root, slide, { x: z.x + Math.max(0, (z.w - 360) / 2), y: z.y + Math.max(0, (z.h - 80) / 2), w: Math.min(360, z.w) });
@@ -2217,6 +2234,9 @@ function layoutIcon(key){
     case 'statement': return svg(bar(10, 18, 70, 9, A) + bar(10, 30, 50, 9, A) + tline(10, 48, 40) + tline(10, 55, 34));
     case 'quote': return svg(`<text x="16" y="30" font-size="22" fill="${A}">“</text>` + bar(24, 24, 72, 6, T) + bar(30, 36, 60, 6, T) + tline(40, 50, 40));
     case 'gallery': return svg(head(8, 8, 50) + img(8, 20, 50, 18) + img(62, 20, 50, 18) + img(8, 42, 50, 18) + img(62, 42, 50, 18));
+    case 'figureGrid': return svg(head(8, 8, 50)
+      + img(8, 20, 50, 40) + bar(8, 50, 50, 7, P)
+      + img(62, 20, 50, 40) + bar(62, 50, 50, 7, P));
     case 'titleCenter': return svg(bar(30, 26, 60, 8, A) + bar(40, 40, 40, 4, T));
     case 'titleLeft': return svg(bar(10, 24, 70, 8, A) + bar(10, 38, 40, 4, T));
     case 'sectionCenter': return svg(`<text x="46" y="44" font-size="22" fill="${P}">01</text>` + bar(34, 30, 52, 7, A));
@@ -2246,7 +2266,7 @@ function renderLayoutPanel(){
   }
   if (s.type !== 'content')
     list.appendChild(el('div', 'layout-note', '',
-      'Switch the slide Type to “Content” for the full set of 12 content layouts.'));
+      'Switch the slide Type to “Content” for the full set of 14 content layouts.'));
 }
 
 function applyLayout(key){
@@ -3147,7 +3167,7 @@ async function exportPPTX(){
         } else {
           s.annotations.forEach((a, i) => {
             const def = L.anns[i];
-            if (L.annStyle === 'none' || !def) return;
+            if (L.annStyle === 'none' || L.annStyle === 'caption' || !def) return;
             const x = a.x != null ? a.x : def.x, y = a.y != null ? a.y : def.y;
             const w = a.w != null ? a.w : def.w, fs = a.fs != null ? a.fs : (def.fs || 19);
             if (L.annStyle === 'panel'){
@@ -3234,13 +3254,29 @@ async function exportPPTX(){
     });
 
     // images (only embeddable ones survive into PPTX)
-    const cineFirst = (contentLayout(s).fullBleed && s.images.length) ? s.images[0] : null;
+    const cl = contentLayout(s);
+    const cineFirst = (cl.fullBleed && s.images.length) ? s.images[0] : null;
     for (const im of s.images){
       if (im === cineFirst) continue;   // already drawn full-bleed beneath the text
       const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
       if (!data.startsWith('data:')) continue;
       sl.addImage({ data, x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h),
         sizing: { type: im.cutout ? 'contain' : 'cover', w: I(im.w), h: I(im.h) } });
+    }
+
+    // figure-grid captions, drawn on top of their own photo
+    if (cl.annStyle === 'caption'){
+      s.annotations.forEach((a, i) => {
+        const def = cl.anns[i];
+        if (!def) return;
+        const x = a.x != null ? a.x : def.x, y = a.y != null ? a.y : def.y;
+        const w = a.w != null ? a.w : def.w, fs = a.fs != null ? a.fs : (def.fs || 17);
+        const h = def.h || 44;
+        sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(h), rectRadius: 0.05,
+          fill: { color: (a.bg ? C(a.bg) : '0A121C'), transparency: a.bg ? 0 : 35 }, line: { type: 'none' } });
+        T(a.text, { x: I(x + 10), y: I(y), w: I(w - 20), h: I(h), align: a.align || 'center', valign: 'middle',
+          fontSize: pt(fs), bold: true, color: a.color ? C(a.color) : 'FFFFFF' });
+      });
     }
 
     // footer + attribution

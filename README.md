@@ -56,7 +56,7 @@ Parsing is lenient: `## Headings` and `---` separators also start slides, field 
 
 Every slide is auto-laid-out with a consistent design system — dark layouts for **title / roadmap / section / takeaway**, light for **content** (override per slide with the Theme selector). The **Layout tab** in the right sidebar offers pickable, schematic-previewed arrangements; switching one reflows the slide's text and images, and you can fine-tune by dragging afterwards.
 
-Content slides have **13 layouts** (**Annotated figure** is the default for image/figure slides):
+Content slides have **14 layouts** (**Annotated figure** is the default for image/figure slides):
 
 - **Annotated figure** — points become large, readable, freely movable blurbs sized to make the most of the slide around a central image. Connector lines are off by default; turn on **black or white arrows** (Background tab) to point each label at the figure. Select a label and a draggable dot appears on the photo: drop it on a specific feature to **pin** that label's arrow to that exact spot (double-click the dot to unpin). The pin is relative to the image, so it tracks as you move or resize the photo, and it carries into PPTX.
 - **Cinematic** — one photo runs edge-to-edge as the whole slide, with the headline and a few short points sitting low over an automatic dark-to-clear scrim that keeps the text legible. The most direct, image-forward layout; carries through to HTML/PDF/PPTX with the photo full-bleed beneath the text.
@@ -69,6 +69,7 @@ Content slides have **13 layouts** (**Annotated figure** is the default for imag
 - **Statement** — a large headline with a few supporting points.
 - **Quote** — a big centred pull-quote.
 - **Gallery** — a grid of images.
+- **Figure grid** — a multi-figure "scene": several photos side by side, each with its own caption overlaid at the bottom — ideal for comparing specimens, stages, or variants in one shot.
 
 Title/section/takeaway add left / centered / quote variants; roadmap is numbered stops with arrows. The **takeaway** slide is specially highlighted: it carries a "Key takeaway" badge above the headline, and each takeaway point renders as a bold, numbered, bordered card — all editable, movable, and resizable like any other element. A shared motif (corner arcs, accent rules, a flow arrow bottom-right of every slide — a square on the last) keeps visual direction across the deck. The accent palette is picked from the outline's `Design:` notes (ocean, forest, ember, plum, slate, indigo).
 
