@@ -48,6 +48,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .btn.danger{color:var(--danger)}
 .btn.wide{width:100%}
 .btn:disabled{opacity:.45;cursor:default}
+.btn.small.active{background:var(--accent);border-color:var(--accent);color:#06222f;font-weight:650}
 
 /* ---------- topbar ---------- */
 #topbar{

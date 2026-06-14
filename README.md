@@ -25,7 +25,7 @@ The **Home** screen (the LectureFlow logo, or the Home button) is your deck libr
 
 **Paste an outline → get a formatted deck → choose a layout → drop in images → export.**
 
-Everything you place is editable by direct manipulation: select any text box or image to get **8-direction resize handles** (drag a side to resize, a corner to rescale, vertical drags rescale the font), drag to reposition, and delete (text boxes can be restored with **Undo**). Add free text boxes with **＋ Text**. Full **Undo/Redo** (toolbar buttons or Ctrl/Cmd+Z / Shift+Z / Y) covers every edit.
+Everything you place is editable by direct manipulation: select any text box or image to get **8-direction resize handles** (drag a side to resize, a corner to rescale, vertical drags rescale the font), drag to reposition, and delete (text boxes can be restored with **Undo**). Every text box — headlines, labels, callouts, free text — is double-click-to-edit and can be **aligned left / centre / right** with the **L / C / R** buttons that appear in the toolbar when a text element is selected (disabled for images). Add free text boxes with **＋ Text**. Full **Undo/Redo** (toolbar buttons or Ctrl/Cmd+Z / Shift+Z / Y) covers every edit.
 
 ### 1. The outline
 
@@ -54,7 +54,7 @@ Every slide is auto-laid-out with a consistent design system — dark layouts fo
 
 Content slides have **13 layouts** (**Annotated figure** is the default for image/figure slides):
 
-- **Annotated figure** — points become large, readable, freely movable blurbs around a central image. Connector lines are off by default; turn on **black or white arrows** (Background tab) to point each label at the figure. Select a label and a draggable dot appears on the photo: drop it on a specific feature to **pin** that label's arrow to that exact spot (double-click the dot to unpin). The pin is relative to the image, so it tracks as you move or resize the photo, and it carries into PPTX.
+- **Annotated figure** — points become large, readable, freely movable blurbs sized to make the most of the slide around a central image. Connector lines are off by default; turn on **black or white arrows** (Background tab) to point each label at the figure. Select a label and a draggable dot appears on the photo: drop it on a specific feature to **pin** that label's arrow to that exact spot (double-click the dot to unpin). The pin is relative to the image, so it tracks as you move or resize the photo, and it carries into PPTX.
 - **Cinematic** — one photo runs edge-to-edge as the whole slide, with the headline and a few short points sitting low over an automatic dark-to-clear scrim that keeps the text legible. The most direct, image-forward layout; carries through to HTML/PDF/PPTX with the photo full-bleed beneath the text.
 - **Annotated cards** — points become discrete, bordered, numbered cards you can freely move and resize around a central image, with the same optional arrows.
 - **Figure left / right**, **Spotlight** — image beside a list of points.
@@ -66,7 +66,7 @@ Content slides have **13 layouts** (**Annotated figure** is the default for imag
 - **Quote** — a big centred pull-quote.
 - **Gallery** — a grid of images.
 
-Title/section/takeaway add left / centered / quote variants; roadmap is numbered stops with arrows. A shared motif (corner arcs, accent rules, a flow arrow bottom-right of every slide — a square on the last) keeps visual direction across the deck. The accent palette is picked from the outline's `Design:` notes (ocean, forest, ember, plum, slate, indigo).
+Title/section/takeaway add left / centered / quote variants; roadmap is numbered stops with arrows. The **takeaway** slide is specially highlighted: it carries a "Key takeaway" badge above the headline, and each takeaway point renders as a bold, numbered, bordered card — all editable, movable, and resizable like any other element. A shared motif (corner arcs, accent rules, a flow arrow bottom-right of every slide — a square on the last) keeps visual direction across the deck. The accent palette is picked from the outline's `Design:` notes (ocean, forest, ember, plum, slate, indigo).
 
 ### 3. The image panel (licensed sources only)
 

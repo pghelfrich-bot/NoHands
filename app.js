@@ -52,12 +52,12 @@ const FIGZONE = { x:425, y:175, w:430, h:435 };
 
 /* annotation slots around the figure zone (alternating left / right, then bottom, top) */
 const ANN_SLOTS = [
-  {x:85,  y:195}, {x:945, y:195},
-  {x:85,  y:360}, {x:945, y:360},
-  {x:85,  y:515}, {x:945, y:515},
-  {x:520, y:622}, {x:730, y:88},
+  {x:64,  y:190}, {x:928, y:190},
+  {x:64,  y:362}, {x:928, y:362},
+  {x:64,  y:520}, {x:928, y:520},
+  {x:496, y:622}, {x:706, y:80},
 ];
-const ANN_W = 264;
+const ANN_W = 288;
 
 /* Slide visual styles — shared by editor, thumbnails, present mode, and exports */
 const SLIDE_CSS = `
@@ -94,6 +94,11 @@ const SLIDE_CSS = `
   margin-bottom:8px;font-family:ui-sans-serif,system-ui,sans-serif}
 .slide.light .lf-anncard{background:#ffffff;border:1.5px solid var(--lf-accent);box-shadow:0 8px 22px rgba(15,30,45,.08);color:#1d3142}
 .slide.dark .lf-anncard{background:rgba(255,255,255,.06);border:1.5px solid var(--lf-accent)}
+.slide .lf-take-chip{position:absolute;z-index:6;height:34px;border-radius:17px;display:flex;align-items:center;
+  justify-content:center;font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#06222f}
+.slide .lf-anncard.lf-take{border-width:2.5px;box-shadow:0 14px 30px rgba(15,30,45,.18)}
+.slide .lf-anncard.lf-take .lf-ann-num{width:28px;height:28px;font-size:14px}
+.slide .lf-anncard.lf-take .lf-ann-text{font-size:1.05em}
 .slide .lf-footer{position:absolute;z-index:40;font-size:13px;opacity:.55;bottom:18px;left:26px;letter-spacing:.5px}
 .slide .lf-credit{position:absolute;z-index:40;bottom:15px;left:84px;right:170px;font-size:11px;opacity:.55;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -703,7 +708,7 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 22 };
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 24 };
     });
     if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
   } else if (lay === 'cards'){
@@ -712,7 +717,7 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 16 };
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 17 };
     });
     if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
   } else if (lay === 'figureLeft' || lay === 'figureRight'){
@@ -851,7 +856,8 @@ function mkBox(slide, key, def, content, css, opts){
   const w = o.w != null ? o.w : def.w;
   const fs = o.fs != null ? o.fs : def.fs;
   const node = el('div', 'lf-box', `position:absolute;left:${x}px;top:${y}px;width:${w}px;`
-    + (fs != null ? `font-size:${fs}px;` : '') + `z-index:${def.z || 5};` + (css || ''));
+    + (fs != null ? `font-size:${fs}px;` : '') + `z-index:${def.z || 5};` + (css || '')
+    + (o.align ? `text-align:${o.align};` : ''));
   node.dataset.box = key;
   node.dataset.sel = 'box:' + key;
   if (content != null) node.textContent = content;
@@ -942,7 +948,13 @@ function renderSection(root, slide, deck, pal, dark, opts){
     addFigHint(root, slide, { x: 900, y: 80, w: 300 });
 }
 
+function renderTakeawayChip(root, pal){
+  root.appendChild(el('div', 'lf-take-chip', `left:${640 - 84}px;top:118px;width:168px;
+    background:${pal.accent};`, 'Key takeaway'));
+}
+
 function renderTakeaway(root, slide, deck, pal, dark, opts){
+  renderTakeawayChip(root, pal);
   if (slide.layout === 'takeawayQuote'){
     appendBox(root, withSerif(mkBox(slide, 'callout', { x: 150, y: 210, w: 980, fs: 44, z: 6 },
       slide.callout || slide.headline || 'A memorable line',
@@ -962,9 +974,14 @@ function renderTakeaway(root, slide, deck, pal, dark, opts){
       'opacity:.78;font-style:italic;text-align:center;', opts));
   }
   if (slide.annotations.length){
-    root.appendChild(el('div', '', `position:absolute;left:0;right:0;bottom:54px;text-align:center;
-      font-size:16px;letter-spacing:.6px;opacity:.72;z-index:5;`,
-      slide.annotations.map(a => a.text).join('    ·    ')));
+    const n = slide.annotations.length, gap = 24, w = Math.min(320, (1120 - (n - 1) * gap) / n);
+    const startX = (1280 - (n * w + (n - 1) * gap)) / 2;
+    const fs = n > 4 ? 14 : (n > 3 ? 15 : 16);
+    const y = n > 3 ? 532 : 552;
+    slide.annotations.forEach((a, i) => {
+      const def = { x: startX + i * (w + gap), y, w, fs };
+      renderAnnBox(root, slide, a, i, def, opts, false, i + 1, 'lf-take');
+    });
   }
 }
 
@@ -1040,13 +1057,14 @@ function renderContent(root, slide, deck, pal, dark, opts){
 
 /* one annotation as a movable/resizable label box (merges per-annotation overrides).
    `cardNum` truthy → render as a discrete bordered card with a numbered badge. */
-function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum = 0){
+function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum = 0, extraCls = ''){
   const x = a.x != null ? a.x : def.x;
   const y = a.y != null ? a.y : def.y;
   const w = a.w != null ? a.w : def.w;
   const fs = a.fs != null ? a.fs : (def.fs || 19);
-  const cls = cardNum ? 'lf-ann lf-anncard lf-box' : 'lf-ann lf-box';
-  const node = el('div', cls, `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`);
+  const cls = (cardNum ? 'lf-ann lf-anncard lf-box' : 'lf-ann lf-box') + (extraCls ? ' ' + extraCls : '');
+  const node = el('div', cls, `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`
+    + (a.align ? `text-align:${a.align};` : ''));
   node.dataset.id = a.id;
   node.dataset.sel = 'ann:' + a.id;
   if (cardNum) node.appendChild(el('div', 'lf-ann-num', '', String(cardNum)));
@@ -1161,7 +1179,7 @@ function renderTexts(root, slide, opts){
   (slide.texts || []).forEach(t => {
     const node = el('div', 'lf-box', `position:absolute;left:${t.x}px;top:${t.y}px;width:${t.w}px;`
       + `font-size:${t.fs || 24}px;font-weight:600;line-height:1.3;z-index:60;`
-      + (t.italic ? 'font-style:italic;' : ''));
+      + (t.italic ? 'font-style:italic;' : '') + (t.align ? `text-align:${t.align};` : ''));
     node.dataset.sel = 'text:' + t.id;
     node.textContent = t.text;
     if (opts.editor){ node.dataset.edit = 'text:' + t.id; node.dataset.editable = '1'; }
@@ -1278,6 +1296,10 @@ function selInfo(slide, sel){
     const obj = slide.annotations.find(x => x.id === sel.slice(4));
     return obj && { type: 'ann', obj, isText: true };
   }
+  if (sel.startsWith('text:')){
+    const obj = (slide.texts || []).find(x => x.id === sel.slice(5));
+    return obj && { type: 'text', obj, isText: true };
+  }
   if (sel.startsWith('box:')){
     slide.boxes = slide.boxes || {};
     const key = sel.slice(4);
@@ -1311,8 +1333,15 @@ function applySelection(root){
   const tools = $('#sel-tools');
   tools.hidden = !state.sel;
   const isImg = info && info.isImg;
+  const isText = info && info.isText;
   $('#sel-cutout').disabled = !isImg;
   $('#sel-front').disabled = $('#sel-back').disabled = !isImg;
+  const align = isText ? (info.obj.align || 'left') : null;
+  ['left', 'center', 'right'].forEach(a => {
+    const btn = $('#sel-align-' + a);
+    btn.disabled = !isText;
+    btn.classList.toggle('active', align === a);
+  });
   updateAnchorHandle(root, cur());
 }
 
@@ -1409,7 +1438,11 @@ function wireSlideEditing(root, slide){
 
   // double-click any editable text to edit in place
   root.addEventListener('dblclick', e => {
-    const ed = e.target.closest('[data-edit]');
+    // pointer capture from the preceding selection click can retarget the
+    // synthetic dblclick to the outer movable box rather than the text node
+    // under the cursor, so resolve the real element at this point first
+    const real = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+    const ed = real.closest('[data-edit]');
     if (!ed) return;
     try { ed.contentEditable = 'plaintext-only'; } catch (err) { ed.contentEditable = 'true'; }
     ed.focus();
@@ -1533,12 +1566,10 @@ function deleteSelected(){
   if (!s || !state.sel) return;
   const info = selInfo(s, state.sel);
   if (!info) return;
-  if (info.type === 'img')      s.images = s.images.filter(i => ('img:' + i.id) !== state.sel);
-  else if (info.type === 'ann') s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== state.sel);
-  else if (info.type === 'box'){
-    if (info.key.startsWith('text:')) s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== info.key);
-    else { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
-  }
+  if (info.type === 'img')       s.images = s.images.filter(i => ('img:' + i.id) !== state.sel);
+  else if (info.type === 'ann')  s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== state.sel);
+  else if (info.type === 'text') s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== state.sel);
+  else if (info.type === 'box')  { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
   state.sel = null;
   refreshAll();
 }
@@ -2536,12 +2567,14 @@ async function exportPPTX(){
 
     const rule = (x, y, w) => sl.addShape('rect', { x: I(x), y: I(y), w: I(w), h: I(5), fill: { color: accBar } });
     const T = (text, o) => sl.addText(text, { fontFace: SANS, color: ink, shadow: txtShadow, ...o });
+    const boxAlign = key => (s.boxes && s.boxes[key] && s.boxes[key].align) || undefined;
+    const pt = px => Math.max(8, Math.round(px * 0.62));   // slide px → PPT points
 
     if (s.type === 'title'){
-      T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12, charSpacing: 4, color: C(pal.accent2) });
+      T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12, charSpacing: 4, color: C(pal.accent2), align: boxAlign('kicker') });
       rule(96, 268, 64);
-      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: (s.headline || deck.title).length > 48 ? 34 : 44, bold: true });
-      if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16, color: dark ? '9FB2C4' : '5B6B7C' });
+      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: (s.headline || deck.title).length > 48 ? 34 : 44, bold: true, align: boxAlign('headline') });
+      if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16, color: dark ? '9FB2C4' : '5B6B7C', align: boxAlign('presenter') });
     }
     else if (s.type === 'roadmap'){
       T(s.headline || 'Roadmap', { x: I(96), y: I(60), w: I(1000), h: I(70), fontFace: SERIF, fontSize: 28, bold: true });
@@ -2567,19 +2600,44 @@ async function exportPPTX(){
       T(pad2(partNo), { x: I(880), y: I(380), w: I(360), h: I(320), fontFace: SERIF, fontSize: 160, bold: true,
         color: dark ? '24384A' : 'E1E8EE', align: 'right' });
       T('PART ' + pad2(partNo), { x: I(96), y: I(262), w: I(400), h: I(30), fontSize: 11, charSpacing: 4, color: C(pal.accent2) });
-      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38, bold: true });
+      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38, bold: true, align: boxAlign('headline') });
     }
     else if (s.type === 'takeaway'){
-      rule(608, 218, 64);
-      T(s.headline || '', { x: I(150), y: I(258), w: I(980), h: I(220), align: 'center', fontFace: SERIF,
-        fontSize: (s.headline || '').length > 90 ? 24 : 30, bold: true });
-      if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: 'center', italic: true, fontSize: 14, color: dark ? 'B9C8D6' : '5B6B7C' });
-      if (s.annotations.length)
-        T(s.annotations.map(a => a.text).join('    ·    '), { x: I(40), y: I(636), w: I(1200), h: I(34), align: 'center', fontSize: 11.5, color: dark ? '9FB2C4' : '5B6B7C' });
+      if (s.layout === 'takeawayQuote'){
+        T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: boxAlign('callout') || 'center',
+          fontFace: SERIF, fontSize: 26, italic: true, bold: true });
+        T(s.headline || '', { x: I(200), y: I(470), w: I(880), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C' });
+      } else {
+        const chipW = 168;
+        sl.addShape('roundRect', { x: I(640 - chipW / 2), y: I(150), w: I(chipW), h: I(34), rectRadius: 0.5, fill: { color: accBar } });
+        T('KEY TAKEAWAY', { x: I(640 - chipW / 2), y: I(150), w: I(chipW), h: I(34), align: 'center', valign: 'middle',
+          fontSize: 11, charSpacing: 3, bold: true, color: '06222F' });
+        rule(608, 218, 64);
+        T(s.headline || '', { x: I(150), y: I(258), w: I(980), h: I(220), align: boxAlign('headline') || 'center', fontFace: SERIF,
+          fontSize: (s.headline || '').length > 90 ? 24 : 30, bold: true });
+        if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: boxAlign('callout') || 'center', italic: true, fontSize: 14, color: dark ? 'B9C8D6' : '5B6B7C' });
+        if (s.annotations.length){
+          const n = s.annotations.length, gap = 24, w = Math.min(320, (1120 - (n - 1) * gap) / n);
+          const startX = (1280 - (n * w + (n - 1) * gap)) / 2;
+          s.annotations.forEach((a, i) => {
+            const x = a.x != null ? a.x : (startX + i * (w + gap)), y = a.y != null ? a.y : 552, aw = a.w != null ? a.w : w;
+            const fs = a.fs != null ? a.fs : 16;
+            const textH = estimateAnnH(a.text) * 0.75;
+            const cardH = Math.max(70, textH + 36);
+            sl.addShape('roundRect', { x: I(x), y: I(y), w: I(aw), h: I(cardH), rectRadius: 0.07,
+              fill: { color: dark ? '263747' : 'FFFFFF' }, line: { color: accBar, width: 1.5 } });
+            const badgeD = 22;
+            sl.addShape('ellipse', { x: I(x + 14), y: I(y + 12), w: I(badgeD), h: I(badgeD), fill: { color: accBar } });
+            sl.addText(String(i + 1), { x: I(x + 14), y: I(y + 12), w: I(badgeD), h: I(badgeD),
+              align: 'center', valign: 'middle', fontFace: SERIF, fontSize: 11, bold: true, color: '06222F' });
+            T(a.text, { x: I(x + 14 + badgeD + 8), y: I(y + 12), w: I(aw - 28 - badgeD), h: I(cardH - 20),
+              fontSize: pt(fs), bold: true, valign: 'middle', align: a.align });
+          });
+        }
+      }
     }
     else { // content — driven by the same layout geometry as the editor
       const L = contentLayout(s);
-      const pt = px => Math.max(8, Math.round(px * 0.62));   // slide px → PPT points
 
       // cinematic: full-bleed photo + dark scrim drawn first, white text on top
       const cine = L.fullBleed && s.images.length;
@@ -2595,13 +2653,13 @@ async function exportPPTX(){
       }
 
       if (L.bigQuote){
-        T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: 'center',
+        T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: boxAlign('callout') || 'center',
           fontFace: SERIF, fontSize: 26, italic: true, bold: true });
-        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C' });
+        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C' });
       } else {
         rule(L.headline.x, L.headline.y - 14, 54);
         T(s.headline || '', { x: I(L.headline.x), y: I(L.headline.y), w: I(L.headline.w), h: I(110),
-          fontFace: SERIF, fontSize: pt(L.headline.fs), bold: true, valign: 'top' });
+          fontFace: SERIF, fontSize: pt(L.headline.fs), bold: true, valign: 'top', align: boxAlign('headline') });
 
         if (L.annStyle === 'step' && L.timelineGeom){
           const g = L.timelineGeom;
@@ -2629,9 +2687,9 @@ async function exportPPTX(){
               sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(def.h || 120), rectRadius: 0.06,
                 fill: { color: dark ? '22303E' : 'FFFFFF' }, line: { color: dark ? '3A4A5C' : 'E2E9EF', width: 0.75 } });
               T(pad2(i + 1), { x: I(x + 16), y: I(y + 10), w: I(70), h: I(30), fontFace: SERIF, fontSize: 14, bold: true, color: acc });
-              T(a.text, { x: I(x + 16), y: I(y + 40), w: I(w - 32), h: I(36), fontSize: 12.5, bold: true });
+              T(a.text, { x: I(x + 16), y: I(y + 40), w: I(w - 32), h: I(36), fontSize: 12.5, bold: true, align: a.align });
               if (a.full && a.full.trim() !== a.text.trim())
-                T(a.full, { x: I(x + 16), y: I(y + 76), w: I(w - 32), h: I(Math.max(24, (def.h || 120) - 86)), fontSize: 10, color: dark ? 'AABBCB' : '5B6B7C' });
+                T(a.full, { x: I(x + 16), y: I(y + 76), w: I(w - 32), h: I(Math.max(24, (def.h || 120) - 86)), fontSize: 10, color: dark ? 'AABBCB' : '5B6B7C', align: a.align });
             } else if (L.annStyle === 'card'){
               // discrete bordered card with a numbered badge, like .lf-anncard
               const badgeD = 26;
@@ -2644,10 +2702,10 @@ async function exportPPTX(){
               sl.addShape('ellipse', { x: I(x + 16), y: I(y + 12), w: I(badgeD), h: I(badgeD), fill: { color: accBar } });
               sl.addText(String(i + 1), { x: I(x + 16), y: I(y + 12), w: I(badgeD), h: I(badgeD),
                 align: 'center', valign: 'middle', fontFace: SERIF, fontSize: 11, bold: true, color: '06222F' });
-              T(a.text, { x: I(x + 16), y: I(y + 12 + badgeD + 8), w: I(w - 32), h: I(textH), fontSize: pt(fs), bold: true, valign: 'top' });
+              T(a.text, { x: I(x + 16), y: I(y + 12 + badgeD + 8), w: I(w - 32), h: I(textH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align });
               if (hasFull)
                 T(a.full, { x: I(x + 16), y: I(y + 12 + badgeD + 8 + textH), w: I(w - 32), h: I(fullH),
-                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
+                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top', align: a.align });
               if (L.connectors && arrowC){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, cardH);
@@ -2657,10 +2715,10 @@ async function exportPPTX(){
               // label / list — accent bar + text
               sl.addShape('rect', { x: I(x), y: I(y), w: I(22), h: I(3), fill: { color: acc } });
               const labelH = estimateAnnH(a.text);
-              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(labelH), fontSize: pt(fs), bold: true, valign: 'top' });
+              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(labelH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align });
               if (L.annDetail && a.full && a.full.trim() !== a.text.trim())
                 T(a.full, { x: I(x - 2), y: I(y + 8 + labelH), w: I(w + 6), h: I(estimateAnnH(a.full) * 0.75),
-                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top' });
+                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top', align: a.align });
               if (L.connectors && arrowC){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, estimateAnnH(a.text));
@@ -2671,10 +2729,19 @@ async function exportPPTX(){
         }
         if (s.callout && L.callout){
           sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(4), h: I(70), fill: { color: accBar } });
-          T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18) });
+          T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18), align: boxAlign('callout') });
         }
       }
     }
+
+    // free-floating text boxes
+    (s.texts || []).forEach(t => {
+      const fs = t.fs || 24;
+      const charsPerLine = Math.max(4, Math.floor((t.w || 320) / (fs * 0.56)));
+      const lines = Math.max(1, Math.ceil((t.text || ' ').length / charsPerLine));
+      T(t.text, { x: I(t.x), y: I(t.y), w: I(t.w), h: I(lines * fs * 1.3 + 10),
+        fontSize: pt(fs), bold: true, italic: !!t.italic, valign: 'top', align: t.align });
+    });
 
     // images (only embeddable ones survive into PPTX)
     const cineFirst = (contentLayout(s).fullBleed && s.images.length) ? s.images[0] : null;
@@ -3111,6 +3178,17 @@ function wireUI(){
   $('#sel-front').addEventListener('click', () => { checkpoint(); reorderImage(+1); });
   $('#sel-back').addEventListener('click', () => { checkpoint(); reorderImage(-1); });
   $('#sel-delete').addEventListener('click', () => { checkpoint(); deleteSelected(); });
+  ['left', 'center', 'right'].forEach(a => {
+    $('#sel-align-' + a).addEventListener('click', () => {
+      const s = cur();
+      const info = s && selInfo(s, state.sel);
+      if (!info || !info.isText) return;
+      checkpoint();
+      info.obj.align = a;
+      commitChange();
+      refreshAll();
+    });
+  });
   $('#sel-cutout').addEventListener('click', async () => {
     const s = cur();
     if (!s || !state.sel || !state.sel.startsWith('img:')) return;
