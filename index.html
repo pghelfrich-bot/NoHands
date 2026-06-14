@@ -120,6 +120,7 @@ Design: free-text notes
     <div class="rail-foot">
       <button id="btn-add-slide" class="btn small wide">＋ Slide</button>
       <button id="btn-add-recaps" class="btn small wide" title="Insert (or refresh) a roadmap recap slide before each section, with that section's stop highlighted">🗺 Recap slides</button>
+      <button id="btn-fill-figures" class="btn small wide" title="Find a licensed image for every slide that's missing one, in one pass">🖼 Fill figures</button>
     </div>
   </aside>
 
@@ -313,6 +314,28 @@ Design: free-text notes
       <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>
+</dialog>
+
+<!-- ===================== FILL FIGURES ===================== -->
+<dialog id="fill-modal" class="modal fill-modal">
+  <div class="fill-head">
+    <h2>Fill figures</h2>
+    <span id="fill-progress" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="fill-auto" class="btn ghost" title="Auto-insert the top result on every remaining slide">⚡ Rough draft (auto-fill all)</button>
+    <button id="fill-close" class="btn ghost">Done</button>
+  </div>
+  <div id="fill-slidehead" class="fill-slidehead"></div>
+  <div class="ip-search">
+    <input id="fill-query" type="search" placeholder="Refine the search…">
+    <button id="fill-go" class="btn primary small">Search</button>
+  </div>
+  <div id="fill-status" class="status" hidden></div>
+  <div id="fill-grid" class="fill-grid"></div>
+  <div class="fill-actions">
+    <button id="fill-back" class="btn ghost">← Back</button>
+    <button id="fill-skip" class="btn ghost">Skip this slide →</button>
+  </div>
 </dialog>
 
 <!-- ===================== PRESENT MODE ===================== -->

@@ -2525,6 +2525,26 @@ function interleave(lists){
   return out;
 }
 
+/* fan out to the given (or every ready) provider for a query plus optional
+   alternate terms, interleave + de-dupe the results. Shared by the side panel
+   search and the batch "Fill figures" pass. */
+async function fetchImages(query, { limit = 24, alts = [], provs } = {}){
+  provs = provs || Object.keys(PROVIDERS).filter(k => PROVIDERS[k].ready());
+  const queries = [query, ...alts].filter(Boolean);
+  const perTerm = await Promise.all(queries.map(async term => {
+    const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(term)));
+    return {
+      lists: settled.map(s => s.status === 'fulfilled' ? s.value : []),
+      failed: settled.map((s, i) => s.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean),
+    };
+  }));
+  const seen = new Set();
+  const results = interleave(perTerm.map(t => interleave(t.lists)))
+    .filter(r => { const k = r.provider + ':' + r.id; if (seen.has(k)) return false; seen.add(k); return true; })
+    .slice(0, limit);
+  return { results, failed: [...new Set(perTerm.flatMap(t => t.failed))] };
+}
+
 let searchToken = 0;
 let lastAutoQuery = null;
 async function runImageSearch(opts = {}){
@@ -2550,21 +2570,8 @@ async function runImageSearch(opts = {}){
 
   // also search any checked alternate subjects, alongside the main query
   const altTerms = $$('#ip-alts input:checked').map(cb => cb.dataset.term);
-  const queries = [q, ...altTerms];
-
-  const perTerm = await Promise.all(queries.map(async term => {
-    const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(term)));
-    return {
-      lists: settled.map(s2 => s2.status === 'fulfilled' ? s2.value : []),
-      failed: settled.map((s2, i) => s2.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean),
-    };
-  }));
+  const { results: merged, failed: failedProvs } = await fetchImages(q, { limit: auto ? 15 : 48, alts: altTerms, provs });
   if (token !== searchToken) return;
-  const failedProvs = [...new Set(perTerm.flatMap(t => t.failed))];
-  const seen = new Set();
-  const merged = interleave(perTerm.map(t => interleave(t.lists)))
-    .filter(r => { const k = r.provider + ':' + r.id; if (seen.has(k)) return false; seen.add(k); return true; })
-    .slice(0, auto ? 15 : 48);
 
   if (!merged.length){
     ipStatus('No results.' + (failedProvs.length ? ` (${failedProvs.join(', ')} failed)` : ''), !!failedProvs.length);
@@ -2602,7 +2609,7 @@ async function loadResultCells(grid, results, cellFn, onProgress, isStale){
   return { shown, skipped };
 }
 
-function resultCell(r, imEl){
+function resultCell(r, imEl, onInsert){
   const cell = el('div', 'ip-cell');
   cell.title = `${r.title || 'Untitled'}\n${r.author} — ${r.sourceName}\n${r.license}\nClick to insert · drag onto the slide`;
   imEl.alt = r.title || '';
@@ -2614,7 +2621,7 @@ function resultCell(r, imEl){
   const meta = el('div', 'ip-meta');
   meta.innerHTML = `${escHTML(r.author)} · <span class="lic">${escHTML(r.license)}</span>`;
   cell.appendChild(meta);
-  cell.addEventListener('click', () => insertImageFromResult(r));
+  cell.addEventListener('click', () => (onInsert || insertImageFromResult)(r));
   cell.draggable = true;
   cell.addEventListener('dragstart', e => {
     e.dataTransfer.setData('text/lf-image', JSON.stringify(r));
@@ -2734,16 +2741,15 @@ function fitRect(natW, natH, zone){
   return { x: Math.round(zone.x + (zone.w - w) / 2), y: Math.round(zone.y + (zone.h - h) / 2), w, h };
 }
 
-async function insertImageFromResult(r, at){
-  const s = cur();
-  if (!s){ toast('Open a deck first'); return; }
-  checkpoint();
-  toast('Inserting image…', 6000);
+/* load + place + embed a search result onto a specific slide, as a
+   self-contained data-URL. Returns the image object, or null if the image
+   couldn't be loaded. No toasts, checkpoints, or rendering — callers handle UI. */
+async function placeResultOnSlide(slide, r, at){
   let src = r.full, dim;
   try { dim = await loadImageDim(src); }
   catch (e) {
     try { src = r.thumb; dim = await loadImageDim(src); }
-    catch (e2) { toast('That image failed to load — skipped'); return; }
+    catch (e2) { return null; }
   }
   const im = {
     id: uid(), src, x: 0, y: 0, w: 0, h: 0, cutout: false, cutSrc: null,
@@ -2756,21 +2762,122 @@ async function insertImageFromResult(r, at){
     const h = Math.round(w * dim.h / dim.w);
     place = { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2), w, h };
   } else {
-    place = defaultImagePlacement(s, dim.w, dim.h);
+    place = defaultImagePlacement(slide, dim.w, dim.h);
   }
   Object.assign(im, place);
-  s.images.push(im);
-  refreshAll();
-  toast('Image inserted' + (im.attr.author ? ` — ${im.attr.author} / ${im.attr.sourceName}` : ''));
+  slide.images.push(im);
 
   // Unsplash API guidelines: report the download
   if (r.provider === 'unsplash' && r.downloadLocation && settings.unsplashKey){
     fetch(r.downloadLocation, { headers: { Authorization: 'Client-ID ' + settings.unsplashKey } }).catch(() => {});
   }
-  // embed as data-URL so exports are self-contained
-  embedImage(im).then(() => {
-    if ($('#ip-cutout').checked) return applyCutout(im);
-  }).then(() => { if (cur() === s) renderEditor(); refreshRailThumb(state.deck.slides.indexOf(s)); save(); });
+  await embedImage(im);
+  return im;
+}
+
+async function insertImageFromResult(r, at){
+  const s = cur();
+  if (!s){ toast('Open a deck first'); return; }
+  checkpoint();
+  toast('Inserting image…', 6000);
+  const im = await placeResultOnSlide(s, r, at);
+  if (!im){ toast('That image failed to load — skipped'); return; }
+  refreshAll();
+  toast('Image inserted' + (im.attr.author ? ` — ${im.attr.author} / ${im.attr.sourceName}` : ''));
+  if ($('#ip-cutout').checked) await applyCutout(im);
+  if (cur() === s) renderEditor();
+  refreshRailThumb(state.deck.slides.indexOf(s));
+  save();
+}
+
+/* ================= batch "Fill figures" pass ================= */
+
+function figureWorklist(){
+  return state.deck.slides
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => !s.images.length && (s.figure || s.headline));
+}
+function slideSeed(s){ return splitFigureTerms(s.figure || s.headline || ''); }
+
+let fillList = [], fillPos = 0;
+
+function openFillFigures(){
+  if (!state.deck) return;
+  fillList = figureWorklist();
+  if (!fillList.length){ toast('Every slide already has an image'); return; }
+  fillPos = 0;
+  $('#fill-modal').showModal();
+  fillShow();
+}
+
+function fillShow(){
+  if (fillPos >= fillList.length){ closeFill(); toast('Done filling figures'); return; }
+  const { s, i } = fillList[fillPos];
+  $('#fill-progress').textContent = `Slide ${i + 1} · ${fillPos + 1} of ${fillList.length}`;
+  $('#fill-slidehead').textContent = s.headline || `Slide ${i + 1}`;
+  const seed = slideSeed(s);
+  $('#fill-query').value = seed.primary;
+  fillSearch(seed.alternates);
+}
+
+let fillToken = 0;
+async function fillSearch(alts = []){
+  const grid = $('#fill-grid'); grid.innerHTML = '';
+  fillStatus('Searching…');
+  const token = ++fillToken;
+  const q = $('#fill-query').value.trim();
+  if (!q){ fillStatus('Type a search term, or Skip this slide.'); return; }
+  const { results, failed } = await fetchImages(q, { limit: 9, alts });
+  if (token !== fillToken) return;
+  if (!results.length){
+    fillStatus('No results.' + (failed.length ? ` (${failed.join(', ')} failed)` : '') + ' Try refining the search, or Skip.');
+    return;
+  }
+  const { shown, skipped } = await loadResultCells(grid, results, fillCell,
+    n => fillStatus(`${n} image${n === 1 ? '' : 's'}…`), () => token !== fillToken);
+  if (token !== fillToken) return;
+  fillStatus(`${shown} image${shown === 1 ? '' : 's'}${skipped ? ` · ${skipped} broken skipped` : ''}`);
+}
+function fillStatus(msg, isErr){
+  const st = $('#fill-status');
+  if (!msg){ st.hidden = true; return; }
+  st.hidden = false;
+  st.textContent = msg;
+  st.classList.toggle('err', !!isErr);
+}
+function fillCell(r, imEl){
+  return resultCell(r, imEl, () => fillAccept(r));
+}
+async function fillAccept(r){
+  const { s, i } = fillList[fillPos];
+  checkpoint();
+  const im = await placeResultOnSlide(s, r);
+  if (!im){ toast('That image failed to load — try another'); return; }
+  refreshRailThumb(i); save();
+  fillPos++; fillShow();
+}
+function fillSkip(){ fillPos++; fillShow(); }
+function fillBack(){ if (fillPos > 0){ fillPos--; fillShow(); } }
+function closeFill(){ $('#fill-modal').close(); refreshAll(); }
+
+/* one-click rough draft: top working hit on every remaining slide */
+async function fillAuto(){
+  $('#fill-auto').disabled = true;
+  checkpoint();
+  for (; fillPos < fillList.length; fillPos++){
+    const { s, i } = fillList[fillPos];
+    $('#fill-progress').textContent = `Auto-filling ${fillPos + 1} of ${fillList.length}…`;
+    const seed = slideSeed(s);
+    const { results } = await fetchImages(seed.primary, { limit: 6, alts: seed.alternates });
+    for (const r of results){
+      const im = await placeResultOnSlide(s, r);
+      if (im){ refreshRailThumb(i); break; }
+    }
+  }
+  $('#fill-auto').disabled = false;
+  save();
+  closeFill();
+  toast('Rough draft filled — review and swap any you don’t like');
 }
 
 function defaultImagePlacement(slide, natW, natH){
@@ -4120,6 +4227,13 @@ function wireUI(){
   const addArrowBtn = $('#btn-add-arrow');
   if (addArrowBtn) addArrowBtn.addEventListener('click', addArrow);
   $('#btn-add-recaps').addEventListener('click', addRoadmapRecaps);
+  $('#btn-fill-figures').addEventListener('click', openFillFigures);
+  $('#fill-close').addEventListener('click', closeFill);
+  $('#fill-skip').addEventListener('click', fillSkip);
+  $('#fill-back').addEventListener('click', fillBack);
+  $('#fill-auto').addEventListener('click', fillAuto);
+  $('#fill-go').addEventListener('click', () => fillSearch());
+  $('#fill-query').addEventListener('keydown', e => { if (e.key === 'Enter') fillSearch(); });
   $('#sel-scope').addEventListener('change', () => {
     const s = cur();
     const info = s && selInfo(s, state.sel);

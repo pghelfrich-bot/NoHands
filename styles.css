@@ -334,14 +334,27 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .field input:focus{outline:none;border-color:var(--accent)}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 
-#decks-list{list-style:none;margin:10px 0;padding:0;max-height:320px;overflow-y:auto}
-#decks-list li{
+#decks-list,#templates-list{list-style:none;margin:10px 0;padding:0;max-height:320px;overflow-y:auto}
+#decks-list li,#templates-list li{
   display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);
   border-radius:9px;margin-bottom:7px;
 }
 #decks-list li.current{border-color:var(--accent)}
-#decks-list .dk-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-#decks-list .dk-meta{font-size:11px;color:var(--ink-dim);white-space:nowrap}
+#decks-list .dk-name,#templates-list .dk-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+#decks-list .dk-meta,#templates-list .dk-meta{font-size:11px;color:var(--ink-dim);white-space:nowrap}
+
+/* ---------- fill figures ---------- */
+.fill-modal{width:min(760px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:10px}
+.fill-head{display:flex;align-items:center;gap:10px}
+.fill-head h2{margin:0;font-size:16px}
+.fill-slidehead{font-size:13px;color:var(--ink-dim)}
+.fill-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  overflow-y:auto;max-height:50vh;padding:2px;
+}
+.fill-grid .ip-cell{flex:none}
+.fill-grid .ip-imgwrap{height:120px}
+.fill-actions{display:flex;justify-content:space-between;gap:8px}
 
 /* ---------- present mode ---------- */
 #present-overlay{

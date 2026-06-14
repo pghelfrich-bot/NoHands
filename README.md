@@ -75,6 +75,8 @@ Title/section/takeaway add left / centered / quote variants; roadmap is numbered
 
 **Roadmap recaps** — click **🗺 Recap slides** (left rail) to drop a copy of the roadmap slide in front of every section slide, with that section's stop filled in and tagged **NOW** (the rest dim) so the audience always knows where they are. Each recap is a normal, fully editable roadmap slide — move it, restyle it, or delete it like any other. Click the button again any time after reordering sections or editing the roadmap to drop the old recaps and rebuild them in the right places.
 
+**Fill figures** — click **🖼 Fill figures** (left rail) to step through every slide that's still missing an image, one at a time. Each step auto-searches licensed sources from that slide's FIGURE/headline; click a result to insert it and move on, **Skip this slide →** to leave it for later, or **← Back** to revisit the previous one. Refine the search box and hit Search/Enter if the suggestions miss. **⚡ Rough draft (auto-fill all)** inserts the top working result on every remaining slide in one go and closes the modal — a fast way to get a fully-illustrated draft you can then swap images on individually. If every slide already has an image, the button just confirms there's nothing left to do.
+
 ### 3. The image panel (licensed sources only)
 
 Tied to the selected slide; the query is auto-seeded from that slide's `FIGURE` text (the dashed "suggested figure" chip on the canvas also triggers a search).
