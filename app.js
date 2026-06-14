@@ -835,6 +835,7 @@ function renderSlide(slide, deck, opts = {}){
     drawConnectors(root, slide, arrowColor(deck));
   }
   renderTexts(root, slide, opts);
+  renderOverlays(root, slide, deck, opts);
   renderFooter(root, slide, deck, pal, dark, opts);
   if (deck.frame) root.appendChild(el('div', 'lf-frame'));
   return root;
@@ -1207,6 +1208,28 @@ function renderTexts(root, slide, opts){
   });
 }
 
+/* Recurring "motif" overlays defined once on the deck and shown on every slide
+   (or every slide of a chosen type) — e.g. an etymology block or a footer line.
+   Editing, moving, recolouring or deleting one on any slide updates the shared
+   deck element, so it stays consistent everywhere with no copy-paste. */
+function renderOverlays(root, slide, deck, opts){
+  (deck.overlays || []).forEach(o => {
+    if (o.type && o.type !== 'text') return;                 // v1: text overlays only
+    if (o.scope && o.scope !== 'all' && o.scope !== slide.type) return;
+    const sizing = o.w != null ? `width:${o.w}px;` : `width:max-content;max-width:${TEXT_AUTO_MAX}px;`;
+    const cls = 'lf-box lf-overlay' + (opts.editor ? ' lf-overlay-edit' : '');
+    const node = el('div', cls, `position:absolute;left:${o.x}px;top:${o.y}px;${sizing}`
+      + `font-size:${o.fs || 20}px;font-weight:600;line-height:1.3;z-index:62;`
+      + (o.italic ? 'font-style:italic;' : '') + (o.align ? `text-align:${o.align};` : '')
+      + (o.color ? `color:${o.color};` : '')
+      + (o.bg ? `background-color:${o.bg};padding:8px 12px;border-radius:8px;` : ''));
+    node.dataset.sel = 'overlay:' + o.id;
+    node.textContent = o.text;
+    if (opts.editor){ node.dataset.edit = 'overlay:' + o.id; node.dataset.editable = '1'; }
+    root.appendChild(node);
+  });
+}
+
 function renderFooter(root, slide, deck, pal, dark, opts){
   const i = opts.index ?? deck.slides.indexOf(slide);
   const n = opts.total ?? deck.slides.length;
@@ -1320,6 +1343,10 @@ function selInfo(slide, sel){
     const obj = (slide.texts || []).find(x => x.id === sel.slice(5));
     return obj && { type: 'text', obj, isText: true };
   }
+  if (sel.startsWith('overlay:')){
+    const obj = (state.deck && state.deck.overlays || []).find(x => x.id === sel.slice(8));
+    return obj && { type: 'overlay', obj, isText: true };
+  }
   if (sel.startsWith('box:')){
     slide.boxes = slide.boxes || {};
     const key = sel.slice(4);
@@ -1391,6 +1418,13 @@ function applySelection(root){
     if (document.activeElement !== bgInput)
       bgInput.value = refObj.bg || '#ffffff';
   }
+
+  // recurring-overlay scope selector (which slides the element appears on)
+  const scopeSel = $('#sel-scope');
+  const isOverlay = !group && info && info.type === 'overlay';
+  scopeSel.hidden = !isOverlay;
+  if (isOverlay) scopeSel.value = info.obj.scope || 'all';
+
   updateAnchorHandle(root, cur());
 }
 
@@ -1741,6 +1775,9 @@ function applyEdit(slide, key, val){
   else if (key.startsWith('text:')){
     const t = (slide.texts || []).find(x => x.id === key.slice(5));
     if (t) t.text = val;
+  } else if (key.startsWith('overlay:')){
+    const o = (state.deck.overlays || []).find(x => x.id === key.slice(8));
+    if (o) o.text = val;
   } else if (key.startsWith('ann:')){
     const a = slide.annotations.find(x => x.id === key.slice(4));
     if (a) a.text = val;
@@ -1761,6 +1798,7 @@ function deleteOne(s, sel){
   if (info.type === 'img')       s.images = s.images.filter(i => ('img:' + i.id) !== sel);
   else if (info.type === 'ann')  s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== sel);
   else if (info.type === 'text') s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== sel);
+  else if (info.type === 'overlay') state.deck.overlays = (state.deck.overlays || []).filter(o => ('overlay:' + o.id) !== sel);
   else if (info.type === 'box')  { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
 }
 
@@ -1796,6 +1834,18 @@ function addTextBox(){
   const t = { id: uid(), text: 'Text', x: 480, y: 320, fs: 32 };   // w omitted → auto-fit to content
   s.texts.push(t);
   state.sel = 'text:' + t.id;
+  refreshAll();
+}
+
+/* add a recurring deck-level overlay (shown on every slide, editable once) */
+function addOverlay(){
+  const d = state.deck;
+  if (!d) return;
+  checkpoint();
+  d.overlays = d.overlays || [];
+  const o = { id: uid(), type: 'text', text: 'Recurring text', x: 70, y: 110, fs: 20, italic: true, scope: 'all' };
+  d.overlays.push(o);
+  state.sel = 'overlay:' + o.id;
   refreshAll();
 }
 
@@ -2957,6 +3007,19 @@ async function exportPPTX(){
         fontSize: pt(fs), bold: true, italic: !!t.italic, valign: 'top', align: t.align, ...colorOpts(t) });
     });
 
+    // recurring deck overlays (rendered on every matching slide)
+    (deck.overlays || []).forEach(o => {
+      if (o.type && o.type !== 'text') return;
+      if (o.scope && o.scope !== 'all' && o.scope !== s.type) return;
+      const fs = o.fs || 20;
+      const autoW = Math.min(TEXT_AUTO_MAX, Math.max(40, Math.round((o.text || ' ').length * fs * 0.56)));
+      const w = o.w != null ? o.w : autoW;
+      const charsPerLine = Math.max(4, Math.floor(w / (fs * 0.56)));
+      const lines = Math.max(1, Math.ceil((o.text || ' ').length / charsPerLine));
+      T(o.text, { x: I(o.x), y: I(o.y), w: I(w), h: I(lines * fs * 1.3 + 10),
+        fontSize: pt(fs), bold: true, italic: !!o.italic, valign: 'top', align: o.align, ...colorOpts(o) });
+    });
+
     // images (only embeddable ones survive into PPTX)
     const cineFirst = (contentLayout(s).fullBleed && s.images.length) ? s.images[0] : null;
     for (const im of s.images){
@@ -3466,6 +3529,16 @@ function wireUI(){
   });
   const addTextBtn = $('#btn-add-text');
   if (addTextBtn) addTextBtn.addEventListener('click', addTextBox);
+  const addOverlayBtn = $('#btn-add-overlay');
+  if (addOverlayBtn) addOverlayBtn.addEventListener('click', addOverlay);
+  $('#sel-scope').addEventListener('change', () => {
+    const s = cur();
+    const info = s && selInfo(s, state.sel);
+    if (!info || info.type !== 'overlay') return;
+    checkpoint();
+    info.obj.scope = $('#sel-scope').value;
+    refreshAll();
+  });
 
   // undo / redo
   $('#btn-undo').addEventListener('click', undo);

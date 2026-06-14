@@ -143,8 +143,17 @@ Design: free-text notes
       <button id="btn-relayout" class="btn small" title="Reset image and label positions to the automatic layout">✦ Re-layout</button>
       <button id="btn-add-label" class="btn small" title="Add an annotation label">＋ Label</button>
       <button id="btn-add-text" class="btn small" title="Add a free text box">＋ Text</button>
+      <button id="btn-add-overlay" class="btn small" title="Add a recurring element shown on every slide (edit it once, updates everywhere)">↻ Recurring</button>
       <span class="sep"></span>
       <span id="sel-tools" hidden>
+        <select id="sel-scope" class="sel-scope" hidden title="Which slides this recurring element appears on">
+          <option value="all">On all slides</option>
+          <option value="content">Content slides</option>
+          <option value="title">Title slides</option>
+          <option value="section">Section slides</option>
+          <option value="takeaway">Takeaway slides</option>
+          <option value="roadmap">Roadmap slides</option>
+        </select>
         <button id="sel-align-left" class="btn small" title="Align text left" data-align="left">L</button>
         <button id="sel-align-center" class="btn small" title="Align text center" data-align="center">C</button>
         <button id="sel-align-right" class="btn small" title="Align text right" data-align="right">R</button>
