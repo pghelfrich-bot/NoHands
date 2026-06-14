@@ -343,6 +343,16 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 #decks-list .dk-name,#templates-list .dk-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 #decks-list .dk-meta,#templates-list .dk-meta{font-size:11px;color:var(--ink-dim);white-space:nowrap}
 
+/* ---------- draft from prose ---------- */
+.prose-modal{width:min(640px,94vw)}
+#prose-text{
+  display:block;width:100%;min-height:220px;resize:vertical;margin:10px 0;
+  background:#0c1117;color:var(--ink);border:1px solid var(--line);border-radius:8px;
+  padding:10px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+#prose-text:focus{outline:none;border-color:var(--accent)}
+#prose-ai-opts .field{margin:8px 0}
+
 /* ---------- fill figures ---------- */
 .fill-modal{width:min(760px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:10px}
 .fill-head{display:flex;align-items:center;gap:10px}

@@ -58,6 +58,7 @@ Design: ocean blues, calm
       <div class="row outline-actions">
         <button id="btn-outline-file"   class="btn ghost">Upload file</button>
         <button id="btn-outline-sample" class="btn ghost">Load sample</button>
+        <button id="btn-outline-prose"  class="btn ghost" title="Paste prose or notes and draft a LectureFlow outline from it">✨ Draft from prose</button>
         <span class="spacer"></span>
         <button id="btn-outline-build"  class="btn primary">Build deck →</button>
       </div>
@@ -284,6 +285,9 @@ Design: free-text notes
     <label class="field">remove.bg API key <span class="muted">(optional — Cutout falls back to a built-in remover)</span>
       <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
     </label>
+    <label class="field">Anthropic API key <span class="muted">(optional — for "Draft from prose" AI mode)</span>
+      <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
+    </label>
     <div class="modal-actions">
       <button value="cancel" class="btn ghost" type="submit">Cancel</button>
       <button id="set-save" class="btn primary" type="button">Save</button>
@@ -336,6 +340,29 @@ Design: free-text notes
     <button id="fill-back" class="btn ghost">← Back</button>
     <button id="fill-skip" class="btn ghost">Skip this slide →</button>
   </div>
+</dialog>
+
+<!-- ===================== DRAFT FROM PROSE ===================== -->
+<dialog id="prose-modal" class="modal prose-modal">
+  <form method="dialog">
+    <h2>Draft an outline from prose</h2>
+    <p class="modal-sub">Paste notes, a textbook passage, or a transcript. LectureFlow drafts a LectureFlow outline (image-first by default) that you can review and edit before building.</p>
+    <textarea id="prose-text" spellcheck="false" placeholder="Paste your prose / notes here…"></textarea>
+    <div class="row">
+      <label class="check"><input type="radio" name="prose-mode" value="heuristic" checked> Quick (offline)</label>
+      <label class="check"><input type="radio" name="prose-mode" value="ai"> AI (Claude API)</label>
+      <span class="spacer"></span>
+    </div>
+    <div id="prose-ai-opts" hidden>
+      <label class="field">Anthropic API key <input id="prose-key" type="password" placeholder="sk-ant-… (saved in this browser)"></label>
+      <label class="field">Model <input id="prose-model" type="text" value="claude-sonnet-4-6"></label>
+    </div>
+    <div id="prose-status" class="status" hidden></div>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="prose-generate" class="btn primary" type="button">Generate outline</button>
+    </div>
+  </form>
 </dialog>
 
 <!-- ===================== PRESENT MODE ===================== -->

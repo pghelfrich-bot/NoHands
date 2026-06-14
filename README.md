@@ -21,6 +21,8 @@ Click **Load sample → Build deck** to see the whole flow in ten seconds.
 
 The **Home** screen (the LectureFlow logo, or the Home button) is your deck library: every saved deck appears as a card with a live thumbnail and **Open / Copy / Download (.json) / Delete** actions. Organise decks into **folders** (e.g. one per class) from the sidebar — filter by folder, move a deck via its card menu, or drag a card onto a folder. You can **import** a previously downloaded `.json` deck too.
 
+Click **Template** on any deck card to save its structure — slide types, layouts, positions, and styling — as a reusable skeleton with the content blanked out to placeholders. **From template** on Home lists your saved templates plus three built-ins (topic overview, compare & contrast, process/lifecycle); pick one to open a fresh deck ready for you to fill in.
+
 ## Workflow
 
 **Paste an outline → get a formatted deck → choose a layout → drop in images → export.**
@@ -43,6 +45,7 @@ Design: ocean blues, calm        ← free text; color words pick the deck's pale
 
 1. TYPE: title | roadmap | section | content | takeaway
    HEADLINE: slide heading
+   LAYOUT: annotated | comparison | timeline | quote | statement | gallery | cinematic | …
    POINTS:
    - a point (long ones are compressed; detail goes to speaker notes)
    CALLOUT: a highlighted stat or quote
@@ -50,7 +53,9 @@ Design: ocean blues, calm        ← free text; color words pick the deck's pale
    NOTES: speaker notes
 ```
 
-Parsing is lenient: `## Headings` and `---` separators also start slides, field names are case-insensitive, bare bullets count as points, fuzzy types work (`agenda → roadmap`, `summary → takeaway`…), and a title slide is synthesized if the outline lacks one. The result appears instantly as editable slides.
+Parsing is lenient: `## Headings` and `---` separators also start slides, field names are case-insensitive, bare bullets count as points, fuzzy types work (`agenda → roadmap`, `summary → takeaway`…), and a title slide is synthesized if the outline lacks one. `LAYOUT:` is optional — it requests one of the content layouts below by name (fuzzy: `versus`, `process`, `pull quote`, `big idea`… all map to a layout); leave it out to let the layout engine pick (annotated figure by default). The result appears instantly as editable slides.
+
+**✨ Draft from prose** — paste raw notes, a textbook passage, or a transcript and LectureFlow drafts an outline in the format above, ready to review and tweak before building. **Quick (offline)** runs a deterministic heuristic in your browser: it splits the prose into sections, compresses sentences into points, pulls out a stat/quote as the CALLOUT, seeds each FIGURE from the slide's topic, and reaches for `LAYOUT: comparison` / `timeline` / `quote` / `statement` where the wording suggests it (plus a roadmap slide if there are 4+ topics). **AI (Claude API)** sends the same prose to the Anthropic API directly from your browser for a more polished draft — add your key in ⚙ Settings (stored only in localStorage, like the image-provider keys) or paste it into the dialog when prompted.
 
 ### 2. The layout engine (the anti-bullet-dump part)
 

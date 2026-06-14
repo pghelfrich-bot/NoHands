@@ -372,7 +372,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', anthropicKey:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -613,6 +613,204 @@ function parseOutline(text){
     deck.slides.unshift(t);
   }
   return deck;
+}
+
+/* ================= outline-from-prose ================= */
+
+/* single source of truth for the outline grammar: shown in the UI hint and
+   sent to the AI engine, so the two never drift apart */
+const OUTLINE_FORMAT_SPEC = `LectureFlow outline format:
+# Deck title
+Presenter: name (optional)
+Design: free-text mood/colour notes (optional)
+
+N. TYPE: title | roadmap | section | content | takeaway
+   HEADLINE: the slide heading
+   LAYOUT: (optional) annotated | comparison | timeline | quote | statement | gallery | cinematic
+   POINTS:
+   - one idea per bullet (long ones are auto-compressed; detail moves to notes)
+   CALLOUT: a single highlighted stat or quote (optional)
+   FIGURE: what the central image should show (optional but recommended on content slides)
+   NOTES: speaker notes (optional)
+
+Guidance: most content slides should be image-first — give them a vivid FIGURE
+and 3–5 short POINTS (default annotated layout, so omit LAYOUT). Open with a
+TYPE: title slide; add a TYPE: roadmap after it when there are 4+ themes; use
+TYPE: section dividers between major parts; end with a TYPE: takeaway. Reach for
+LAYOUT: comparison when contrasting two things, LAYOUT: timeline for a sequence
+or chronology, LAYOUT: quote for a single strong quotation, LAYOUT: statement
+for one punchy claim. Output ONLY the outline, no commentary or code fences.`;
+
+/* deterministic, no-network draft: turns raw prose into a LectureFlow outline
+   string, biased toward image-first annotated content slides but mixing in
+   roadmap/section/takeaway structure and comparison/timeline/quote/statement
+   layouts where the prose suggests them */
+function proseToOutline(text){
+  text = (text || '').replace(/\r\n?/g, '\n').trim();
+  if (!text) return '# Untitled deck\n\n1. TYPE: title\n   HEADLINE: Untitled deck\n';
+
+  const splitSentences = t => (t || '')
+    .replace(/\s+/g, ' ').trim()
+    .split(/(?<=[.!?])\s+(?=[A-Z"“])/)
+    .map(s => s.trim()).filter(Boolean);
+  const titleCase = s => s.replace(/\b\w/g, c => c.toUpperCase());
+
+  // ---- split into blocks: heading + following lines, or blank-line paragraphs
+  const hasHeadings = /^#{1,6}\s+/m.test(text);
+  let blocks = [];
+  if (hasHeadings){
+    let b = null;
+    for (const line of text.split('\n')){
+      const m = line.match(/^(#{1,6})\s+(.+)$/);
+      if (m){
+        if (b) blocks.push(b);
+        b = { heading: m[2].trim(), level: m[1].length, lines: [] };
+      } else if (b){
+        b.lines.push(line);
+      } else {
+        b = { heading: null, level: 0, lines: [line] };
+      }
+    }
+    if (b) blocks.push(b);
+  } else {
+    blocks = text.split(/\n\s*\n+/).map(t => t.trim()).filter(Boolean)
+      .map(t => ({ heading: null, level: 0, lines: t.split('\n') }));
+  }
+  blocks = blocks.map(b => ({ ...b, text: b.lines.join(' ').replace(/\s+/g, ' ').trim() }))
+    .filter(b => b.heading || b.text);
+
+  // ---- title: first H1, else a short version of the opening sentence
+  const h1 = blocks.find(b => b.heading && b.level === 1);
+  let title;
+  if (h1) title = h1.heading;
+  else {
+    const first = splitSentences(blocks[0] ? (blocks[0].heading || blocks[0].text) : '')[0];
+    title = shortenPoint(first || 'Untitled deck');
+  }
+  const bodyBlocks = blocks.filter(b => b !== h1 || b.text);
+
+  // ---- section dividers: the shallowest heading level, only if >1 level is used
+  const levels = [...new Set(bodyBlocks.filter(b => b.heading).map(b => b.level))].sort((a, b) => a - b);
+  const sectionLevel = levels.length > 1 ? levels[0] : null;
+
+  const STAT       = /(\b\d[\d.,]*\s*%?)|\b(first|only|most|largest|smallest|fastest|oldest|never|always)\b|"[^"]{8,}"/i;
+  const COMPARISON = /\bvs\.?\b|versus|compared with|on the other hand|whereas|unlike/i;
+  const TIMELINE   = /\bfirst\b.*\bthen\b|\bfinally\b|\bstage\b|\bstep\b|\b1[89]\d\d\b|\b20\d\d\b/i;
+  const TAKEAWAY   = /^(?:in (?:summary|conclusion)|overall|to sum up|key takeaway)/i;
+  const QUOTE      = /^["“](.{8,})["”]\.?$/;
+
+  // ---- one "unit" per block: a content/section slide's worth of material
+  const units = [];
+  for (const b of bodyBlocks){
+    const sentences = splitSentences(b.text);
+    const isSection = !!(b.heading && sectionLevel != null && b.level === sectionLevel);
+    const headline = b.heading ? b.heading : titleCase(shortenPoint(sentences[0] || b.text || 'More'));
+    const figure = keywordize(headline) || keywordize(title) || 'concept illustration';
+
+    if (isSection){
+      units.push({ type: 'section', headline, figure });
+      continue;
+    }
+
+    const qm = sentences.length === 1 && sentences[0].match(QUOTE);
+    if (qm){
+      units.push({ type: 'content', headline: qm[1], points: [], callout: '', figure, layout: 'quote', takeaway: false });
+      continue;
+    }
+
+    const isTakeaway = TAKEAWAY.test(b.text);
+    let points = sentences.filter(s => s.split(/\s+/).length >= 3);
+
+    let callout = '';
+    let ci = points.findIndex(p => /\d/.test(p) && STAT.test(p));
+    if (ci < 0) ci = points.findIndex(p => STAT.test(p));
+    if (ci >= 0){ callout = points[ci]; points = points.filter((_, i) => i !== ci); }
+
+    let layout = null;
+    if (COMPARISON.test(b.text)) layout = 'comparison';
+    else if (TIMELINE.test(b.text)) layout = 'timeline';
+    else if (!b.heading && sentences.length === 1 && points.length <= 1) layout = 'statement';
+    if (layout === 'statement') points = [];
+
+    units.push({ type: isTakeaway ? 'takeaway' : 'content', headline, points, callout, figure, layout, takeaway: isTakeaway });
+  }
+
+  // ---- assemble slides: title, optional roadmap, then units (takeaways last,
+  // long point lists split into "(cont.)" continuation slides)
+  const takeawayUnits = units.filter(u => u.type === 'takeaway');
+  const otherUnits = units.filter(u => u.type !== 'takeaway');
+
+  const slides = [];
+  for (const u of otherUnits){
+    if (u.type === 'section'){ slides.push({ type: 'section', headline: u.headline, figure: u.figure }); continue; }
+    if (!u.points.length){
+      slides.push({ type: 'content', headline: u.headline, points: [], callout: u.callout, figure: u.figure, layout: u.layout });
+      continue;
+    }
+    for (let i = 0; i < u.points.length; i += 5){
+      slides.push({
+        type: 'content',
+        headline: i === 0 ? u.headline : u.headline + ' (cont.)',
+        points: u.points.slice(i, i + 5),
+        callout: i === 0 ? u.callout : '',
+        figure: u.figure,
+        layout: i === 0 ? u.layout : null,
+      });
+    }
+  }
+  for (const u of takeawayUnits){
+    slides.push({ type: 'takeaway', headline: u.headline, points: u.points.slice(0, 4), callout: u.callout, figure: '' });
+  }
+
+  const contentHeadlines = slides.filter(s => s.type === 'content').map(s => s.headline);
+  const out = [{ type: 'title', headline: title }];
+  if (contentHeadlines.length >= 4){
+    out.push({ type: 'roadmap', headline: "Today's journey", points: contentHeadlines.slice(0, 8) });
+  }
+  out.push(...slides);
+
+  // ---- render
+  const lines = [`# ${title}`, ''];
+  out.forEach((sp, i) => {
+    lines.push(`${i + 1}. TYPE: ${sp.type}`);
+    if (sp.headline) lines.push(`   HEADLINE: ${sp.headline}`);
+    if (sp.layout) lines.push(`   LAYOUT: ${sp.layout}`);
+    if (sp.points && sp.points.length){
+      lines.push('   POINTS:');
+      for (const p of sp.points) lines.push(`   - ${p}`);
+    }
+    if (sp.callout) lines.push(`   CALLOUT: ${sp.callout}`);
+    if (sp.figure) lines.push(`   FIGURE: ${sp.figure}`);
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+/* AI-assisted draft: same output shape as proseToOutline, via the Anthropic
+   Messages API called directly from the browser */
+async function proseToOutlineAI(text, { key, model } = {}){
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: model || 'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system: OUTLINE_FORMAT_SPEC,
+      messages: [{ role: 'user', content:
+        'Turn the following source material into a LectureFlow outline following the format and guidance exactly. '
+        + 'Favour image-first content slides with FIGURE lines; mix in section/roadmap/takeaway structure and '
+        + 'comparison/timeline/quote/statement layouts where the content fits.\n\n--- SOURCE ---\n' + text }],
+    }),
+  });
+  if (!res.ok) throw new Error('API ' + res.status + (res.status === 401 ? ' — check your key' : ''));
+  const j = await res.json();
+  const out = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  return out.replace(/^```[\w]*\n?|\n?```$/g, '');
 }
 
 /* ================= layout geometry (shared by DOM renderer & PPTX export) ================= */
@@ -2845,6 +3043,13 @@ function fillStatus(msg, isErr){
   st.textContent = msg;
   st.classList.toggle('err', !!isErr);
 }
+function proseStatus(msg, isErr){
+  const st = $('#prose-status');
+  if (!msg){ st.hidden = true; return; }
+  st.hidden = false;
+  st.textContent = msg;
+  st.classList.toggle('err', !!isErr);
+}
 function fillCell(r, imEl){
   return resultCell(r, imEl, () => fillAccept(r));
 }
@@ -4051,6 +4256,36 @@ function wireUI(){
     toast(`Parsed ${deck.slides.length} slides — drop in images from the panel on the right`);
   });
 
+  // draft from prose
+  $('#btn-outline-prose').addEventListener('click', () => {
+    $('#prose-key').value = settings.anthropicKey || '';
+    proseStatus('');
+    $('#prose-modal').showModal();
+  });
+  $$('input[name="prose-mode"]').forEach(r => r.addEventListener('change', () => {
+    $('#prose-ai-opts').hidden = document.querySelector('input[name="prose-mode"]:checked').value !== 'ai';
+  }));
+  $('#prose-generate').addEventListener('click', async () => {
+    const text = $('#prose-text').value.trim();
+    if (!text){ proseStatus('Paste some prose first.', true); return; }
+    const mode = document.querySelector('input[name="prose-mode"]:checked').value;
+    try {
+      let outline;
+      if (mode === 'ai'){
+        const key = $('#prose-key').value.trim();
+        if (!key){ proseStatus('Add an API key (or use Quick mode).', true); return; }
+        settings.anthropicKey = key; localStorage.setItem(LS.settings, JSON.stringify(settings));
+        proseStatus('Asking Claude…');
+        outline = await proseToOutlineAI(text, { key, model: $('#prose-model').value.trim() });
+      } else {
+        outline = proseToOutline(text);
+      }
+      $('#outline-text').value = outline;
+      $('#prose-modal').close();
+      toast('Drafted an outline — review it, then Build deck →');
+    } catch (e){ proseStatus("Couldn't generate: " + e.message + ' — try Quick mode.', true); }
+  });
+
   // topbar
   $('#deck-title').addEventListener('input', e => {
     if (state.deck){ state.deck.title = e.target.value; save(); }
@@ -4086,12 +4321,14 @@ function wireUI(){
     $('#set-unsplash').value = settings.unsplashKey || '';
     $('#set-pexels').value = settings.pexelsKey || '';
     $('#set-removebg').value = settings.removebgKey || '';
+    $('#set-anthropic').value = settings.anthropicKey || '';
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
     settings.unsplashKey = $('#set-unsplash').value.trim();
     settings.pexelsKey = $('#set-pexels').value.trim();
     settings.removebgKey = $('#set-removebg').value.trim();
+    settings.anthropicKey = $('#set-anthropic').value.trim();
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
     toast('Settings saved');
