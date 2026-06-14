@@ -277,6 +277,13 @@ function splitFigureTerms(text){
   return { primary, alternates };
 }
 
+/* 'rgb(r,g,b)' / 'rgba(r,g,b,a)' -> '#rrggbb' (falls back to black) */
+function rgbToHex(rgb){
+  const m = (rgb || '').match(/[\d.]+/g);
+  if (!m || m.length < 3) return '#000000';
+  return '#' + m.slice(0, 3).map(n => clamp(Math.round(+n), 0, 255).toString(16).padStart(2, '0')).join('');
+}
+
 /* '#rrggbb' + alpha (0-1) -> 'rgba(r,g,b,a)' */
 function hexA(hex, alpha){
   const h = (hex || '#000000').replace('#', '');
@@ -350,6 +357,7 @@ const state = {
   deck: null,        // current deck object
   cur: 0,            // current slide index
   sel: null,         // {kind:'img'|'ann', id}
+  selMulti: [],      // sel strings forming a multi-selection (group), when length >= 2
 };
 let viewScale = 1;
 let panelSeedFor = null;
@@ -708,7 +716,7 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 24 };
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 28 };
     });
     if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
   } else if (lay === 'cards'){
@@ -717,7 +725,7 @@ function contentLayout(slide){
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 17 };
+      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 20 };
     });
     if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
   } else if (lay === 'figureLeft' || lay === 'figureRight'){
@@ -857,7 +865,9 @@ function mkBox(slide, key, def, content, css, opts){
   const fs = o.fs != null ? o.fs : def.fs;
   const node = el('div', 'lf-box', `position:absolute;left:${x}px;top:${y}px;width:${w}px;`
     + (fs != null ? `font-size:${fs}px;` : '') + `z-index:${def.z || 5};` + (css || '')
-    + (o.align ? `text-align:${o.align};` : ''));
+    + (o.align ? `text-align:${o.align};` : '')
+    + (o.color ? `color:${o.color};` : '')
+    + (o.bg ? `background-color:${o.bg};padding:6px 10px;border-radius:8px;` : ''));
   node.dataset.box = key;
   node.dataset.sel = 'box:' + key;
   if (content != null) node.textContent = content;
@@ -976,7 +986,7 @@ function renderTakeaway(root, slide, deck, pal, dark, opts){
   if (slide.annotations.length){
     const n = slide.annotations.length, gap = 24, w = Math.min(320, (1120 - (n - 1) * gap) / n);
     const startX = (1280 - (n * w + (n - 1) * gap)) / 2;
-    const fs = n > 4 ? 14 : (n > 3 ? 15 : 16);
+    const fs = n > 4 ? 17 : (n > 3 ? 18 : 19);
     const y = n > 3 ? 532 : 552;
     slide.annotations.forEach((a, i) => {
       const def = { x: startX + i * (w + gap), y, w, fs };
@@ -1064,7 +1074,9 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   const fs = a.fs != null ? a.fs : (def.fs || 19);
   const cls = (cardNum ? 'lf-ann lf-anncard lf-box' : 'lf-ann lf-box') + (extraCls ? ' ' + extraCls : '');
   const node = el('div', cls, `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`
-    + (a.align ? `text-align:${a.align};` : ''));
+    + (a.align ? `text-align:${a.align};` : '')
+    + (a.color ? `color:${a.color};` : '')
+    + (a.bg ? `background-color:${a.bg};` + (cardNum ? '' : 'padding:10px 14px;border-radius:10px;') : ''));
   node.dataset.id = a.id;
   node.dataset.sel = 'ann:' + a.id;
   if (cardNum) node.appendChild(el('div', 'lf-ann-num', '', String(cardNum)));
@@ -1178,8 +1190,10 @@ function drawConnectors(root, slide, color){
 function renderTexts(root, slide, opts){
   (slide.texts || []).forEach(t => {
     const node = el('div', 'lf-box', `position:absolute;left:${t.x}px;top:${t.y}px;width:${t.w}px;`
-      + `font-size:${t.fs || 24}px;font-weight:600;line-height:1.3;z-index:60;`
-      + (t.italic ? 'font-style:italic;' : '') + (t.align ? `text-align:${t.align};` : ''));
+      + `font-size:${t.fs || 32}px;font-weight:600;line-height:1.3;z-index:60;`
+      + (t.italic ? 'font-style:italic;' : '') + (t.align ? `text-align:${t.align};` : '')
+      + (t.color ? `color:${t.color};` : '')
+      + (t.bg ? `background-color:${t.bg};padding:8px 12px;border-radius:8px;` : ''));
     node.dataset.sel = 'text:' + t.id;
     node.textContent = t.text;
     if (opts.editor){ node.dataset.edit = 'text:' + t.id; node.dataset.editable = '1'; }
@@ -1320,29 +1334,92 @@ function addHandles(node){
 }
 
 function applySelection(root){
-  root.querySelectorAll('.lf-box.selected,.lf-img.selected').forEach(n => {
-    n.classList.remove('selected');
+  root.querySelectorAll('.lf-box.selected,.lf-img.selected,.group-sel').forEach(n => {
+    n.classList.remove('selected', 'group-sel');
     n.querySelectorAll('.lf-h').forEach(h => h.remove());
   });
-  let info = null;
-  if (state.sel){
-    const n = root.querySelector(`[data-sel="${state.sel}"]`);
-    if (n){ n.classList.add('selected'); addHandles(n); info = selInfo(cur(), state.sel); }
+  root.querySelector('.lf-group-box')?.remove();
+
+  let info = null, selNode = null, group = null;
+  if (state.selMulti.length >= 2){
+    group = state.selMulti.map(sel => {
+      const n = root.querySelector(`[data-sel="${sel}"]`);
+      const i = selInfo(cur(), sel);
+      return (n && i) ? { sel, node: n, info: i } : null;
+    }).filter(Boolean);
+    if (group.length >= 2){
+      group.forEach(g => g.node.classList.add('selected', 'group-sel'));
+      renderGroupBox(root, group);
+    } else {
+      group = null;
+      state.selMulti = [];
+    }
+  }
+  if (!group && state.sel){
+    selNode = root.querySelector(`[data-sel="${state.sel}"]`);
+    if (selNode){ selNode.classList.add('selected'); addHandles(selNode); info = selInfo(cur(), state.sel); }
     else state.sel = null;
   }
+
   const tools = $('#sel-tools');
-  tools.hidden = !state.sel;
-  const isImg = info && info.isImg;
-  const isText = info && info.isText;
+  tools.hidden = !(group || info);
+  const isImg = !group && info && info.isImg;
+  const isText = group ? group.every(g => g.info.isText) : !!(info && info.isText);
   $('#sel-cutout').disabled = !isImg;
   $('#sel-front').disabled = $('#sel-back').disabled = !isImg;
-  const align = isText ? (info.obj.align || 'left') : null;
+  const align = (!group && isText) ? (info.obj.align || 'left') : null;
   ['left', 'center', 'right'].forEach(a => {
     const btn = $('#sel-align-' + a);
     btn.disabled = !isText;
     btn.classList.toggle('active', align === a);
   });
+
+  const colorInput = $('#sel-color'), colorReset = $('#sel-color-reset');
+  const bgInput = $('#sel-bg'), bgClear = $('#sel-bg-clear');
+  [colorInput, colorReset, bgInput, bgClear].forEach(n => n.disabled = !isText);
+  if (isText){
+    const refObj = group ? group[0].info.obj : info.obj;
+    const refNode = group ? group[0].node : selNode;
+    if (document.activeElement !== colorInput)
+      colorInput.value = refObj.color || rgbToHex(getComputedStyle(refNode).color);
+    if (document.activeElement !== bgInput)
+      bgInput.value = refObj.bg || '#ffffff';
+  }
   updateAnchorHandle(root, cur());
+}
+
+/* bounding box + 8 scale handles around every member of a multi-selection;
+   dragging a member moves the whole group, dragging a handle scales it */
+function renderGroupBox(root, group){
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  group.forEach(g => {
+    const n = g.node;
+    x0 = Math.min(x0, n.offsetLeft); y0 = Math.min(y0, n.offsetTop);
+    x1 = Math.max(x1, n.offsetLeft + n.offsetWidth); y1 = Math.max(y1, n.offsetTop + n.offsetHeight);
+  });
+  const box = el('div', 'lf-group-box', `left:${x0}px;top:${y0}px;width:${x1 - x0}px;height:${y1 - y0}px;`);
+  addHandles(box);
+  root.appendChild(box);
+}
+
+/* toggle membership of `sel` in the current selection set (shift-click) */
+function toggleMultiSel(sel){
+  const set = state.selMulti.length ? state.selMulti.slice() : (state.sel ? [state.sel] : []);
+  const idx = set.indexOf(sel);
+  if (idx >= 0) set.splice(idx, 1);
+  else set.push(sel);
+  if (set.length >= 2){ state.sel = null; state.selMulti = set; }
+  else if (set.length === 1){ state.sel = set[0]; state.selMulti = []; }
+  else { state.sel = null; state.selMulti = []; }
+  const root = $('#canvas .slide');
+  if (root) applySelection(root);
+}
+
+/* resolved selection info for the current single or group selection */
+function selectedInfos(slide){
+  if (state.selMulti.length >= 2) return state.selMulti.map(sel => selInfo(slide, sel)).filter(Boolean);
+  if (state.sel){ const i = selInfo(slide, state.sel); return i ? [i] : []; }
+  return [];
 }
 
 /* When an annotation is selected on a connector layout that has an image,
@@ -1407,6 +1484,7 @@ function updateAnchorHandle(root, slide){
 
 function setSel(sel){
   state.sel = sel;
+  state.selMulti = [];
   const root = $('#canvas .slide');
   if (root) applySelection(root);
 }
@@ -1418,6 +1496,11 @@ function wireSlideEditing(root, slide){
   root.addEventListener('pointerdown', e => {
     const handle = e.target.closest('.lf-h');
     if (handle){
+      const groupBox = handle.closest('.lf-group-box');
+      if (groupBox && state.selMulti.length >= 2){
+        startGroupResize(e, handle.dataset.dir, slide, root, accLine);
+        return;
+      }
       const node = handle.closest('[data-sel]');
       const info = selInfo(slide, node && node.dataset.sel);
       if (info) startResize(e, handle.dataset.dir, node, slide, info, root, accLine);
@@ -1431,6 +1514,11 @@ function wireSlideEditing(root, slide){
     // already editing this element's text → let the caret work
     if (document.activeElement && node.contains(document.activeElement) && document.activeElement.isContentEditable) return;
     e.preventDefault();
+    if (e.shiftKey){ toggleMultiSel(node.dataset.sel); return; }
+    if (state.selMulti.length >= 2 && state.selMulti.includes(node.dataset.sel)){
+      startGroupMove(e, slide, root, accLine);
+      return;
+    }
     setSel(node.dataset.sel);
     const info = selInfo(slide, node.dataset.sel);
     if (info) startMove(e, node, slide, info, root, accLine);
@@ -1539,6 +1627,106 @@ function startResize(e, dir, node, slide, info, root, accLine){
   node.addEventListener('pointerup', up);
 }
 
+/* drag any member of a multi-selection to move the whole group together */
+function startGroupMove(e, slide, root, accLine){
+  const sx = e.clientX, sy = e.clientY;
+  const groupBox = root.querySelector('.lf-group-box');
+  const gx0 = groupBox ? groupBox.offsetLeft : 0, gy0 = groupBox ? groupBox.offsetTop : 0;
+  const members = state.selMulti.map(sel => {
+    const node = root.querySelector(`[data-sel="${sel}"]`);
+    const info = selInfo(slide, sel);
+    return (node && info) ? { node, info, ox: node.offsetLeft, oy: node.offsetTop } : null;
+  }).filter(Boolean);
+  let moved = false;
+  const target = e.target;
+  target.setPointerCapture(e.pointerId);
+  const move = ev => {
+    if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return;
+    if (!moved){ checkpoint(); moved = true; }
+    const dx = (ev.clientX - sx) / viewScale, dy = (ev.clientY - sy) / viewScale;
+    members.forEach(m => {
+      const nx = Math.round(clamp(m.ox + dx, -300, SLIDE_W - 30));
+      const ny = Math.round(clamp(m.oy + dy, -200, SLIDE_H - 20));
+      m.node.style.left = nx + 'px'; m.node.style.top = ny + 'px';
+      Object.assign(m.info.obj, { x: nx, y: ny });
+    });
+    if (groupBox){ groupBox.style.left = Math.round(gx0 + dx) + 'px'; groupBox.style.top = Math.round(gy0 + dy) + 'px'; }
+    drawConnectors(root, slide, arrowColor(state.deck));
+    updateAnchorHandle(root, slide);
+  };
+  const up = () => {
+    target.removeEventListener('pointermove', move);
+    target.removeEventListener('pointerup', up);
+    if (moved) commitChange();
+  };
+  target.addEventListener('pointermove', move);
+  target.addEventListener('pointerup', up);
+}
+
+/* drag a handle on the group bounding box to scale every selected element
+   together (uniform proportional scale for corners, single-axis for edges);
+   text elements rescale their font size along with their box */
+function startGroupResize(e, dir, slide, root, accLine){
+  e.stopPropagation(); e.preventDefault();
+  checkpoint();
+  const groupBox = root.querySelector('.lf-group-box');
+  const sx = e.clientX, sy = e.clientY;
+  const x0 = groupBox.offsetLeft, y0 = groupBox.offsetTop, w0 = groupBox.offsetWidth, h0 = groupBox.offsetHeight;
+  const ratio = w0 / Math.max(1, h0);
+  const members = state.selMulti.map(sel => {
+    const node = root.querySelector(`[data-sel="${sel}"]`);
+    const info = selInfo(slide, sel);
+    if (!node || !info) return null;
+    return {
+      node, info,
+      ox: node.offsetLeft, oy: node.offsetTop, ow: node.offsetWidth, oh: node.offsetHeight,
+      fs0: parseFloat(getComputedStyle(node).fontSize) || 20,
+    };
+  }).filter(Boolean);
+  groupBox.setPointerCapture(e.pointerId);
+  const move = ev => {
+    const dx = (ev.clientX - sx) / viewScale, dy = (ev.clientY - sy) / viewScale;
+    let nx = x0, ny = y0, nw = w0, nh = h0;
+    if (dir.includes('e')) nw = w0 + dx;
+    if (dir.includes('w')){ nw = w0 - dx; nx = x0 + dx; }
+    if (dir.includes('s')) nh = h0 + dy;
+    if (dir.includes('n')){ nh = h0 - dy; ny = y0 + dy; }
+    nw = Math.max(60, nw); nh = Math.max(40, nh);
+    if (dir.length === 2){ nh = nw / ratio; if (dir.includes('n')) ny = y0 + (h0 - nh); }
+    const scaleX = nw / w0, scaleY = nh / h0;
+    members.forEach(m => {
+      const relX = (m.ox - x0) / w0, relY = (m.oy - y0) / h0;
+      const mx = Math.round(nx + relX * nw), my = Math.round(ny + relY * nh);
+      m.node.style.left = mx + 'px'; m.node.style.top = my + 'px';
+      const patch = { x: mx, y: my };
+      if (m.info.isImg){
+        const mw = Math.max(20, Math.round(m.ow * scaleX)), mh = Math.max(20, Math.round(m.oh * scaleY));
+        m.node.style.width = mw + 'px'; m.node.style.height = mh + 'px';
+        patch.w = mw; patch.h = mh;
+      } else {
+        const mw = Math.max(20, Math.round(m.ow * scaleX));
+        m.node.style.width = mw + 'px'; patch.w = mw;
+        if (dir.includes('n') || dir.includes('s') || dir.length === 2){
+          const nfs = clamp(Math.round(m.fs0 * scaleY), 8, 200);
+          m.node.style.fontSize = nfs + 'px';
+          patch.fs = nfs;
+        }
+      }
+      Object.assign(m.info.obj, patch);
+    });
+    groupBox.style.left = Math.round(nx) + 'px'; groupBox.style.top = Math.round(ny) + 'px';
+    groupBox.style.width = Math.round(nw) + 'px'; groupBox.style.height = Math.round(nh) + 'px';
+    drawConnectors(root, slide, arrowColor(state.deck));
+  };
+  const up = () => {
+    groupBox.removeEventListener('pointermove', move);
+    groupBox.removeEventListener('pointerup', up);
+    commitChange();
+  };
+  groupBox.addEventListener('pointermove', move);
+  groupBox.addEventListener('pointerup', up);
+}
+
 function applyEdit(slide, key, val){
   if (key === 'headline')       slide.headline = val;
   else if (key === 'callout')   slide.callout = val;
@@ -1561,15 +1749,24 @@ function commitChange(){
   refreshRailThumb(state.cur);
 }
 
+function deleteOne(s, sel){
+  const info = selInfo(s, sel);
+  if (!info) return;
+  if (info.type === 'img')       s.images = s.images.filter(i => ('img:' + i.id) !== sel);
+  else if (info.type === 'ann')  s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== sel);
+  else if (info.type === 'text') s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== sel);
+  else if (info.type === 'box')  { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
+}
+
 function deleteSelected(){
   const s = cur();
-  if (!s || !state.sel) return;
-  const info = selInfo(s, state.sel);
-  if (!info) return;
-  if (info.type === 'img')       s.images = s.images.filter(i => ('img:' + i.id) !== state.sel);
-  else if (info.type === 'ann')  s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== state.sel);
-  else if (info.type === 'text') s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== state.sel);
-  else if (info.type === 'box')  { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
+  if (!s) return;
+  if (state.selMulti.length >= 2){
+    state.selMulti.forEach(sel => deleteOne(s, sel));
+    state.selMulti = [];
+  } else if (state.sel){
+    deleteOne(s, state.sel);
+  } else return;
   state.sel = null;
   refreshAll();
 }
@@ -1590,7 +1787,7 @@ function addTextBox(){
   if (!s) return;
   checkpoint();
   s.texts = s.texts || [];
-  const t = { id: uid(), text: 'Text', x: 480, y: 320, w: 320, fs: 26 };
+  const t = { id: uid(), text: 'Text', x: 480, y: 320, w: 360, fs: 32 };
   s.texts.push(t);
   state.sel = 'text:' + t.id;
   refreshAll();
@@ -1656,6 +1853,7 @@ function selectSlide(i){
   if (!state.deck) return;
   state.cur = clamp(i, 0, state.deck.slides.length - 1);
   state.sel = null;
+  state.selMulti = [];
   renderEditor();
   $$('#rail-list .rail-item').forEach((li, k) => li.classList.toggle('current', k === state.cur));
   updateToolbar();
@@ -2568,12 +2766,18 @@ async function exportPPTX(){
     const rule = (x, y, w) => sl.addShape('rect', { x: I(x), y: I(y), w: I(w), h: I(5), fill: { color: accBar } });
     const T = (text, o) => sl.addText(text, { fontFace: SANS, color: ink, shadow: txtShadow, ...o });
     const boxAlign = key => (s.boxes && s.boxes[key] && s.boxes[key].align) || undefined;
+    const boxObj = key => (s.boxes && s.boxes[key]) || {};
+    // custom text colour / background fill carried over from the editor
+    const textColor = obj => (obj && obj.color) ? { color: C(obj.color) } : {};
+    const colorOpts = obj => Object.assign({}, textColor(obj),
+      (obj && obj.bg) ? { fill: { color: C(obj.bg) } } : {});
+    const bgFill = (obj, fallback) => ({ color: (obj && obj.bg) ? C(obj.bg) : fallback });
     const pt = px => Math.max(8, Math.round(px * 0.62));   // slide px → PPT points
 
     if (s.type === 'title'){
       T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12, charSpacing: 4, color: C(pal.accent2), align: boxAlign('kicker') });
       rule(96, 268, 64);
-      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: (s.headline || deck.title).length > 48 ? 34 : 44, bold: true, align: boxAlign('headline') });
+      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: (s.headline || deck.title).length > 48 ? 34 : 44, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
       if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16, color: dark ? '9FB2C4' : '5B6B7C', align: boxAlign('presenter') });
     }
     else if (s.type === 'roadmap'){
@@ -2600,13 +2804,13 @@ async function exportPPTX(){
       T(pad2(partNo), { x: I(880), y: I(380), w: I(360), h: I(320), fontFace: SERIF, fontSize: 160, bold: true,
         color: dark ? '24384A' : 'E1E8EE', align: 'right' });
       T('PART ' + pad2(partNo), { x: I(96), y: I(262), w: I(400), h: I(30), fontSize: 11, charSpacing: 4, color: C(pal.accent2) });
-      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38, bold: true, align: boxAlign('headline') });
+      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
     }
     else if (s.type === 'takeaway'){
       if (s.layout === 'takeawayQuote'){
         T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: boxAlign('callout') || 'center',
-          fontFace: SERIF, fontSize: 26, italic: true, bold: true });
-        T(s.headline || '', { x: I(200), y: I(470), w: I(880), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C' });
+          fontFace: SERIF, fontSize: 26, italic: true, bold: true, ...colorOpts(boxObj('callout')) });
+        T(s.headline || '', { x: I(200), y: I(470), w: I(880), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C', ...colorOpts(boxObj('headline')) });
       } else {
         const chipW = 168;
         sl.addShape('roundRect', { x: I(640 - chipW / 2), y: I(150), w: I(chipW), h: I(34), rectRadius: 0.5, fill: { color: accBar } });
@@ -2614,8 +2818,8 @@ async function exportPPTX(){
           fontSize: 11, charSpacing: 3, bold: true, color: '06222F' });
         rule(608, 218, 64);
         T(s.headline || '', { x: I(150), y: I(258), w: I(980), h: I(220), align: boxAlign('headline') || 'center', fontFace: SERIF,
-          fontSize: (s.headline || '').length > 90 ? 24 : 30, bold: true });
-        if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: boxAlign('callout') || 'center', italic: true, fontSize: 14, color: dark ? 'B9C8D6' : '5B6B7C' });
+          fontSize: (s.headline || '').length > 90 ? 24 : 30, bold: true, ...colorOpts(boxObj('headline')) });
+        if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: boxAlign('callout') || 'center', italic: true, fontSize: 14, color: dark ? 'B9C8D6' : '5B6B7C', ...colorOpts(boxObj('callout')) });
         if (s.annotations.length){
           const n = s.annotations.length, gap = 24, w = Math.min(320, (1120 - (n - 1) * gap) / n);
           const startX = (1280 - (n * w + (n - 1) * gap)) / 2;
@@ -2625,13 +2829,13 @@ async function exportPPTX(){
             const textH = estimateAnnH(a.text) * 0.75;
             const cardH = Math.max(70, textH + 36);
             sl.addShape('roundRect', { x: I(x), y: I(y), w: I(aw), h: I(cardH), rectRadius: 0.07,
-              fill: { color: dark ? '263747' : 'FFFFFF' }, line: { color: accBar, width: 1.5 } });
+              fill: bgFill(a, dark ? '263747' : 'FFFFFF'), line: { color: accBar, width: 1.5 } });
             const badgeD = 22;
             sl.addShape('ellipse', { x: I(x + 14), y: I(y + 12), w: I(badgeD), h: I(badgeD), fill: { color: accBar } });
             sl.addText(String(i + 1), { x: I(x + 14), y: I(y + 12), w: I(badgeD), h: I(badgeD),
               align: 'center', valign: 'middle', fontFace: SERIF, fontSize: 11, bold: true, color: '06222F' });
             T(a.text, { x: I(x + 14 + badgeD + 8), y: I(y + 12), w: I(aw - 28 - badgeD), h: I(cardH - 20),
-              fontSize: pt(fs), bold: true, valign: 'middle', align: a.align });
+              fontSize: pt(fs), bold: true, valign: 'middle', align: a.align, ...textColor(a) });
           });
         }
       }
@@ -2654,12 +2858,12 @@ async function exportPPTX(){
 
       if (L.bigQuote){
         T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: boxAlign('callout') || 'center',
-          fontFace: SERIF, fontSize: 26, italic: true, bold: true });
-        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C' });
+          fontFace: SERIF, fontSize: 26, italic: true, bold: true, ...colorOpts(boxObj('callout')) });
+        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C', ...colorOpts(boxObj('headline')) });
       } else {
         rule(L.headline.x, L.headline.y - 14, 54);
         T(s.headline || '', { x: I(L.headline.x), y: I(L.headline.y), w: I(L.headline.w), h: I(110),
-          fontFace: SERIF, fontSize: pt(L.headline.fs), bold: true, valign: 'top', align: boxAlign('headline') });
+          fontFace: SERIF, fontSize: pt(L.headline.fs), bold: true, valign: 'top', align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
 
         if (L.annStyle === 'step' && L.timelineGeom){
           const g = L.timelineGeom;
@@ -2685,11 +2889,11 @@ async function exportPPTX(){
             const w = a.w != null ? a.w : def.w, fs = a.fs != null ? a.fs : (def.fs || 19);
             if (L.annStyle === 'panel'){
               sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(def.h || 120), rectRadius: 0.06,
-                fill: { color: dark ? '22303E' : 'FFFFFF' }, line: { color: dark ? '3A4A5C' : 'E2E9EF', width: 0.75 } });
+                fill: bgFill(a, dark ? '22303E' : 'FFFFFF'), line: { color: dark ? '3A4A5C' : 'E2E9EF', width: 0.75 } });
               T(pad2(i + 1), { x: I(x + 16), y: I(y + 10), w: I(70), h: I(30), fontFace: SERIF, fontSize: 14, bold: true, color: acc });
-              T(a.text, { x: I(x + 16), y: I(y + 40), w: I(w - 32), h: I(36), fontSize: 12.5, bold: true, align: a.align });
+              T(a.text, { x: I(x + 16), y: I(y + 40), w: I(w - 32), h: I(36), fontSize: 12.5, bold: true, align: a.align, ...textColor(a) });
               if (a.full && a.full.trim() !== a.text.trim())
-                T(a.full, { x: I(x + 16), y: I(y + 76), w: I(w - 32), h: I(Math.max(24, (def.h || 120) - 86)), fontSize: 10, color: dark ? 'AABBCB' : '5B6B7C', align: a.align });
+                T(a.full, { x: I(x + 16), y: I(y + 76), w: I(w - 32), h: I(Math.max(24, (def.h || 120) - 86)), fontSize: 10, color: dark ? 'AABBCB' : '5B6B7C', align: a.align, ...textColor(a) });
             } else if (L.annStyle === 'card'){
               // discrete bordered card with a numbered badge, like .lf-anncard
               const badgeD = 26;
@@ -2698,14 +2902,14 @@ async function exportPPTX(){
               const fullH = hasFull ? estimateAnnH(a.full) * 0.75 : 0;
               const cardH = badgeD + 18 + textH + fullH;
               sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(cardH), rectRadius: 0.07,
-                fill: { color: dark ? '263747' : 'FFFFFF' }, line: { color: acc, width: 1.25 } });
+                fill: bgFill(a, dark ? '263747' : 'FFFFFF'), line: { color: acc, width: 1.25 } });
               sl.addShape('ellipse', { x: I(x + 16), y: I(y + 12), w: I(badgeD), h: I(badgeD), fill: { color: accBar } });
               sl.addText(String(i + 1), { x: I(x + 16), y: I(y + 12), w: I(badgeD), h: I(badgeD),
                 align: 'center', valign: 'middle', fontFace: SERIF, fontSize: 11, bold: true, color: '06222F' });
-              T(a.text, { x: I(x + 16), y: I(y + 12 + badgeD + 8), w: I(w - 32), h: I(textH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align });
+              T(a.text, { x: I(x + 16), y: I(y + 12 + badgeD + 8), w: I(w - 32), h: I(textH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align, ...textColor(a) });
               if (hasFull)
                 T(a.full, { x: I(x + 16), y: I(y + 12 + badgeD + 8 + textH), w: I(w - 32), h: I(fullH),
-                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top', align: a.align });
+                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top', align: a.align, ...textColor(a) });
               if (L.connectors && arrowC){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, cardH);
@@ -2715,10 +2919,10 @@ async function exportPPTX(){
               // label / list — accent bar + text
               sl.addShape('rect', { x: I(x), y: I(y), w: I(22), h: I(3), fill: { color: acc } });
               const labelH = estimateAnnH(a.text);
-              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(labelH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align });
+              T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(labelH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align, ...colorOpts(a) });
               if (L.annDetail && a.full && a.full.trim() !== a.text.trim())
                 T(a.full, { x: I(x - 2), y: I(y + 8 + labelH), w: I(w + 6), h: I(estimateAnnH(a.full) * 0.75),
-                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top', align: a.align });
+                  fontSize: Math.max(8, pt(fs) - 4), color: dark ? 'AABBCB' : '5B6B7C', italic: true, valign: 'top', align: a.align, ...textColor(a) });
               if (L.connectors && arrowC){
                 const fig = figRectOf(s);
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, estimateAnnH(a.text));
@@ -2729,18 +2933,18 @@ async function exportPPTX(){
         }
         if (s.callout && L.callout){
           sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(4), h: I(70), fill: { color: accBar } });
-          T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18), align: boxAlign('callout') });
+          T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18), align: boxAlign('callout'), ...colorOpts(boxObj('callout')) });
         }
       }
     }
 
     // free-floating text boxes
     (s.texts || []).forEach(t => {
-      const fs = t.fs || 24;
+      const fs = t.fs || 32;
       const charsPerLine = Math.max(4, Math.floor((t.w || 320) / (fs * 0.56)));
       const lines = Math.max(1, Math.ceil((t.text || ' ').length / charsPerLine));
       T(t.text, { x: I(t.x), y: I(t.y), w: I(t.w), h: I(lines * fs * 1.3 + 10),
-        fontSize: pt(fs), bold: true, italic: !!t.italic, valign: 'top', align: t.align });
+        fontSize: pt(fs), bold: true, italic: !!t.italic, valign: 'top', align: t.align, ...colorOpts(t) });
     });
 
     // images (only embeddable ones survive into PPTX)
@@ -3181,13 +3385,65 @@ function wireUI(){
   ['left', 'center', 'right'].forEach(a => {
     $('#sel-align-' + a).addEventListener('click', () => {
       const s = cur();
-      const info = s && selInfo(s, state.sel);
-      if (!info || !info.isText) return;
+      const infos = s && selectedInfos(s);
+      if (!infos || !infos.length || !infos.every(i => i.isText)) return;
       checkpoint();
-      info.obj.align = a;
+      infos.forEach(i => i.obj.align = a);
       commitChange();
       refreshAll();
     });
+  });
+  let colorCheckpointed = false;
+  $('#sel-color').addEventListener('pointerdown', () => { colorCheckpointed = false; });
+  $('#sel-color').addEventListener('input', () => {
+    const s = cur();
+    const infos = s && selectedInfos(s);
+    if (!infos || !infos.length || !infos.every(i => i.isText)) return;
+    if (!colorCheckpointed){ checkpoint(); colorCheckpointed = true; }
+    infos.forEach(i => i.obj.color = $('#sel-color').value);
+    renderEditor();
+    renderRail();
+  });
+  $('#sel-color').addEventListener('change', () => {
+    const s = cur();
+    const infos = s && selectedInfos(s);
+    if (!infos || !infos.length) return;
+    commitChange();
+  });
+  $('#sel-color-reset').addEventListener('click', () => {
+    const s = cur();
+    const infos = s && selectedInfos(s);
+    if (!infos || !infos.length || !infos.every(i => i.isText)) return;
+    checkpoint();
+    infos.forEach(i => delete i.obj.color);
+    commitChange();
+    refreshAll();
+  });
+  let bgCheckpointed = false;
+  $('#sel-bg').addEventListener('pointerdown', () => { bgCheckpointed = false; });
+  $('#sel-bg').addEventListener('input', () => {
+    const s = cur();
+    const infos = s && selectedInfos(s);
+    if (!infos || !infos.length || !infos.every(i => i.isText)) return;
+    if (!bgCheckpointed){ checkpoint(); bgCheckpointed = true; }
+    infos.forEach(i => i.obj.bg = $('#sel-bg').value);
+    renderEditor();
+    renderRail();
+  });
+  $('#sel-bg').addEventListener('change', () => {
+    const s = cur();
+    const infos = s && selectedInfos(s);
+    if (!infos || !infos.length) return;
+    commitChange();
+  });
+  $('#sel-bg-clear').addEventListener('click', () => {
+    const s = cur();
+    const infos = s && selectedInfos(s);
+    if (!infos || !infos.length || !infos.every(i => i.isText)) return;
+    checkpoint();
+    infos.forEach(i => delete i.obj.bg);
+    commitChange();
+    refreshAll();
   });
   $('#sel-cutout').addEventListener('click', async () => {
     const s = cur();
@@ -3354,7 +3610,8 @@ function wireUI(){
     if (!state.deck || $('#screen-editor').hidden) return;
     if (e.key === 'ArrowDown' || e.key === 'PageDown'){ e.preventDefault(); selectSlide(state.cur + 1); }
     else if (e.key === 'ArrowUp' || e.key === 'PageUp'){ e.preventDefault(); selectSlide(state.cur - 1); }
-    else if (e.key === 'Delete' || e.key === 'Backspace'){ if (state.sel){ e.preventDefault(); checkpoint(); deleteSelected(); } }
+    else if (e.key === 'Delete' || e.key === 'Backspace'){ if (state.sel || state.selMulti.length >= 2){ e.preventDefault(); checkpoint(); deleteSelected(); } }
+    else if (e.key === 'Escape'){ if (state.sel || state.selMulti.length){ e.preventDefault(); setSel(null); } }
   });
   $('#present-overlay').addEventListener('click', e => {
     if (e.target.closest('#present-notes')) return;

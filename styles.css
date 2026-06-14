@@ -188,7 +188,13 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   border-radius:7px;padding:4px 7px;font:inherit;font-size:12.5px;
 }
 #canvas-toolbar .sep{width:1px;height:20px;background:var(--line)}
-#sel-tools{display:inline-flex;gap:6px}
+#sel-tools{display:inline-flex;align-items:center;gap:6px}
+.sel-color-group{display:inline-flex;align-items:center;gap:2px}
+.sel-color-group input[type="color"]{
+  width:24px;height:24px;padding:0;border:1px solid var(--line);border-radius:6px;
+  background:none;cursor:pointer;
+}
+.sel-color-group input[type="color"]:disabled{opacity:.4;cursor:default}
 
 #canvas-wrap{
   flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
@@ -384,3 +390,9 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 #canvas .lf-h-s {left:50%;bottom:-6px;transform:translateX(-50%);cursor:ns-resize}
 #canvas .lf-h-sw{left:-6px;bottom:-6px;cursor:nesw-resize}
 #canvas .lf-h-w {left:-6px;top:50%;transform:translateY(-50%);cursor:ew-resize}
+
+/* multi-select group outline + handles (drag any selected member to move the
+   group; drag a handle to scale all selected members together) */
+#canvas .lf-img.group-sel,#canvas .lf-box.group-sel{outline:2px dashed #f5a623;outline-offset:2px;border-radius:4px}
+#canvas .lf-group-box{position:absolute;outline:2px dashed #f5a623;outline-offset:6px;border-radius:6px;pointer-events:none;z-index:121}
+#canvas .lf-group-box .lf-h{pointer-events:auto;background:#f5a623}
