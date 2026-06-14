@@ -29,6 +29,8 @@ Everything you place is editable by direct manipulation: select any text box or 
 
 **Recurring elements** (**↻ Recurring**) let you define a text block *once* and have it appear on every slide — perfect for a persistent etymology block, motto, or running label. Place, edit, recolour, or delete it on any slide and the change applies everywhere; a small **scope** selector chooses whether it shows on *all* slides or only one slide type (content / title / section / takeaway / roadmap). In the editor a recurring element carries a faint violet dashed marker so you know it's shared; that marker never appears in exports. Full **Undo/Redo** (toolbar buttons or Ctrl/Cmd+Z / Shift+Z / Y) covers every edit.
 
+**Free arrows** (**→** in the toolbar) draw a straight arrow anywhere on the slide — handy for pointing between two figures, sketching a process flow, or annotating a relationship that the layout engine doesn't connect automatically. A new arrow drops onto the slide already selected, with a draggable dot on each end: drag a dot to re-aim that end, or drag anywhere along the shaft to move the whole arrow. Its colour can be set with the same colour picker used for text. Arrows carry into PPTX export as connector lines.
+
 ### 1. The outline
 
 Plain text / markdown, via paste or file upload. A deck header (title, presenter, date, free-text design notes) followed by numbered slides:

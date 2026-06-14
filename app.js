@@ -85,6 +85,10 @@ const SLIDE_CSS = `
 .slide.cine .lf-box{text-shadow:0 2px 16px rgba(0,0,0,.6)}
 .slide.cine .lf-ann{text-shadow:0 1px 10px rgba(0,0,0,.7)}
 .slide .lf-conn{position:absolute;inset:0;width:100%;height:100%;z-index:20;pointer-events:none}
+.slide .lf-arrows{position:absolute;inset:0;width:100%;height:100%;z-index:45;pointer-events:none}
+.slide .lf-arrow-hit{stroke:transparent;stroke-width:18;pointer-events:stroke;cursor:grab}
+.slide .lf-arrow-end{fill:#38bdf8;stroke:#fff;stroke-width:1.5;pointer-events:auto;cursor:pointer}
+.slide .lf-arrow-line.selected{filter:drop-shadow(0 0 3px #38bdf8)}
 .slide .lf-ann{position:absolute;z-index:30;width:${ANN_W}px;font-size:19px;line-height:1.32;font-weight:600;letter-spacing:.1px}
 .slide .lf-ann::before{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--lf-accent);margin-bottom:7px}
 .slide.light .lf-ann{color:#1d3142}
@@ -834,6 +838,7 @@ function renderSlide(slide, deck, opts = {}){
   if (slide.type === 'content' && root.dataset.conn && slide.images.length && slide.annotations.length){
     drawConnectors(root, slide, arrowColor(deck));
   }
+  renderArrows(root, slide, deck, opts);
   renderTexts(root, slide, opts);
   renderOverlays(root, slide, deck, opts);
   renderFooter(root, slide, deck, pal, dark, opts);
@@ -1230,6 +1235,47 @@ function renderOverlays(root, slide, deck, opts){
   });
 }
 
+/* Free arrows the user can draw between any two points (great for process /
+   concept diagrams — flow, cycles, cause→effect). Endpoints are absolute slide
+   coordinates; in the editor each arrow gets a fat transparent hit-line (drag to
+   move the whole arrow) and two endpoint handles (drag to re-aim an end). */
+function arrowDefaultColor(slide){ return isDark(slide) ? '#e9f1f8' : '#1f2d3a'; }
+
+function renderArrows(root, slide, deck, opts){
+  const arrows = slide.arrows || [];
+  if (!arrows.length) return;
+  const def = arrowDefaultColor(slide);
+  let defs = '', body = '', overlay = '';
+  arrows.forEach((a, i) => {
+    const col = a.color || def;
+    const w = a.width || 3;
+    const mk = `lfarw-${slide.id}-${i}`;
+    defs += `<marker id="${mk}" markerWidth="11" markerHeight="11" refX="7.5" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">`
+      + `<path d="M1 1 L9.5 4.5 L1 8 Z" fill="${col}"/></marker>`;
+    body += `<line class="lf-arrow-line" data-arid="${a.id}" x1="${a.from.x}" y1="${a.from.y}" x2="${a.to.x}" y2="${a.to.y}" `
+      + `stroke="${col}" stroke-width="${w}" stroke-linecap="round" marker-end="url(#${mk})"/>`;
+    if (opts.editor){
+      overlay += `<line class="lf-arrow-hit" data-sel="arrow:${a.id}" data-arid="${a.id}" x1="${a.from.x}" y1="${a.from.y}" x2="${a.to.x}" y2="${a.to.y}"/>`
+        + `<circle class="lf-arrow-end" data-arid="${a.id}" data-end="from" cx="${a.from.x}" cy="${a.from.y}" r="6"/>`
+        + `<circle class="lf-arrow-end" data-arid="${a.id}" data-end="to" cx="${a.to.x}" cy="${a.to.y}" r="6"/>`;
+    }
+  });
+  root.appendChild(svgEl(`<defs>${defs}</defs>${body}${overlay}`, 'lf-arrows'));
+}
+
+/* update an arrow's line/hit/handle geometry in place during a drag */
+function setArrowGeom(svg, a){
+  svg.querySelectorAll(`[data-arid="${a.id}"]`).forEach(node => {
+    if (node.tagName === 'circle'){
+      const p = node.dataset.end === 'from' ? a.from : a.to;
+      node.setAttribute('cx', p.x); node.setAttribute('cy', p.y);
+    } else {
+      node.setAttribute('x1', a.from.x); node.setAttribute('y1', a.from.y);
+      node.setAttribute('x2', a.to.x);   node.setAttribute('y2', a.to.y);
+    }
+  });
+}
+
 function renderFooter(root, slide, deck, pal, dark, opts){
   const i = opts.index ?? deck.slides.indexOf(slide);
   const n = opts.total ?? deck.slides.length;
@@ -1347,6 +1393,10 @@ function selInfo(slide, sel){
     const obj = (state.deck && state.deck.overlays || []).find(x => x.id === sel.slice(8));
     return obj && { type: 'overlay', obj, isText: true };
   }
+  if (sel.startsWith('arrow:')){
+    const obj = (slide.arrows || []).find(x => x.id === sel.slice(6));
+    return obj && { type: 'arrow', obj, isArrow: true };
+  }
   if (sel.startsWith('box:')){
     slide.boxes = slide.boxes || {};
     const key = sel.slice(4);
@@ -1371,6 +1421,7 @@ function applySelection(root){
     n.classList.remove('selected', 'group-sel');
     n.querySelectorAll('.lf-h').forEach(h => h.remove());
   });
+  root.querySelectorAll('.lf-arrow-line.selected').forEach(n => n.classList.remove('selected'));
   root.querySelector('.lf-group-box')?.remove();
 
   let info = null, selNode = null, group = null;
@@ -1390,13 +1441,24 @@ function applySelection(root){
   }
   if (!group && state.sel){
     selNode = root.querySelector(`[data-sel="${state.sel}"]`);
-    if (selNode){ selNode.classList.add('selected'); addHandles(selNode); info = selInfo(cur(), state.sel); }
+    if (selNode){
+      info = selInfo(cur(), state.sel);
+      if (info && info.type === 'arrow'){
+        // arrows highlight their visible line; their endpoint dots are the handles
+        const ln = root.querySelector(`.lf-arrow-line[data-arid="${info.obj.id}"]`);
+        if (ln) ln.classList.add('selected');
+      } else {
+        selNode.classList.add('selected');
+        addHandles(selNode);
+      }
+    }
     else state.sel = null;
   }
 
   const tools = $('#sel-tools');
   tools.hidden = !(group || info);
   const isImg = !group && info && info.isImg;
+  const isArrow = !group && info && info.type === 'arrow';
   const isText = group ? group.every(g => g.info.isText) : !!(info && info.isText);
   $('#sel-cutout').disabled = !isImg;
   $('#sel-front').disabled = $('#sel-back').disabled = !isImg;
@@ -1409,7 +1471,9 @@ function applySelection(root){
 
   const colorInput = $('#sel-color'), colorReset = $('#sel-color-reset');
   const bgInput = $('#sel-bg'), bgClear = $('#sel-bg-clear');
-  [colorInput, colorReset, bgInput, bgClear].forEach(n => n.disabled = !isText);
+  // text colour applies to text & arrows; background fill only to text
+  colorInput.disabled = colorReset.disabled = !(isText || isArrow);
+  bgInput.disabled = bgClear.disabled = !isText;
   if (isText){
     const refObj = group ? group[0].info.obj : info.obj;
     const refNode = group ? group[0].node : selNode;
@@ -1417,6 +1481,9 @@ function applySelection(root){
       colorInput.value = refObj.color || rgbToHex(getComputedStyle(refNode).color);
     if (document.activeElement !== bgInput)
       bgInput.value = refObj.bg || '#ffffff';
+  } else if (isArrow){
+    if (document.activeElement !== colorInput)
+      colorInput.value = info.obj.color || arrowDefaultColor(cur());
   }
 
   // recurring-overlay scope selector (which slides the element appears on)
@@ -1544,6 +1611,19 @@ function wireSlideEditing(root, slide){
       const node = handle.closest('[data-sel]');
       const info = selInfo(slide, node && node.dataset.sel);
       if (info) startResize(e, handle.dataset.dir, node, slide, info, root, accLine);
+      return;
+    }
+    // free arrows: endpoint dot re-aims one end; body drag moves the whole arrow
+    const arEnd = e.target.closest('.lf-arrow-end');
+    if (arEnd){
+      const a = (slide.arrows || []).find(x => x.id === arEnd.dataset.arid);
+      if (a){ setSel('arrow:' + a.id); startArrowEndDrag(e, slide, a, arEnd.dataset.end, root); }
+      return;
+    }
+    const arHit = e.target.closest('.lf-arrow-hit');
+    if (arHit){
+      const a = (slide.arrows || []).find(x => x.id === arHit.dataset.arid);
+      if (a){ setSel('arrow:' + a.id); startArrowMove(e, slide, a, root); }
       return;
     }
     const node = e.target.closest('[data-sel]');
@@ -1767,6 +1847,52 @@ function startGroupResize(e, dir, slide, root, accLine){
   groupBox.addEventListener('pointerup', up);
 }
 
+/* drag one endpoint of an arrow to re-aim it */
+function startArrowEndDrag(e, slide, a, end, root){
+  e.stopPropagation(); e.preventDefault();
+  checkpoint();
+  const svg = root.querySelector('.lf-arrows');
+  const rect = root.getBoundingClientRect();
+  const move = ev => {
+    a[end] = {
+      x: Math.round(clamp((ev.clientX - rect.left) / viewScale, 0, SLIDE_W)),
+      y: Math.round(clamp((ev.clientY - rect.top) / viewScale, 0, SLIDE_H)),
+    };
+    if (svg) setArrowGeom(svg, a);
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    commitChange();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
+/* drag the body of an arrow to move both endpoints together */
+function startArrowMove(e, slide, a, root){
+  e.stopPropagation(); e.preventDefault();
+  const svg = root.querySelector('.lf-arrows');
+  const sx = e.clientX, sy = e.clientY;
+  const f0 = { ...a.from }, t0 = { ...a.to };
+  let moved = false;
+  const move = ev => {
+    if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return;
+    if (!moved){ checkpoint(); moved = true; }
+    const dx = (ev.clientX - sx) / viewScale, dy = (ev.clientY - sy) / viewScale;
+    a.from = { x: Math.round(clamp(f0.x + dx, 0, SLIDE_W)), y: Math.round(clamp(f0.y + dy, 0, SLIDE_H)) };
+    a.to   = { x: Math.round(clamp(t0.x + dx, 0, SLIDE_W)), y: Math.round(clamp(t0.y + dy, 0, SLIDE_H)) };
+    if (svg) setArrowGeom(svg, a);
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    if (moved) commitChange();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
 function applyEdit(slide, key, val){
   if (key === 'headline')       slide.headline = val;
   else if (key === 'callout')   slide.callout = val;
@@ -1799,6 +1925,7 @@ function deleteOne(s, sel){
   else if (info.type === 'ann')  s.annotations = s.annotations.filter(a => ('ann:' + a.id) !== sel);
   else if (info.type === 'text') s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== sel);
   else if (info.type === 'overlay') state.deck.overlays = (state.deck.overlays || []).filter(o => ('overlay:' + o.id) !== sel);
+  else if (info.type === 'arrow') s.arrows = (s.arrows || []).filter(a => ('arrow:' + a.id) !== sel);
   else if (info.type === 'box')  { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
 }
 
@@ -1846,6 +1973,18 @@ function addOverlay(){
   const o = { id: uid(), type: 'text', text: 'Recurring text', x: 70, y: 110, fs: 20, italic: true, scope: 'all' };
   d.overlays.push(o);
   state.sel = 'overlay:' + o.id;
+  refreshAll();
+}
+
+/* add a free arrow the user can aim between any two points */
+function addArrow(){
+  const s = cur();
+  if (!s) return;
+  checkpoint();
+  s.arrows = s.arrows || [];
+  const a = { id: uid(), from: { x: 520, y: 360 }, to: { x: 760, y: 360 } };
+  s.arrows.push(a);
+  state.sel = 'arrow:' + a.id;
   refreshAll();
 }
 
@@ -3020,6 +3159,12 @@ async function exportPPTX(){
         fontSize: pt(fs), bold: true, italic: !!o.italic, valign: 'top', align: o.align, ...colorOpts(o) });
     });
 
+    // free arrows
+    (s.arrows || []).forEach(a => {
+      const col = a.color || (dark ? '#E9F1F8' : '#1F2D3A');
+      addLine(sl, a.from.x, a.from.y, a.to.x, a.to.y, { color: col, width: a.width || 3, arrow: true });
+    });
+
     // images (only embeddable ones survive into PPTX)
     const cineFirst = (contentLayout(s).fullBleed && s.images.length) ? s.images[0] : null;
     for (const im of s.images){
@@ -3466,12 +3611,14 @@ function wireUI(){
       refreshAll();
     });
   });
+  // text colour applies to text elements and to arrows
+  const colorable = i => i.isText || i.isArrow;
   let colorCheckpointed = false;
   $('#sel-color').addEventListener('pointerdown', () => { colorCheckpointed = false; });
   $('#sel-color').addEventListener('input', () => {
     const s = cur();
     const infos = s && selectedInfos(s);
-    if (!infos || !infos.length || !infos.every(i => i.isText)) return;
+    if (!infos || !infos.length || !infos.every(colorable)) return;
     if (!colorCheckpointed){ checkpoint(); colorCheckpointed = true; }
     infos.forEach(i => i.obj.color = $('#sel-color').value);
     renderEditor();
@@ -3486,7 +3633,7 @@ function wireUI(){
   $('#sel-color-reset').addEventListener('click', () => {
     const s = cur();
     const infos = s && selectedInfos(s);
-    if (!infos || !infos.length || !infos.every(i => i.isText)) return;
+    if (!infos || !infos.length || !infos.every(colorable)) return;
     checkpoint();
     infos.forEach(i => delete i.obj.color);
     commitChange();
@@ -3531,6 +3678,8 @@ function wireUI(){
   if (addTextBtn) addTextBtn.addEventListener('click', addTextBox);
   const addOverlayBtn = $('#btn-add-overlay');
   if (addOverlayBtn) addOverlayBtn.addEventListener('click', addOverlay);
+  const addArrowBtn = $('#btn-add-arrow');
+  if (addArrowBtn) addArrowBtn.addEventListener('click', addArrow);
   $('#sel-scope').addEventListener('change', () => {
     const s = cur();
     const info = s && selInfo(s, state.sel);
