@@ -17,6 +17,7 @@ const LS = {
   index:    'lectureflow.decks',
   current:  'lectureflow.current',
   folders:  'lectureflow.folders',
+  templates: 'lectureflow.templates',
   deck:   id => 'lectureflow.deck.' + id,
 };
 
@@ -456,6 +457,24 @@ function normType(s){
   return 'content';
 }
 
+/* map a free-text LAYOUT: hint to a content-layout key (or null if unrecognized,
+   in which case effContentLayout() picks the default) */
+function normLayoutName(s){
+  s = (s || '').toLowerCase().trim();
+  if (/compar|versus|vs\b|two col|contrast/.test(s)) return 'comparison';
+  if (/time|step|process|sequence|chronolog|stages?/.test(s)) return 'timeline';
+  if (/quote|pull|epigraph/.test(s)) return 'quote';
+  if (/statement|big idea|hero/.test(s)) return 'statement';
+  if (/galler|grid|multi.?image|figure grid/.test(s)) return 'figureGrid';
+  if (/cinematic|full.?bleed|edge/.test(s)) return 'cinematic';
+  if (/cards?/.test(s)) return 'cards';
+  if (/spotlight/.test(s)) return 'spotlight';
+  if (/band/.test(s)) return 'bandTop';
+  if (/panel/.test(s)) return 'panels';
+  const valid = LAYOUTS.content.map(l => l.key);
+  return valid.includes(s) ? s : null;
+}
+
 function accentFromNotes(notes){
   const s = (notes || '').toLowerCase();
   if (/ocean|sea\b|blue|water|sky|marine|cool/.test(s))           return 'ocean';
@@ -494,6 +513,7 @@ function parseOutline(text){
   const F = {
     type:     /^type\s*[:\-]\s*(.+)$/i,
     headline: /^(?:headline|heading|title)\s*[:\-]\s*(.+)$/i,
+    layout:   /^(?:layout|format)\s*[:\-]\s*(.+)$/i,
     points:   /^(?:points|bullets|content)\s*[:\-]?\s*(.*)$/i,
     callout:  /^(?:callout|highlight|quote|stat)\s*[:\-]\s*(.+)$/i,
     figure:   /^(?:figure|image|visual|img|photo)\s*[:\-]\s*(.+)$/i,
@@ -516,6 +536,7 @@ function parseOutline(text){
     let m;
     if ((m = line.match(F.type)))     { s.type = normType(m[1]); mode = null; return true; }
     if ((m = line.match(F.headline))) { s.headline = m[1].trim(); mode = null; return true; }
+    if ((m = line.match(F.layout)))   { s.layout = normLayoutName(m[1]); mode = null; return true; }
     if ((m = line.match(F.points)))   { mode = 'points'; const rest = m[1].trim();
                                         if (rest && !/^$/.test(rest)) { const b = rest.match(BULLET); s.points.push(b ? b[1] : rest); }
                                         return true; }
@@ -3585,6 +3606,12 @@ function deckCard(entry){
   actions.appendChild(mkBtn('Open', 'primary', 'Open this deck', open));
   actions.appendChild(mkBtn('Copy', 'ghost', 'Duplicate this deck', () => copyDeck(entry.id)));
   actions.appendChild(mkBtn('Download', 'ghost', 'Download as a .json project', () => downloadDeck(entry.id)));
+  actions.appendChild(mkBtn('Template', 'ghost', 'Save this deck as a reusable template (structure + layouts, content blanked)', () => {
+    const d = loadDeck(entry.id);
+    if (!d) return;
+    const name = (prompt('Template name:', d.title || 'Template') || '').trim();
+    if (name) saveTemplate(d, name);
+  }));
   actions.appendChild(mkBtn('✕', 'ghost danger', 'Delete this deck', () => {
     if (!confirm(`Delete “${entry.title}”? This cannot be undone.`)) return;
     deleteDeck(entry.id);
@@ -3625,6 +3652,164 @@ function downloadDeck(id){
   if (!d) return;
   downloadText(safeName(d.title) + '.lectureflow.json', JSON.stringify(d, null, 2), 'application/json');
 }
+
+/* ================= deck templates ================= */
+
+function templates(){
+  try { return JSON.parse(localStorage.getItem(LS.templates) || '[]'); }
+  catch (e) { return []; }
+}
+function saveTemplates(arr){ localStorage.setItem(LS.templates, JSON.stringify(arr.slice(0, 50))); }
+
+const TPL_PH = { headline: 'Headline', point: 'Point', callout: 'Key stat or quote', text: 'Text' };
+
+/* clone a deck into a reusable skeleton: keep structure, slide types, layouts,
+   palette, and recurring elements, but blank the content to placeholders and
+   drop images/backgrounds so templates stay small */
+function deckToTemplate(deck, name){
+  const t = JSON.parse(JSON.stringify(deck));
+  t.id = uid();
+  t.template = true;
+  t.name = (name || deck.title || 'Template').trim();
+  t.title = ''; t.presenter = ''; t.date = '';
+  t.background = null;
+  (t.overlays || []).forEach(o => { o.id = uid(); if (o.text) o.text = TPL_PH.text; });
+  for (const s of t.slides){
+    s.id = uid();
+    s.headline = s.headline ? TPL_PH.headline : '';
+    s.callout  = s.callout  ? TPL_PH.callout  : '';
+    s.figure = ''; s.notes = '';
+    s.images = [];
+    (s.annotations || []).forEach((a, i) => {
+      a.id = uid(); a.text = TPL_PH.point + ' ' + (i + 1); a.full = a.text;
+    });
+    (s.texts || []).forEach(tx => { tx.id = uid(); if (tx.text) tx.text = TPL_PH.text; });
+  }
+  return t;
+}
+
+/* instantiate a fresh editable deck from a template, regenerating every id so
+   two decks started from the same template never collide */
+function templateToDeck(tpl){
+  const d = JSON.parse(JSON.stringify(tpl));
+  delete d.template; delete d.name;
+  d.id = uid();
+  (d.overlays || []).forEach(o => { o.id = uid(); });
+  for (const s of d.slides){
+    s.id = uid();
+    (s.annotations || []).forEach(a => { a.id = uid(); });
+    (s.texts || []).forEach(tx => { tx.id = uid(); });
+  }
+  return migrateDeck(d);
+}
+
+function saveTemplate(deck, name){
+  const arr = templates();
+  arr.unshift(deckToTemplate(deck, name));
+  saveTemplates(arr);
+  toast('Saved as template');
+}
+function deleteTemplate(id){ saveTemplates(templates().filter(t => t.id !== id)); }
+
+const BUILTIN_TEMPLATE_OUTLINES = [
+  { name: 'Taxon / topic overview', outline: `# Topic overview
+Design: ocean, calm
+1. TYPE: title
+   HEADLINE: Topic
+
+2. TYPE: roadmap
+   HEADLINE: Today's journey
+   POINTS:
+   - First theme
+   - Second theme
+   - Third theme
+
+3. TYPE: section
+   HEADLINE: First theme
+
+4. TYPE: content
+   HEADLINE: Key idea
+   POINTS:
+   - Point one
+   - Point two
+   - Point three
+   CALLOUT: A memorable stat or quote
+   FIGURE: the central image for this idea
+
+5. TYPE: takeaway
+   HEADLINE: The one thing to remember
+   POINTS:
+   - recap a
+   - recap b` },
+  { name: 'Compare & contrast', outline: `# A vs B
+Design: slate, minimal
+1. TYPE: title
+   HEADLINE: A vs B
+
+2. TYPE: content
+   HEADLINE: Two ways to look at it
+   LAYOUT: comparison
+   POINTS:
+   - First side, point one
+   - First side, point two
+   - Second side, point one
+   - Second side, point two
+   FIGURE: an image that frames the comparison
+
+3. TYPE: content
+   HEADLINE: Why it matters
+   POINTS:
+   - Point one
+   - Point two
+   - Point three
+   CALLOUT: A memorable stat or quote
+   FIGURE: the central image for this idea
+
+4. TYPE: takeaway
+   HEADLINE: The one thing to remember
+   POINTS:
+   - recap a
+   - recap b` },
+  { name: 'Process / lifecycle', outline: `# How it happens, step by step
+Design: forest, calm
+1. TYPE: title
+   HEADLINE: How it happens, step by step
+
+2. TYPE: content
+   HEADLINE: The stages
+   LAYOUT: timeline
+   POINTS:
+   - Stage one
+   - Stage two
+   - Stage three
+   - Stage four
+   FIGURE: an image that frames the whole process
+
+3. TYPE: content
+   HEADLINE: A closer look
+   POINTS:
+   - Point one
+   - Point two
+   - Point three
+   CALLOUT: A memorable stat or quote
+   FIGURE: the central image for this idea
+
+4. TYPE: takeaway
+   HEADLINE: The one thing to remember
+   POINTS:
+   - recap a
+   - recap b` },
+];
+
+function builtinTemplates(){
+  return BUILTIN_TEMPLATE_OUTLINES.map(b => {
+    const t = deckToTemplate(parseOutline(b.outline), b.name);
+    t.id = 'builtin:' + b.name;
+    t.builtin = true;
+    return t;
+  });
+}
+function allTemplates(){ return [...builtinTemplates(), ...templates()]; }
 
 function newFolder(){
   const name = (prompt('Folder name (e.g. “Biology 101”):') || '').trim();
@@ -3705,6 +3890,42 @@ function renderDecksModal(){
   }
 }
 
+function renderTemplatesModal(){
+  const list = $('#templates-list');
+  list.innerHTML = '';
+  for (const t of allTemplates()){
+    const li = el('li');
+    const name = el('span', 'dk-name', '', t.name || 'Template');
+    name.addEventListener('click', () => {
+      $('#templates-modal').close();
+      openDeck(templateToDeck(t));
+      toast(`Started a deck from “${t.name}”`);
+    });
+    li.appendChild(name);
+    li.appendChild(el('span', 'dk-meta', '', `${t.slides.length} slide${t.slides.length === 1 ? '' : 's'}${t.builtin ? ' · built-in' : ''}`));
+    const use = el('button', 'btn small primary', '', 'Use');
+    use.type = 'button';
+    use.addEventListener('click', () => {
+      $('#templates-modal').close();
+      openDeck(templateToDeck(t));
+      toast(`Started a deck from “${t.name}”`);
+    });
+    li.appendChild(use);
+    if (!t.builtin){
+      const del = el('button', 'btn small danger', '', '✕');
+      del.type = 'button';
+      del.title = 'Delete template';
+      del.addEventListener('click', () => {
+        if (!confirm(`Delete template “${t.name}”? This cannot be undone.`)) return;
+        deleteTemplate(t.id);
+        renderTemplatesModal();
+      });
+      li.appendChild(del);
+    }
+    list.appendChild(li);
+  }
+}
+
 function wireUI(){
   // outline screen
   $('#btn-outline-sample').addEventListener('click', () => { $('#outline-text').value = SAMPLE_OUTLINE; });
@@ -3739,6 +3960,10 @@ function wireUI(){
   $('#btn-import-deck').addEventListener('click', () => $('#file-import').click());
   $('#file-import').addEventListener('change', e => {
     const f = e.target.files[0]; if (f) importDeckFile(f); e.target.value = '';
+  });
+  $('#btn-from-template').addEventListener('click', () => {
+    renderTemplatesModal();
+    $('#templates-modal').showModal();
   });
 
   // export dropdown

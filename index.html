@@ -104,6 +104,7 @@ Design: free-text notes
       <h1 id="home-title">All decks</h1>
       <span class="spacer"></span>
       <button id="btn-import-deck" class="btn ghost">Import deck</button>
+      <button id="btn-from-template" class="btn ghost" title="Start a new deck from a saved skeleton">From template</button>
       <button id="btn-new-deck" class="btn primary">＋ New deck</button>
     </div>
     <div id="home-grid"></div>
@@ -297,6 +298,18 @@ Design: free-text notes
     <ul id="decks-list"></ul>
     <div class="modal-actions">
       <button id="decks-new" class="btn ghost" type="button">＋ New from outline</button>
+      <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== TEMPLATES ===================== -->
+<dialog id="templates-modal" class="modal">
+  <form method="dialog">
+    <h2>Start from a template</h2>
+    <p class="modal-sub">A template keeps the structure, layouts, palette, and recurring elements — the content is blanked for you to fill in.</p>
+    <ul id="templates-list"></ul>
+    <div class="modal-actions">
       <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>
