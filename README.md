@@ -72,6 +72,8 @@ Content slides have **13 layouts** (**Annotated figure** is the default for imag
 
 Title/section/takeaway add left / centered / quote variants; roadmap is numbered stops with arrows. The **takeaway** slide is specially highlighted: it carries a "Key takeaway" badge above the headline, and each takeaway point renders as a bold, numbered, bordered card — all editable, movable, and resizable like any other element. A shared motif (corner arcs, accent rules, a flow arrow bottom-right of every slide — a square on the last) keeps visual direction across the deck. The accent palette is picked from the outline's `Design:` notes (ocean, forest, ember, plum, slate, indigo).
 
+**Roadmap recaps** — click **🗺 Recap slides** (left rail) to drop a copy of the roadmap slide in front of every section slide, with that section's stop filled in and tagged **NOW** (the rest dim) so the audience always knows where they are. Each recap is a normal, fully editable roadmap slide — move it, restyle it, or delete it like any other. Click the button again any time after reordering sections or editing the roadmap to drop the old recaps and rebuild them in the right places.
+
 ### 3. The image panel (licensed sources only)
 
 Tied to the selected slide; the query is auto-seeded from that slide's `FIGURE` text (the dashed "suggested figure" chip on the canvas also triggers a search).

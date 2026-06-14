@@ -935,19 +935,33 @@ function renderRoadmap(root, slide, deck, pal, dark, opts){
         stroke="${pal.accent}" stroke-width="2" opacity=".8" marker-end="url(#${mid})"/>`;
   }
   root.appendChild(svgEl(lines, 'lf-conn'));
+  const hi = slide.recapHighlight;
   anns.forEach((a, i) => {
     const st = g.stops[i];
     const r = g.horizontal ? 38 : 27;
+    const here = hi != null && i === hi;
+    const fade = hi != null && !here ? 'opacity:.45;' : '';
+    const circStyle = here
+      ? `background:${pal.accent};border:2.5px solid ${pal.accent};color:#0b1220;`
+      : `border:2.5px solid ${pal.accent};color:${pal.accent2};${fade}`;
     const circ = el('div', 'serif', `position:absolute;z-index:6;left:${st.cx - r}px;top:${st.cy - r}px;
-      width:${r * 2}px;height:${r * 2}px;border:2.5px solid ${pal.accent};border-radius:50%;
+      width:${r * 2}px;height:${r * 2}px;border-radius:50%;
       display:flex;align-items:center;justify-content:center;
-      font-size:${g.horizontal ? 30 : 22}px;color:${pal.accent2};`, String(i + 1));
+      font-size:${g.horizontal ? 30 : 22}px;${circStyle}`, String(i + 1));
     root.appendChild(circ);
+    if (here){
+      const tag = g.horizontal
+        ? el('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy - r - 30}px;width:200px;
+            text-align:center;font-size:12px;font-weight:700;letter-spacing:3px;color:${pal.accent2};`, 'NOW')
+        : el('div', '', `position:absolute;z-index:6;left:${st.cx + 58}px;top:${st.cy - r - 24}px;width:300px;
+            font-size:12px;font-weight:700;letter-spacing:3px;color:${pal.accent2};`, 'NOW');
+      root.appendChild(tag);
+    }
     const lbl = g.horizontal
       ? el('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy + 58}px;width:200px;
-          text-align:center;font-size:18px;font-weight:600;line-height:1.3;`, a.text)
+          text-align:center;font-size:18px;font-weight:600;line-height:1.3;${fade}`, a.text)
       : el('div', '', `position:absolute;z-index:6;left:${st.cx + 58}px;top:${st.cy - 16}px;width:900px;
-          font-size:21px;font-weight:600;line-height:1.3;`, a.text);
+          font-size:21px;font-weight:600;line-height:1.3;${fade}`, a.text);
     root.appendChild(editable(lbl, 'ann:' + a.id, opts));
   });
 }
@@ -1988,6 +2002,51 @@ function addArrow(){
   refreshAll();
 }
 
+/* Roadmap recaps: clone the deck's roadmap slide once before every section
+   slide, highlighting the stop that matches that section's position. Re-runs
+   are idempotent — existing recap slides are dropped and rebuilt in place,
+   so this also re-syncs them after the roadmap or section order changes. */
+function addRoadmapRecaps(){
+  const d = state.deck;
+  if (!d) return;
+  const roadmap = d.slides.find(s => s.type === 'roadmap' && !s.recap);
+  if (!roadmap || !roadmap.annotations.length){
+    toast('Add a roadmap slide with points first');
+    return;
+  }
+  const sections = d.slides.filter(s => s.type === 'section' && !s.recap);
+  if (!sections.length){
+    toast('No section slides to recap before');
+    return;
+  }
+  checkpoint();
+  const curId = (cur() || {}).id;
+  d.slides = d.slides.filter(s => !s.recap);
+  sections.forEach((sec, i) => {
+    const recap = JSON.parse(JSON.stringify(roadmap));
+    recap.id = uid();
+    recap.recap = true;
+    recap.recapFor = sec.id;
+    recap.recapHighlight = Math.min(i, roadmap.annotations.length - 1);
+    recap.annotations.forEach(a => a.id = uid());
+    recap.images = [];
+    recap.texts = [];
+    recap.boxes = {};
+    recap.layout = null;
+    const idx = d.slides.findIndex(s => s.id === sec.id);
+    d.slides.splice(idx, 0, recap);
+  });
+  if (curId){
+    const newIdx = d.slides.findIndex(s => s.id === curId);
+    if (newIdx >= 0) state.cur = newIdx;
+  }
+  state.cur = clamp(state.cur, 0, d.slides.length - 1);
+  renderRail();
+  selectSlide(state.cur);
+  save();
+  toast('Added a recap slide before each section');
+}
+
 /* ================= slide rail ================= */
 
 function thumbNode(slide, i){
@@ -2978,15 +3037,24 @@ async function exportPPTX(){
     else if (s.type === 'roadmap'){
       T(s.headline || 'Roadmap', { x: I(96), y: I(60), w: I(1000), h: I(70), fontFace: SERIF, fontSize: 28, bold: true });
       const g = roadmapGeom(s.annotations.length);
+      const hi = s.recapHighlight;
       s.annotations.forEach((a, i) => {
         const st = g.stops[i], r = g.horizontal ? 38 : 27;
+        const here = hi != null && i === hi;
         sl.addText(String(i + 1), { shape: 'ellipse', x: I(st.cx - r), y: I(st.cy - r), w: I(r * 2), h: I(r * 2),
-          align: 'center', fontFace: SERIF, fontSize: g.horizontal ? 20 : 15, color: C(pal.accent2),
-          line: { color: accBar, width: 2 }, fill: { color: C(dark ? pal.darkSolid : pal.lightSolid) } });
+          align: 'center', fontFace: SERIF, fontSize: g.horizontal ? 20 : 15,
+          color: here ? '0B1220' : C(pal.accent2),
+          line: { color: accBar, width: 2 },
+          fill: { color: here ? C(pal.accent) : C(dark ? pal.darkSolid : pal.lightSolid) } });
+        if (here)
+          T('NOW', g.horizontal
+            ? { x: I(st.cx - 100), y: I(st.cy - r - 30), w: I(200), h: I(22), align: 'center', fontSize: 9, bold: true, charSpacing: 3, color: C(pal.accent2) }
+            : { x: I(st.cx + 56), y: I(st.cy - r - 24), w: I(300), h: I(22), fontSize: 9, bold: true, charSpacing: 3, color: C(pal.accent2) });
+        const lblOpts = (hi != null && !here) ? { transparency: 55 } : {};
         if (g.horizontal)
-          T(a.text, { x: I(st.cx - 100), y: I(st.cy + 56), w: I(200), h: I(110), align: 'center', fontSize: 12.5, bold: true });
+          T(a.text, { x: I(st.cx - 100), y: I(st.cy + 56), w: I(200), h: I(110), align: 'center', fontSize: 12.5, bold: true, ...lblOpts });
         else
-          T(a.text, { x: I(st.cx + 56), y: I(st.cy - 18), w: I(920), h: I(44), fontSize: 14.5, bold: true });
+          T(a.text, { x: I(st.cx + 56), y: I(st.cy - 18), w: I(920), h: I(44), fontSize: 14.5, bold: true, ...lblOpts });
         if (i < g.stops.length - 1){
           const b = g.stops[i + 1];
           if (g.horizontal) addLine(sl, st.cx + 50, st.cy, b.cx - 54, st.cy, { arrow: true, color: pal.accent });
@@ -3680,6 +3748,7 @@ function wireUI(){
   if (addOverlayBtn) addOverlayBtn.addEventListener('click', addOverlay);
   const addArrowBtn = $('#btn-add-arrow');
   if (addArrowBtn) addArrowBtn.addEventListener('click', addArrow);
+  $('#btn-add-recaps').addEventListener('click', addRoadmapRecaps);
   $('#sel-scope').addEventListener('change', () => {
     const s = cur();
     const info = s && selInfo(s, state.sel);
