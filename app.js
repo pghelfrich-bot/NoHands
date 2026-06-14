@@ -3063,26 +3063,38 @@ async function fillAccept(r){
 }
 function fillSkip(){ fillPos++; fillShow(); }
 function fillBack(){ if (fillPos > 0){ fillPos--; fillShow(); } }
-function closeFill(){ $('#fill-modal').close(); refreshAll(); }
+function closeFill(){
+  fillCancelled = true;
+  $('#fill-modal').close();
+  refreshAll();
+}
 
 /* one-click rough draft: top working hit on every remaining slide */
+let fillCancelled = false;
 async function fillAuto(){
   $('#fill-auto').disabled = true;
+  fillCancelled = false;
   checkpoint();
-  for (; fillPos < fillList.length; fillPos++){
-    const { s, i } = fillList[fillPos];
-    $('#fill-progress').textContent = `Auto-filling ${fillPos + 1} of ${fillList.length}…`;
-    const seed = slideSeed(s);
-    const { results } = await fetchImages(seed.primary, { limit: 6, alts: seed.alternates });
-    for (const r of results){
-      const im = await placeResultOnSlide(s, r);
-      if (im){ refreshRailThumb(i); break; }
+  try {
+    for (; fillPos < fillList.length; fillPos++){
+      if (fillCancelled) return;
+      const { s, i } = fillList[fillPos];
+      $('#fill-progress').textContent = `Auto-filling ${fillPos + 1} of ${fillList.length}…`;
+      const seed = slideSeed(s);
+      const { results } = await fetchImages(seed.primary, { limit: 6, alts: seed.alternates });
+      if (fillCancelled) return;
+      for (const r of results){
+        const im = await placeResultOnSlide(s, r);
+        if (im){ refreshRailThumb(i); break; }
+      }
     }
+    if (fillCancelled) return;
+    save();
+    closeFill();
+    toast('Rough draft filled — review and swap any you don’t like');
+  } finally {
+    $('#fill-auto').disabled = false;
   }
-  $('#fill-auto').disabled = false;
-  save();
-  closeFill();
-  toast('Rough draft filled — review and swap any you don’t like');
 }
 
 function defaultImagePlacement(slide, natW, natH){
@@ -4637,10 +4649,17 @@ function wireUI(){
     else if (e.key === 'Escape'){ if (state.sel || state.selMulti.length){ e.preventDefault(); setSel(null); } }
   });
   $('#present-overlay').addEventListener('click', e => {
-    if (e.target.closest('#present-notes')) return;
+    if (e.target.closest('#present-notes') || e.target.closest('#present-exit')) return;
     presentIdx++;
     if (presentIdx >= state.deck.slides.length){ stopPresent(); presentIdx = state.deck.slides.length - 1; }
     else renderPresent();
+  });
+  $('#present-exit').addEventListener('click', e => { e.stopPropagation(); stopPresent(); });
+  // some browsers (e.g. Chrome) exit fullscreen on Esc without delivering that
+  // keydown to the page — without this, the overlay would be stranded on top
+  // of a no-longer-fullscreen window with no way back
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && presenting) stopPresent();
   });
 
   window.addEventListener('resize', () => {
