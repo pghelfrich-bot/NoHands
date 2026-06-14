@@ -92,6 +92,15 @@ const SLIDE_CSS = `
 .slide .lf-ann{position:absolute;z-index:30;width:${ANN_W}px;font-size:19px;line-height:1.32;font-weight:600;letter-spacing:.1px}
 .slide .lf-ann::before{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--lf-accent);margin-bottom:7px}
 .slide.light .lf-ann{color:#1d3142}
+/* filled "chip" labels (Annotated figure) — auto-fit to their text, two
+   readable presets: dark fill/white text (default) or beige/dark text */
+.slide .lf-ann.lf-chip{padding:12px 16px;border-radius:8px;border-left:4px solid var(--lf-accent);
+  background:rgba(10,18,28,.72);color:#fff;box-shadow:0 10px 24px rgba(6,14,24,.18)}
+.slide .lf-ann.lf-chip::before{display:none}
+.slide .lf-ann.lf-chip.lf-chip-light{background:#f6efe2;color:#23303d;box-shadow:0 10px 24px rgba(15,30,45,.10)}
+/* the slide's one big takeaway — a CALLOUT or the last point — as a wide bottom banner */
+.slide .lf-ann.lf-takeaway-banner{font-size:22px;font-weight:700;line-height:1.42;
+  padding:18px 26px;border-radius:8px;border-left:8px solid var(--lf-accent)}
 .slide .lf-ann-full{font-size:0.8em;font-weight:500;line-height:1.42;opacity:.85;margin-top:6px;letter-spacing:0;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .slide .lf-anncard{border-radius:12px;padding:12px 16px}
@@ -725,13 +734,23 @@ function contentLayout(slide){
       out.callout = { x: 80, y: Math.min(maxY + 14, 632), w: 1120, fs: 18 };
     }
   } else if (lay === 'annotated'){
-    out.annStyle = 'label'; out.connectors = true;
+    // filled "chip" labels stacked in two columns beside the figure, sized to
+    // fit their text (no clipping); the slide's one big takeaway — the
+    // CALLOUT if there is one, else the last point — becomes a wide banner
+    // across the bottom instead of competing with the other chips.
+    out.annStyle = 'label'; out.connectors = true; out.annDetail = false;
     out.headline = { x: 80, y: 64, w: 620, fs: 38 };
-    out.anns = slide.annotations.map((a, i) => {
-      const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
-      return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 28 };
+    const pts = slide.annotations;
+    const bannerIdx = (!slide.callout && pts.length > 1) ? pts.length - 1 : -1;
+    const colY = [216, 216], colX = [64, 928];
+    out.anns = pts.map((a, i) => {
+      if (i === bannerIdx) return { x: 80, y: 596, w: 1120, fs: 22, banner: true };
+      const col = colY[0] <= colY[1] ? 0 : 1;
+      const pos = { x: colX[col], y: colY[col], w: ANN_W, fs: 20 };
+      colY[col] += estimateAnnH(a.text) + 44;   // text height + chip padding + gap
+      return pos;
     });
-    if (slide.callout) out.callout = { x: 80, y: 540, w: 380, fs: 18 };
+    if (slide.callout) out.callout = { x: 80, y: 596, w: 1120, fs: 22, banner: true };
   } else if (lay === 'cards'){
     // each point is its own bordered, draggable/resizable card around the figure
     out.annStyle = 'card'; out.connectors = true;
@@ -1072,8 +1091,14 @@ function renderContent(root, slide, deck, pal, dark, opts){
     } else if (L.annStyle === 'caption'){
       // a label overlaid on the bottom of its own figure in a multi-figure scene
       renderAnnBox(root, slide, a, i, def, opts, false, 0, 'lf-figcap');
+    } else if (L.annStyle === 'label'){
+      // filled "chip" label — dark fill/white text by default, or a beige/dark
+      // pairing when the label's chip is set to 'light'; the slide's one big
+      // takeaway point (if any) gets the wide bottom-banner variant
+      const extra = 'lf-chip' + (a.chip === 'light' ? ' lf-chip-light' : '') + (def.banner ? ' lf-takeaway-banner' : '');
+      renderAnnBox(root, slide, a, i, def, opts, L.annDetail, 0, extra);
     } else {
-      // 'label' or 'list' → movable annotation box
+      // 'list' → movable annotation box, no chip background
       renderAnnBox(root, slide, a, i, def, opts, L.annDetail);
     }
   });
@@ -1086,6 +1111,12 @@ function renderContent(root, slide, deck, pal, dark, opts){
       // plain subtitle line over the scrim, not a boxed callout
       appendBox(root, mkBox(slide, 'callout', { ...L.callout, z: 36 }, slide.callout,
         'font-style:italic;line-height:1.4;opacity:.92;', { ...opts, editKey: 'callout' }));
+    } else if (L.callout.banner){
+      // annotated layout: the callout IS the slide's big takeaway banner
+      const boxObj = (slide.boxes && slide.boxes.callout) || {};
+      const cb = mkBox(slide, 'callout', { ...L.callout, z: 35 }, slide.callout, '', opts);
+      if (cb) cb.classList.add('lf-ann', 'lf-chip', 'lf-takeaway-banner', ...(boxObj.chip === 'light' ? ['lf-chip-light'] : []));
+      appendBox(root, cb);
     } else {
       const cb = mkBox(slide, 'callout', { ...L.callout, z: 35 }, slide.callout,
         'border-left:4px solid var(--lf-accent);padding:10px 16px;line-height:1.45;font-style:italic;'
@@ -1189,7 +1220,7 @@ function renderImages(root, slide, opts){
 function drawConnectors(root, slide, color){
   root.querySelector('.lf-conn[data-role="ann"]')?.remove();
   if (!color) return;                       // arrows turned off
-  const annNodes = Array.from(root.querySelectorAll('.lf-ann')).filter(n => !n.classList.contains('lf-unrevealed'));
+  const annNodes = Array.from(root.querySelectorAll('.lf-ann')).filter(n => !n.classList.contains('lf-unrevealed') && !n.classList.contains('lf-takeaway-banner'));
   if (!annNodes.length) return;
   const imgNodes = Array.from(root.querySelectorAll('.lf-img'));
   let fig;
@@ -1522,6 +1553,14 @@ function applySelection(root){
   const isOverlay = !group && info && info.type === 'overlay';
   scopeSel.hidden = !isOverlay;
   if (isOverlay) scopeSel.value = info.obj.scope || 'all';
+
+  // chip toggle (Annotated figure labels & takeaway banner: dark/beige fill)
+  const s2 = cur();
+  const L2 = (!group && info && s2 && s2.type === 'content') ? contentLayout(s2) : null;
+  const isChippable = !group && info && L2 && L2.annStyle === 'label'
+    && (info.type === 'ann' || (info.type === 'box' && info.key === 'callout' && L2.callout && L2.callout.banner));
+  $('#sel-chip').disabled = !isChippable;
+  $('#sel-chip').classList.toggle('active', isChippable && info.obj.chip === 'light');
 
   updateAnchorHandle(root, cur());
 }
@@ -3015,6 +3054,12 @@ async function exportPPTX(){
               transparency: onBg ? 30 : (dark ? 55 : 80) } });
   };
   const arrowC = arrowColor(deck);
+  // height of a filled "chip" label box that fits its text at the given width/font-size
+  const chipBoxH = (text, w, fs, padY) => {
+    const charsPerLine = Math.max(4, Math.floor(w / (fs * 0.56)));
+    const lines = Math.max(1, Math.ceil((text || ' ').length / charsPerLine));
+    return lines * fs * 1.42 + padY * 2;
+  };
 
   const addLine = (sl, x1, y1, x2, y2, opt = {}) => {
     const dx = x2 - x1, dy = y2 - y1;
@@ -3198,8 +3243,26 @@ async function exportPPTX(){
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, cardH);
                 addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: arrowC, width: 2, arrow: true });
               }
+            } else if (L.annStyle === 'label'){
+              // filled "chip" label — dark fill/white text by default, or a
+              // beige/dark pairing when chip is set to 'light'; the slide's one
+              // big takeaway (CALLOUT or last point) gets the bottom-banner variant
+              const isLight = a.chip === 'light';
+              const padY = def.banner ? 18 : 12;
+              const boxH = chipBoxH(a.text, w, fs, padY);
+              sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(boxH), rectRadius: 0.05,
+                fill: { color: a.bg ? C(a.bg) : (isLight ? 'F6EFE2' : '0A121C'), transparency: a.bg ? 0 : (isLight ? 0 : 28) },
+                line: { type: 'none' } });
+              sl.addShape('rect', { x: I(x), y: I(y), w: I(def.banner ? 6 : 4), h: I(boxH), fill: { color: accBar } });
+              T(a.text, { x: I(x + 14), y: I(y), w: I(w - 22), h: I(boxH), fontSize: pt(fs), bold: true,
+                valign: 'middle', align: a.align, color: a.color ? C(a.color) : (isLight ? '23303D' : 'FFFFFF') });
+              if (L.connectors && !def.banner && arrowC){
+                const fig = figRectOf(s);
+                const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, boxH);
+                addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: arrowC, width: 2, arrow: true });
+              }
             } else {
-              // label / list — accent bar + text
+              // list — accent bar + text
               sl.addShape('rect', { x: I(x), y: I(y), w: I(22), h: I(3), fill: { color: acc } });
               const labelH = estimateAnnH(a.text);
               T(a.text, { x: I(x - 2), y: I(y + 8), w: I(w + 6), h: I(labelH), fontSize: pt(fs), bold: true, valign: 'top', align: a.align, ...colorOpts(a) });
@@ -3215,8 +3278,21 @@ async function exportPPTX(){
           });
         }
         if (s.callout && L.callout){
-          sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(4), h: I(70), fill: { color: accBar } });
-          T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18), align: boxAlign('callout'), ...colorOpts(boxObj('callout')) });
+          if (L.callout.banner){
+            const cobj = boxObj('callout');
+            const isLight = cobj.chip === 'light';
+            const padY = 18;
+            const boxH = chipBoxH(s.callout, L.callout.w, L.callout.fs || 22, padY);
+            sl.addShape('roundRect', { x: I(L.callout.x), y: I(L.callout.y), w: I(L.callout.w), h: I(boxH), rectRadius: 0.05,
+              fill: { color: cobj.bg ? C(cobj.bg) : (isLight ? 'F6EFE2' : '0A121C'), transparency: cobj.bg ? 0 : (isLight ? 0 : 28) },
+              line: { type: 'none' } });
+            sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(6), h: I(boxH), fill: { color: accBar } });
+            T(s.callout, { x: I(L.callout.x + 14), y: I(L.callout.y), w: I(L.callout.w - 22), h: I(boxH), fontSize: pt(L.callout.fs || 22), bold: true,
+              valign: 'middle', align: boxAlign('callout'), color: cobj.color ? C(cobj.color) : (isLight ? '23303D' : 'FFFFFF') });
+          } else {
+            sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(4), h: I(70), fill: { color: accBar } });
+            T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18), align: boxAlign('callout'), ...colorOpts(boxObj('callout')) });
+          }
         }
       }
     }
@@ -3346,7 +3422,8 @@ function renderPresent(){
   stage.appendChild(node);
   presentNode = node;
   // sequential reveal: each annotation / panel is a build step you advance into
-  presentSteps = deck.motion ? Array.from(node.querySelectorAll('.lf-ann, .lf-panel')) : [];
+  // the takeaway banner (Annotated figure) is always shown, not a build step
+  presentSteps = deck.motion ? Array.from(node.querySelectorAll('.lf-ann, .lf-panel')).filter(n => !n.classList.contains('lf-takeaway-banner')) : [];
   applyPresentReveal();
   $('#present-counter').textContent = `${presentIdx + 1} / ${deck.slides.length}`;
   const notes = $('#present-notes');
@@ -3766,6 +3843,17 @@ function wireUI(){
     if (!infos || !infos.length || !infos.every(i => i.isText)) return;
     checkpoint();
     infos.forEach(i => delete i.obj.bg);
+    commitChange();
+    refreshAll();
+  });
+  $('#sel-chip').addEventListener('click', () => {
+    const s = cur();
+    if (!s || $('#sel-chip').disabled) return;
+    const info = selInfo(s, state.sel);
+    if (!info) return;
+    checkpoint();
+    if (info.obj.chip === 'light') delete info.obj.chip;
+    else info.obj.chip = 'light';
     commitChange();
     refreshAll();
   });
