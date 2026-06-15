@@ -263,7 +263,14 @@ function svgEl(inner, cls){
 }
 function uid(){ return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3); }
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-function debounce(fn, ms){ let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function debounce(fn, ms){
+  let t;
+  const wrapped = (...a) => { clearTimeout(t); t = setTimeout(() => { t = null; fn(...a); }, ms); };
+  // run fn immediately and cancel any pending call — used before navigating
+  // away so the in-progress edit isn't lost to a timer that never fires
+  wrapped.flush = (...a) => { if (t != null){ clearTimeout(t); t = null; fn(...a); } };
+  return wrapped;
+}
 function escHTML(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function stripHTML(s){ const d = document.createElement('div'); d.innerHTML = s || ''; return d.textContent.trim(); }
 function pad2(n){ return String(n).padStart(2, '0'); }
@@ -4183,7 +4190,12 @@ function showScreen(which){
   const exp = $('#btn-export').closest('.dropdown');
   if (exp) exp.style.display = which === 'editor' ? '' : 'none';
   if (which === 'editor') fitCanvas();
-  if (which === 'home') renderHome();
+  if (which === 'home'){
+    // make sure the deck we're leaving is fully persisted before its card
+    // (and any others) are loaded from storage for the home grid
+    save.flush();
+    renderHome();
+  }
 }
 
 /* ================= home screen (decks + folders) ================= */
@@ -4525,6 +4537,10 @@ function importDeckFile(file){
 }
 
 function openDeck(deck){
+  // flush any pending debounced save of the deck we're leaving — otherwise a
+  // save scheduled just before switching decks would land on `deck` instead
+  // and the previous deck's last edit would never reach storage
+  if (state.deck && state.deck !== deck) save.flush();
   state.deck = deck;
   state.cur = 0;
   state.sel = null;
