@@ -5061,6 +5061,25 @@ function wireUI(){
     insertImageFromResult(r, at);
   });
 
+  // paste an image from the clipboard (e.g. a screenshot or a copied web
+  // image) straight onto the current slide. If the clipboard holds no
+  // image, fall through to the browser's normal text-paste behavior.
+  document.addEventListener('paste', e => {
+    if (!state.deck || $('#screen-editor').hidden || presenting) return;
+    if (document.querySelector('dialog[open]')) return;
+    const items = [...(e.clipboardData ? e.clipboardData.items : [])];
+    const item = items.find(it => it.type && it.type.startsWith('image/'));
+    if (!item) return;
+    e.preventDefault();
+    const file = item.getAsFile();
+    if (!file) return;
+    blobToDataURL(file).then(src => insertImageFromResult({
+      provider: 'local', title: 'Pasted image', author: '', authorUrl: '',
+      license: '', licenseUrl: '', pageUrl: '', sourceName: 'Pasted image',
+      full: src, thumb: src,
+    }));
+  });
+
   // keyboard
   document.addEventListener('keydown', e => {
     if (presenting){
