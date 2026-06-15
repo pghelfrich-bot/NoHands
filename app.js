@@ -3390,7 +3390,13 @@ function pdfCropPointerDown(e){
     // scale from displayed CSS pixels to the canvas's actual pixel buffer
     const sx = canvas.width / canvas.clientWidth, sy = canvas.height / canvas.clientHeight;
     const fig = cropCanvasRegion(canvas, { x: left * sx, y: top * sy, w: w * sx, h: h * sy }, pdfState.pageNum);
-    if (fig){ pdfState.figures.push(fig); renderPdfFigures(); pdfStatus('Figure added — click or drag it onto a slide'); }
+    if (fig){
+      pdfState.figures.push(fig);
+      setCropMode(false);
+      renderPdfFigures();
+      pdfStatus('Figure added below — click it to insert onto the current slide.');
+      document.querySelector('#pdf-figures').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   };
   wrap.addEventListener('pointermove', onMove);
   wrap.addEventListener('pointerup', onUp);
@@ -3439,7 +3445,7 @@ async function togglePdfFigureCutout(fig){
 
 function pdfFigureCell(fig){
   const cell = el('div', 'ip-cell');
-  cell.title = `Page ${fig.page} figure\nClick to insert · drag onto the slide`;
+  cell.title = `Page ${fig.page} figure — click "Insert" to add to the slide`;
   const imEl = new Image();
   imEl.src = (fig.cutout && fig.cutSrc) ? fig.cutSrc : fig.src;
   imEl.alt = fig.title;
@@ -3447,17 +3453,18 @@ function pdfFigureCell(fig){
   wrap.appendChild(imEl);
   cell.appendChild(wrap);
   cell.appendChild(el('span', 'ip-src', '', `Page ${fig.page}`));
-  cell.appendChild(el('span', 'ip-add', '', '＋ Insert'));
   const meta = el('div', 'ip-meta');
-  meta.appendChild(document.createTextNode(fig.title));
+  const insBtn = el('button', 'pdf-fig-insert btn small primary', '', '＋ Insert onto slide');
+  insBtn.addEventListener('click', e => { e.stopPropagation(); insertPdfFigure(fig); });
+  meta.appendChild(insBtn);
   const cut = el('span', 'pdf-fig-cut', '', fig.cutout ? '↺ original' : '✂ cutout');
   cut.addEventListener('click', e => { e.stopPropagation(); togglePdfFigureCutout(fig); });
   meta.appendChild(cut);
-  const rm = el('span', 'ip-local-rm', '', '✕ remove');
+  const rm = el('span', 'ip-local-rm', '', '✕');
+  rm.title = 'Remove from list';
   rm.addEventListener('click', e => { e.stopPropagation(); removePdfFigure(fig.id); });
   meta.appendChild(rm);
   cell.appendChild(meta);
-  cell.addEventListener('click', () => insertPdfFigure(fig));
   cell.draggable = true;
   cell.addEventListener('dragstart', e => {
     e.dataTransfer.setData('text/lf-image', JSON.stringify(pdfFigureToResult(fig)));

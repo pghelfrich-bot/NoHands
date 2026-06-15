@@ -349,8 +349,13 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 #pdf-figures{
   padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;
 }
-.pdf-fig-cut{cursor:pointer;color:var(--accent2);margin-left:6px;white-space:nowrap}
+.pdf-fig-cut{cursor:pointer;color:var(--accent2);margin-left:6px;white-space:nowrap;font-size:10.5px}
 .pdf-fig-cut:hover{text-decoration:underline}
+/* override ip-meta's single-line ellipsis so the insert button + actions wrap */
+#pdf-figures .ip-cell .ip-meta{
+  white-space:normal;overflow:visible;display:flex;flex-wrap:wrap;align-items:center;gap:4px;
+}
+.pdf-fig-insert{font-size:10px!important;padding:3px 8px!important;margin:0!important}
 
 /* ---------- modals ---------- */
 .modal{
