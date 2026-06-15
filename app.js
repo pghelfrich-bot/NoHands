@@ -1179,12 +1179,29 @@ function effContentLayout(slide){
   return (slide.images.length || slide.figure) ? 'annotated' : 'panels';
 }
 
+/* Pick a headline font size (between minFs and maxFs) that keeps `text`
+   on one line within width `w`, so titles don't wrap onto a second line.
+   Shrinks smoothly from maxFs toward minFs as the text gets longer, using
+   a rough average-character-width estimate for bold headline text. */
+function fitHeadlineFS(text, w, maxFs, minFs){
+  minFs = minFs || Math.round(maxFs * 0.6);
+  const CHAR_W = 0.5; // average glyph width as a fraction of font size
+  const len = (text || '').length || 1;
+  const maxChars = w / (maxFs * CHAR_W);
+  if (len <= maxChars) return maxFs;
+  const minChars = w / (minFs * CHAR_W);
+  if (len >= minChars) return minFs;
+  const t = (len - maxChars) / (minChars - maxChars);
+  return Math.round(maxFs - t * (maxFs - minFs));
+}
+
 /* Geometry for a content slide under its chosen layout. Consumed by both the
    DOM renderer and the PPTX exporter so every layout looks the same everywhere. */
 function contentLayout(slide){
   const n = slide.annotations.length;
   const lay = effContentLayout(slide);
-  const out = { lay, annStyle: 'label', anns: [], headline: { x: 80, y: 64, w: 1120, fs: 38 },
+  const head = slide.headline || 'Slide headline';
+  const out = { lay, annStyle: 'label', anns: [], headline: { x: 80, y: 64, w: 1120, fs: fitHeadlineFS(head, 1120, 38, 24) },
                 callout: null, figZones: [{ ...FIGZONE }], wantFigure: true, connectors: false,
                 bigQuote: false, annDetail: true };
 
@@ -1192,8 +1209,7 @@ function contentLayout(slide){
     // one photo runs edge-to-edge; headline + a few short points sit low-left over a scrim
     out.fullBleed = true; out.scrim = true;
     out.figZones = [{ x: 0, y: 0, w: 1280, h: 720 }];
-    const head = slide.headline || '';
-    out.headline = { x: 80, y: 486, w: 980, fs: head.length > 50 ? 44 : 58 };
+    out.headline = { x: 80, y: 486, w: 980, fs: fitHeadlineFS(head, 980, 58, 36) };
     out.annStyle = 'list'; out.annDetail = false;
     out.anns = slide.annotations.slice(0, 3).map((a, i) => ({ x: 80, y: 372 + i * 34, w: 900, fs: 18 }));
     if (slide.callout) out.callout = { x: 80, y: 600, w: 940, fs: 21 };
@@ -1210,7 +1226,7 @@ function contentLayout(slide){
     // takeaway — the CALLOUT if there is one, else the last point — becomes a
     // wide banner across the bottom instead of competing with the other chips.
     out.annStyle = 'label'; out.connectors = true; out.annDetail = false;
-    out.headline = { x: 80, y: 64, w: 620, fs: 38 };
+    out.headline = { x: 80, y: 64, w: 620, fs: fitHeadlineFS(head, 620, 38, 24) };
     const pts = slide.annotations;
     const bannerIdx = (!slide.callout && pts.length > 1) ? pts.length - 1 : -1;
     const chipPts = pts.filter((a, i) => i !== bannerIdx);
@@ -1237,7 +1253,7 @@ function contentLayout(slide){
   } else if (lay === 'cards'){
     // each point is its own bordered, draggable/resizable card around the figure
     out.annStyle = 'card'; out.connectors = true;
-    out.headline = { x: 80, y: 64, w: 620, fs: 38 };
+    out.headline = { x: 80, y: 64, w: 620, fs: fitHeadlineFS(head, 620, 38, 24) };
     out.anns = slide.annotations.map((a, i) => {
       const p = ANN_SLOTS[i % ANN_SLOTS.length], wrap = Math.floor(i / ANN_SLOTS.length) * 26;
       return { x: p.x + wrap, y: p.y + wrap, w: ANN_W, fs: 20 };
@@ -1247,26 +1263,26 @@ function contentLayout(slide){
     const imgLeft = lay === 'figureLeft';
     out.figZones = [{ x: imgLeft ? 80 : 690, y: 168, w: 510, h: 472 }];
     const tx = imgLeft ? 700 : 80;
-    out.headline = { x: tx, y: 70, w: 500, fs: 33 };
+    out.headline = { x: tx, y: 70, w: 500, fs: fitHeadlineFS(head, 500, 33, 20) };
     out.annStyle = 'list';
     out.anns = listPositions(n, tx, 180, 500).map(r => ({ ...r, fs: 20 }));
     if (slide.callout) out.callout = { x: tx, y: 612, w: 500, fs: 17 };
   } else if (lay === 'spotlight'){
     out.figZones = [{ x: 80, y: 150, w: 620, h: 490 }];
-    out.headline = { x: 742, y: 130, w: 458, fs: 40 };
+    out.headline = { x: 742, y: 130, w: 458, fs: fitHeadlineFS(head, 458, 40, 24) };
     out.annStyle = 'list'; out.annDetail = false;
     out.anns = listPositions(Math.min(n, 3), 742, 270, 458, 18, slide.callout ? 540 : 640).map(r => ({ ...r, fs: 22 }));
     if (slide.callout) out.callout = { x: 742, y: 560, w: 458, fs: 18 };
   } else if (lay === 'bandTop'){
     out.figZones = [{ x: 80, y: 150, w: 1120, h: 286 }];
-    out.headline = { x: 80, y: 56, w: 1120, fs: 33 };
+    out.headline = { x: 80, y: 56, w: 1120, fs: fitHeadlineFS(head, 1120, 33, 20) };
     out.annStyle = 'panel';
     const cols = Math.min(Math.max(n, 1), 4), gap = 18, w = (1120 - (cols - 1) * gap) / cols;
     out.anns = slide.annotations.map((a, i) => ({ x: 80 + (i % cols) * (w + gap),
       y: 460 + Math.floor(i / cols) * 160, w, h: 150 }));
   } else if (lay === 'comparison'){
     out.wantFigure = false; out.annStyle = 'panel';
-    out.headline = { x: 80, y: 64, w: 1120, fs: 33 };
+    out.headline = { x: 80, y: 64, w: 1120, fs: fitHeadlineFS(head, 1120, 33, 20) };
     const half = Math.ceil(n / 2), gap = 20, w = 540;
     const rowsPer = Math.max(1, half), h = Math.min(150, (470 - (rowsPer - 1) * 14) / rowsPer);
     out.anns = slide.annotations.map((a, i) => {
@@ -1276,11 +1292,11 @@ function contentLayout(slide){
     if (slide.callout) out.callout = { x: 80, y: 650, w: 1120, fs: 16 };
   } else if (lay === 'timeline'){
     out.wantFigure = false; out.annStyle = 'step';
-    out.headline = { x: 80, y: 60, w: 1120, fs: 33 };
+    out.headline = { x: 80, y: 60, w: 1120, fs: fitHeadlineFS(head, 1120, 33, 20) };
     out.timelineGeom = roadmapGeom(n);
   } else if (lay === 'statement'){
     out.wantFigure = false; out.annStyle = 'list'; out.annDetail = false;
-    out.headline = { x: 96, y: 150, w: 760, fs: 52 };
+    out.headline = { x: 96, y: 150, w: 760, fs: fitHeadlineFS(head, 760, 52, 32) };
     const bottom = slide.callout ? 568 : 632;
     out.anns = listPositions(Math.min(n, 4), 96, 332, 700, 14, bottom).map(r => ({ ...r, fs: 19 }));
     if (slide.callout) out.callout = { x: 96, y: 590, w: 1000, fs: 19 };
@@ -1289,14 +1305,14 @@ function contentLayout(slide){
     out.headline = { x: 150, y: 470, w: 980, fs: 22 };  // used as attribution line
   } else if (lay === 'gallery'){
     out.annStyle = 'none';
-    out.headline = { x: 80, y: 52, w: 1120, fs: 32 };
+    out.headline = { x: 80, y: 52, w: 1120, fs: fitHeadlineFS(head, 1120, 32, 20) };
     out.galleryZones = galleryZones(Math.max(slide.images.length, 1));
     out.figZones = out.galleryZones;
   } else if (lay === 'figureGrid'){
     // a multi-figure "scene": several photos side by side, each with its own
     // caption label overlaid at the bottom — for comparing specimens, stages, etc.
     out.annStyle = 'caption';
-    out.headline = { x: 80, y: 52, w: 1120, fs: 32 };
+    out.headline = { x: 80, y: 52, w: 1120, fs: fitHeadlineFS(head, 1120, 32, 20) };
     const m = Math.max(slide.images.length, slide.annotations.length, 1);
     out.galleryZones = galleryZones(m);
     out.figZones = out.galleryZones;
@@ -1417,7 +1433,7 @@ function renderTitle(root, slide, deck, pal, dark, opts){
     border-radius:3px;background:${pal.accent};z-index:5;`));
   const txt = slide.headline || deck.title;
   appendBox(root, withSerif(mkBox(slide, 'headline',
-    { x: centered ? 140 : 96, y: 292, w: 1000, fs: txt.length > 48 ? 56 : 74, z: 5 },
+    { x: centered ? 140 : 96, y: 292, w: 1000, fs: fitHeadlineFS(txt, 1000, 74, 44), z: 5 },
     txt, `line-height:1.06;font-weight:600;${ta}`, opts)));
   if (deck.presenter || opts.editor){
     appendBox(root, mkBox(slide, 'presenter', { x: centered ? 140 : 96, y: 470, w: centered ? 1000 : 900, fs: 22, z: 5 },
@@ -1428,9 +1444,10 @@ function withSerif(node){ if (node) node.classList.add('serif'); return node; }
 function appendBox(root, node){ if (node) root.appendChild(node); return node; }
 
 function renderRoadmap(root, slide, deck, pal, dark, opts){
+  const roadmapTxt = slide.headline || 'Roadmap';
   root.appendChild(editable(elMath('div', 'serif',
-    'position:absolute;left:96px;top:64px;width:1000px;font-size:46px;font-weight:600;z-index:5;',
-    slide.headline || 'Roadmap'), 'headline', opts));
+    `position:absolute;left:96px;top:64px;width:1000px;font-size:${fitHeadlineFS(roadmapTxt, 1000, 46, 30)}px;font-weight:600;z-index:5;`,
+    roadmapTxt), 'headline', opts));
   const anns = slide.annotations;
   if (!anns.length){
     if (opts.editor) root.appendChild(el('div', '',
@@ -1493,7 +1510,8 @@ function renderSection(root, slide, deck, pal, dark, opts){
   root.appendChild(el('div', '', `position:absolute;left:${centered ? 140 : 96}px;top:266px;width:${centered ? 1000 : 600}px;
     font-size:15px;letter-spacing:4px;text-transform:uppercase;font-weight:650;z-index:5;${ta}
     color:${dark ? pal.accent2 : pal.accentInk};`, 'Part ' + pad2(partNo)));
-  appendBox(root, withSerif(mkBox(slide, 'headline', { x: centered ? 140 : 96, y: 298, w: centered ? 1000 : 820, fs: 62, z: 5 },
+  const sectionW = centered ? 1000 : 820;
+  appendBox(root, withSerif(mkBox(slide, 'headline', { x: centered ? 140 : 96, y: 298, w: sectionW, fs: fitHeadlineFS(slide.headline || 'Section', sectionW, 62, 38), z: 5 },
     slide.headline || 'Section', `font-weight:600;line-height:1.1;${ta}`, opts)));
   if (opts.editor && slide.figure && !slide.images.length && !centered)
     addFigHint(root, slide, { x: 900, y: 80, w: 300 });
@@ -1517,7 +1535,7 @@ function renderTakeaway(root, slide, deck, pal, dark, opts){
   root.appendChild(el('div', '', `position:absolute;left:608px;top:188px;width:64px;height:5px;
     border-radius:3px;background:${pal.accent};z-index:5;`));
   const txt = slide.headline || 'The one thing to remember';
-  appendBox(root, withSerif(mkBox(slide, 'headline', { x: 150, y: 232, w: 980, fs: txt.length > 90 ? 42 : 54, z: 5 },
+  appendBox(root, withSerif(mkBox(slide, 'headline', { x: 150, y: 232, w: 980, fs: fitHeadlineFS(txt, 980, 54, 32), z: 5 },
     txt, 'font-weight:600;line-height:1.18;text-align:center;', opts)));
   if (slide.callout || opts.editor){
     appendBox(root, mkBox(slide, 'callout', { x: 200, y: 470, w: 880, fs: 22, z: 5 },
@@ -2206,9 +2224,11 @@ function wireSlideEditing(root, slide){
   root.addEventListener('dblclick', e => {
     // pointer capture from the preceding selection click can retarget the
     // synthetic dblclick to the outer movable box rather than the text node
-    // under the cursor, so resolve the real element at this point first
+    // under the cursor, so resolve the real element at this point first —
+    // but fall back to e.target if that point lands in a gap between inline
+    // text/math nodes (e.g. a tightly-fit single-line headline)
     const real = document.elementFromPoint(e.clientX, e.clientY) || e.target;
-    const ed = real.closest('[data-edit]');
+    const ed = real.closest('[data-edit]') || e.target.closest('[data-edit]');
     if (!ed) return;
     // a field showing typeset math displays rendered KaTeX markup, not the
     // $...$ source — swap back to the raw source so it's what gets edited
@@ -3819,11 +3839,11 @@ async function exportPPTX(){
     if (s.type === 'title'){
       T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12 * TS, charSpacing: 4, color: C(pal.accent2), align: boxAlign('kicker') });
       rule(96, 268, 64);
-      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: ((s.headline || deck.title).length > 48 ? 34 : 44) * TS, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: pt(fitHeadlineFS(s.headline || deck.title, 1000, 74, 44) * TS), bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
       if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16 * TS, color: dark ? '9FB2C4' : '5B6B7C', align: boxAlign('presenter') });
     }
     else if (s.type === 'roadmap'){
-      T(s.headline || 'Roadmap', { x: I(96), y: I(60), w: I(1000), h: I(70), fontFace: SERIF, fontSize: 28, bold: true });
+      T(s.headline || 'Roadmap', { x: I(96), y: I(60), w: I(1000), h: I(70), fontFace: SERIF, fontSize: pt(fitHeadlineFS(s.headline || 'Roadmap', 1000, 46, 30)), bold: true });
       const g = roadmapGeom(s.annotations.length);
       const hi = s.recapHighlight;
       s.annotations.forEach((a, i) => {
@@ -3855,7 +3875,7 @@ async function exportPPTX(){
       T(pad2(partNo), { x: I(880), y: I(380), w: I(360), h: I(320), fontFace: SERIF, fontSize: 160, bold: true,
         color: dark ? '24384A' : 'E1E8EE', align: 'right' });
       T('PART ' + pad2(partNo), { x: I(96), y: I(262), w: I(400), h: I(30), fontSize: 11, charSpacing: 4, color: C(pal.accent2) });
-      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38 * TS, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: pt(fitHeadlineFS(s.headline || 'Section', 840, 62, 38) * TS), bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
     }
     else if (s.type === 'takeaway'){
       if (s.layout === 'takeawayQuote'){
@@ -3869,7 +3889,7 @@ async function exportPPTX(){
           fontSize: 11, charSpacing: 3, bold: true, color: '06222F' });
         rule(608, 218, 64);
         T(s.headline || '', { x: I(150), y: I(258), w: I(980), h: I(220), align: boxAlign('headline') || 'center', fontFace: SERIF,
-          fontSize: ((s.headline || '').length > 90 ? 24 : 30) * TS, bold: true, ...colorOpts(boxObj('headline')) });
+          fontSize: pt(fitHeadlineFS(s.headline || 'The one thing to remember', 980, 54, 32) * TS), bold: true, ...colorOpts(boxObj('headline')) });
         if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: boxAlign('callout') || 'center', italic: true, fontSize: 14 * TS, color: dark ? 'B9C8D6' : '5B6B7C', ...colorOpts(boxObj('callout')) });
         if (s.annotations.length){
           const n = s.annotations.length, gap = 24, w = Math.min(320, (1120 - (n - 1) * gap) / n);
