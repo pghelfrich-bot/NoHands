@@ -535,7 +535,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', anthropicKey:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', anthropicKey:'', googleKey:'', googleCx:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -2913,6 +2913,28 @@ const PROVIDERS = {
       }));
     },
   },
+  google: {
+    label: 'Google Images',
+    ready: () => !!settings.googleKey && !!settings.googleCx,
+    async search(q, opts = {}){
+      // Custom Search API caps results at 10 per request (vs. 20 for the
+      // other providers above)
+      let url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(settings.googleKey)}`
+        + `&cx=${encodeURIComponent(settings.googleCx)}&searchType=image&num=10&q=${encodeURIComponent(q)}`;
+      if (opts.transparent) url += '&fileType=png';
+      const j = await getJSON(url);
+      return (j.items || []).map(r => ({
+        provider:'google', id:'gg-' + r.link,
+        thumb: (r.image && r.image.thumbnailLink) || r.link, full: r.link,
+        title: r.title || '', author: r.displayLink || 'Unknown site',
+        authorUrl: '', pageUrl: (r.image && r.image.contextLink) || '',
+        // general web results — unlike the other providers, these aren't
+        // pre-cleared for reuse, so flag that plainly in the attribution
+        license: 'Unknown — verify rights before reuse', licenseUrl: '',
+        sourceName: 'Google Images',
+      }));
+    },
+  },
 };
 
 function ipStatus(msg, isErr){
@@ -4743,6 +4765,8 @@ function wireUI(){
     $('#set-pexels').value = settings.pexelsKey || '';
     $('#set-removebg').value = settings.removebgKey || '';
     $('#set-anthropic').value = settings.anthropicKey || '';
+    $('#set-google-key').value = settings.googleKey || '';
+    $('#set-google-cx').value = settings.googleCx || '';
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
@@ -4750,6 +4774,8 @@ function wireUI(){
     settings.pexelsKey = $('#set-pexels').value.trim();
     settings.removebgKey = $('#set-removebg').value.trim();
     settings.anthropicKey = $('#set-anthropic').value.trim();
+    settings.googleKey = $('#set-google-key').value.trim();
+    settings.googleCx = $('#set-google-cx').value.trim();
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
     toast('Settings saved');

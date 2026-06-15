@@ -214,6 +214,7 @@ Design: free-text notes
           <option value="wikimedia">Wikimedia Commons</option>
           <option value="unsplash">Unsplash (key)</option>
           <option value="pexels">Pexels (key)</option>
+          <option value="google">Google Images (key)</option>
         </select>
         <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
           <input type="checkbox" id="ip-cutout"> Cutout
@@ -225,7 +226,8 @@ Design: free-text notes
       <label class="check" title="Bias results toward images with a transparent background (PNGs) — handy for logos, icons, and cut-out figures">
         <input type="checkbox" id="ip-transparent"> Transparent background only
       </label>
-      <p class="panel-hint">Openly licensed only. Seeded from this slide's FIGURE; click or drag a
+      <p class="panel-hint">Openly licensed by default (Google Images, if enabled, is not — check
+      usage rights before reusing). Seeded from this slide's FIGURE; click or drag a
       result onto the slide. Check an alternate subject to include it too. Attribution is kept and carried into exports.</p>
       <div id="ip-upload-zone" class="ip-upload-zone">
         <span>📁 Drag images from your computer here, or <button id="ip-upload-btn" class="link-btn" type="button">browse</button></span>
@@ -299,6 +301,14 @@ Design: free-text notes
     <label class="field">remove.bg API key <span class="muted">(optional — Cutout falls back to a built-in remover)</span>
       <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
     </label>
+    <label class="field">Google API key <span class="muted">(optional — for Google Images search)</span>
+      <input id="set-google-key" type="password" autocomplete="off" placeholder="from Google Cloud Console">
+    </label>
+    <label class="field">Google Search Engine ID <span class="muted">(from the Programmable Search Engine you create)</span>
+      <input id="set-google-cx" type="text" autocomplete="off" placeholder="e.g. 0123456789abcdef0">
+    </label>
+    <p class="modal-sub">Google Images results aren't pre-filtered by license like the other
+    sources — check usage rights before reusing or sharing an image beyond your own slides.</p>
     <label class="field">Anthropic API key <span class="muted">(optional — for "Draft from prose" AI mode)</span>
       <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
     </label>
