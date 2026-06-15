@@ -2749,6 +2749,7 @@ function showPanelTab(which){
   $('#tab-images').hidden = which !== 'images';
   $('#tab-layout').hidden = which !== 'layout';
   $('#tab-background').hidden = which !== 'background';
+  $('#tab-pdf').hidden = which !== 'pdf';
   if (which === 'layout') renderLayoutPanel();
   if (which === 'background') showBgCurrent();
 }
@@ -3185,6 +3186,281 @@ function localResultCell(r){
   cell.draggable = true;
   cell.addEventListener('dragstart', e => {
     e.dataTransfer.setData('text/lf-image', JSON.stringify(r));
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+  return cell;
+}
+
+/* ---------- PDF readings: upload a PDF, extract figures (auto or manual crop) ----------
+   session-only — the PDF itself is never written to localStorage; once a figure is
+   inserted onto a slide it's embedded as a data-URL like any other image. */
+let pdfState = null; // { doc, file, numPages, pageNum, page, viewport, figures, cropMode }
+
+let pdfjsReady = false, pdfjsLoading = null;
+function ensurePdfJs(){
+  if (pdfjsReady) return Promise.resolve();
+  if (!pdfjsLoading){
+    pdfjsLoading = loadScript('https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js')
+      .then(() => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        pdfjsReady = true;
+      });
+  }
+  return pdfjsLoading;
+}
+
+function pdfStatus(msg, isErr){
+  const st = $('#pdf-status');
+  if (!msg){ st.hidden = true; return; }
+  st.hidden = false;
+  st.textContent = msg;
+  st.classList.toggle('err', !!isErr);
+}
+
+async function loadPdfFile(file){
+  if (!file || file.type !== 'application/pdf'){ pdfStatus('That file is not a PDF', true); return; }
+  pdfStatus('Loading PDF…');
+  try {
+    await ensurePdfJs();
+    const buf = await file.arrayBuffer();
+    const doc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+    pdfState = { doc, file, numPages: doc.numPages, pageNum: 1, page: null, viewport: null, figures: [], cropMode: false };
+    $('#pdf-doc-name').textContent = `${file.name} · ${doc.numPages} page${doc.numPages === 1 ? '' : 's'}`;
+    $('#pdf-doc').hidden = false;
+    setCropMode(false);
+    renderPdfFigures();
+    pdfStatus('');
+    await renderPdfPage();
+  } catch (e) {
+    pdfState = null;
+    $('#pdf-doc').hidden = true;
+    pdfStatus('Could not read that PDF (' + e.message + ')', true);
+  }
+}
+
+function clearPdf(){
+  pdfState = null;
+  $('#pdf-doc').hidden = true;
+  $('#pdf-upload').value = '';
+  pdfStatus('');
+  renderPdfFigures();
+}
+
+async function renderPdfPage(){
+  if (!pdfState) return;
+  const page = await pdfState.doc.getPage(pdfState.pageNum);
+  const viewport = page.getViewport({ scale: 1.4 });
+  pdfState.page = page;
+  pdfState.viewport = viewport;
+  const canvas = $('#pdf-page-canvas');
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  $('#pdf-page-indicator').textContent = `Page ${pdfState.pageNum} / ${pdfState.numPages}`;
+  $('#pdf-prev').disabled = pdfState.pageNum <= 1;
+  $('#pdf-next').disabled = pdfState.pageNum >= pdfState.numPages;
+}
+
+async function gotoPdfPage(delta){
+  if (!pdfState) return;
+  const n = clamp(pdfState.pageNum + delta, 1, pdfState.numPages);
+  if (n === pdfState.pageNum) return;
+  pdfState.pageNum = n;
+  setCropMode(false);
+  await renderPdfPage();
+}
+
+function setCropMode(on){
+  if (!pdfState) on = false;
+  if (pdfState) pdfState.cropMode = on;
+  $('#pdf-crop-mode').classList.toggle('primary', on);
+  $('#pdf-page-wrap').classList.toggle('crop-mode', on);
+  $('#pdf-crop-box').hidden = true;
+}
+
+/* matrix helpers for tracking the content-stream transform (CTM) while scanning
+   a page's operator list, so an image XObject's unit-square footprint can be
+   mapped onto the rendered page canvas */
+function mat2mul(m1, m2){
+  return [
+    m1[0]*m2[0] + m1[1]*m2[2],
+    m1[0]*m2[1] + m1[1]*m2[3],
+    m1[2]*m2[0] + m1[3]*m2[2],
+    m1[2]*m2[1] + m1[3]*m2[3],
+    m1[4]*m2[0] + m1[5]*m2[2] + m2[4],
+    m1[4]*m2[1] + m1[5]*m2[3] + m2[5],
+  ];
+}
+function mat2apply(m, x, y){
+  return [m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]];
+}
+
+/* find the on-canvas bounding boxes of every image XObject painted on a page,
+   by replaying its operator list and tracking the transform stack */
+function findImageBoxes(opList, viewport){
+  const OPS = window.pdfjsLib.OPS;
+  const boxes = [];
+  let ctm = viewport.transform.slice();
+  const stack = [];
+  for (let i = 0; i < opList.fnArray.length; i++){
+    const fn = opList.fnArray[i], args = opList.argsArray[i];
+    switch (fn){
+      case OPS.save: stack.push(ctm.slice()); break;
+      case OPS.restore: ctm = stack.pop() || ctm; break;
+      case OPS.transform: ctm = mat2mul(args, ctm); break;
+      case OPS.paintImageXObject:
+      case OPS.paintImageMaskXObject:
+      case OPS.paintInlineImageXObject: {
+        const pts = [[0,0],[1,0],[0,1],[1,1]].map(([x,y]) => mat2apply(ctm, x, y));
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+        boxes.push({ x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
+        break;
+      }
+    }
+  }
+  return boxes;
+}
+
+/* crop a region of a rendered page canvas into a standalone figure, capping its
+   resolution so the resulting data URL stays a reasonable size */
+function cropCanvasRegion(srcCanvas, box, pageNum){
+  const x = Math.max(0, Math.round(box.x)), y = Math.max(0, Math.round(box.y));
+  const w = Math.min(srcCanvas.width - x, Math.round(box.w));
+  const h = Math.min(srcCanvas.height - y, Math.round(box.h));
+  if (w < 24 || h < 24) return null;
+  const maxSide = 1200;
+  const sc = Math.min(1, maxSide / Math.max(w, h));
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(w * sc));
+  cv.height = Math.max(1, Math.round(h * sc));
+  cv.getContext('2d').drawImage(srcCanvas, x, y, w, h, 0, 0, cv.width, cv.height);
+  return { id: 'pdffig-' + uid(), src: cv.toDataURL('image/png'), title: `Page ${pageNum} figure`,
+           page: pageNum, w: cv.width, h: cv.height, cutout: false, cutSrc: null };
+}
+
+async function autoExtractFigures(allPages){
+  if (!pdfState) return;
+  await ensurePdfJs();
+  const pages = allPages ? Array.from({ length: pdfState.numPages }, (_, i) => i + 1) : [pdfState.pageNum];
+  pdfStatus('Scanning for figures…');
+  let found = 0;
+  for (const pageNum of pages){
+    const page = pageNum === pdfState.pageNum && pdfState.page ? pdfState.page : await pdfState.doc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2 });
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(viewport.width); cv.height = Math.round(viewport.height);
+    await page.render({ canvasContext: cv.getContext('2d'), viewport }).promise;
+    const opList = await page.getOperatorList();
+    for (const box of findImageBoxes(opList, viewport)){
+      const fig = cropCanvasRegion(cv, box, pageNum);
+      if (fig){ pdfState.figures.push(fig); found++; }
+    }
+  }
+  renderPdfFigures();
+  pdfStatus(found ? `Found ${found} figure${found === 1 ? '' : 's'}`
+    : `No embedded images found on ${allPages ? 'this PDF' : 'this page'} — try "Crop a region" to select one yourself.`, !found);
+}
+
+/* ---------- manual crop: drag a rectangle over the rendered page ---------- */
+function pdfCropPointerDown(e){
+  if (!pdfState || !pdfState.cropMode) return;
+  const canvas = $('#pdf-page-canvas');
+  const wrap = $('#pdf-page-wrap');
+  const rect = canvas.getBoundingClientRect();
+  const start = { x: clamp(e.clientX - rect.left, 0, canvas.clientWidth), y: clamp(e.clientY - rect.top, 0, canvas.clientHeight) };
+  const box = $('#pdf-crop-box');
+  box.hidden = false;
+  const update = (x, y) => {
+    const cx = clamp(x - rect.left, 0, canvas.clientWidth), cy = clamp(y - rect.top, 0, canvas.clientHeight);
+    const left = Math.min(start.x, cx), top = Math.min(start.y, cy);
+    box.style.left = (left + canvas.offsetLeft) + 'px';
+    box.style.top = (top + canvas.offsetTop) + 'px';
+    box.style.width = Math.abs(cx - start.x) + 'px';
+    box.style.height = Math.abs(cy - start.y) + 'px';
+    return { left, top, w: Math.abs(cx - start.x), h: Math.abs(cy - start.y) };
+  };
+  update(e.clientX, e.clientY);
+  const onMove = ev => update(ev.clientX, ev.clientY);
+  const onUp = ev => {
+    wrap.removeEventListener('pointermove', onMove);
+    wrap.removeEventListener('pointerup', onUp);
+    const { left, top, w, h } = update(ev.clientX, ev.clientY);
+    box.hidden = true;
+    if (w < 8 || h < 8) return;
+    // scale from displayed CSS pixels to the canvas's actual pixel buffer
+    const sx = canvas.width / canvas.clientWidth, sy = canvas.height / canvas.clientHeight;
+    const fig = cropCanvasRegion(canvas, { x: left * sx, y: top * sy, w: w * sx, h: h * sy }, pdfState.pageNum);
+    if (fig){ pdfState.figures.push(fig); renderPdfFigures(); pdfStatus('Figure added — click or drag it onto a slide'); }
+  };
+  wrap.addEventListener('pointermove', onMove);
+  wrap.addEventListener('pointerup', onUp);
+}
+
+function renderPdfFigures(){
+  const grid = $('#pdf-figures');
+  grid.innerHTML = '';
+  const figs = pdfState ? pdfState.figures : [];
+  figs.forEach(fig => grid.appendChild(pdfFigureCell(fig)));
+}
+
+function pdfFigureToResult(fig){
+  const src = (fig.cutout && fig.cutSrc) ? fig.cutSrc : fig.src;
+  return { provider: 'local', id: fig.id, thumb: src, full: src, title: fig.title,
+           author: '', authorUrl: '', license: '', licenseUrl: '', pageUrl: '', sourceName: 'PDF reading' };
+}
+
+function insertPdfFigure(fig){ insertImageFromResult(pdfFigureToResult(fig)); }
+
+function removePdfFigure(id){
+  if (!pdfState) return;
+  pdfState.figures = pdfState.figures.filter(f => f.id !== id);
+  renderPdfFigures();
+}
+
+async function togglePdfFigureCutout(fig){
+  if (fig.cutout){ fig.cutout = false; renderPdfFigures(); return; }
+  if (fig.cutSrc){ fig.cutout = true; renderPdfFigures(); return; }
+  toast('Removing background…', 10000);
+  try {
+    const proxy = { src: fig.src };
+    if (settings.removebgKey){
+      try { fig.cutSrc = await cutoutRemoveBg(proxy); }
+      catch (e) { fig.cutSrc = await cutoutLocal(proxy); toast('remove.bg failed — used the built-in remover'); }
+    } else {
+      fig.cutSrc = await cutoutLocal(proxy);
+    }
+    fig.cutout = true;
+    toast('Background removed');
+  } catch (e) {
+    toast('Could not remove the background for this figure');
+  }
+  renderPdfFigures();
+}
+
+function pdfFigureCell(fig){
+  const cell = el('div', 'ip-cell');
+  cell.title = `Page ${fig.page} figure\nClick to insert · drag onto the slide`;
+  const imEl = new Image();
+  imEl.src = (fig.cutout && fig.cutSrc) ? fig.cutSrc : fig.src;
+  imEl.alt = fig.title;
+  const wrap = el('div', 'ip-imgwrap');
+  wrap.appendChild(imEl);
+  cell.appendChild(wrap);
+  cell.appendChild(el('span', 'ip-src', '', `Page ${fig.page}`));
+  cell.appendChild(el('span', 'ip-add', '', '＋ Insert'));
+  const meta = el('div', 'ip-meta');
+  meta.appendChild(document.createTextNode(fig.title));
+  const cut = el('span', 'pdf-fig-cut', '', fig.cutout ? '↺ original' : '✂ cutout');
+  cut.addEventListener('click', e => { e.stopPropagation(); togglePdfFigureCutout(fig); });
+  meta.appendChild(cut);
+  const rm = el('span', 'ip-local-rm', '', '✕ remove');
+  rm.addEventListener('click', e => { e.stopPropagation(); removePdfFigure(fig.id); });
+  meta.appendChild(rm);
+  cell.appendChild(meta);
+  cell.addEventListener('click', () => insertPdfFigure(fig));
+  cell.draggable = true;
+  cell.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/lf-image', JSON.stringify(pdfFigureToResult(fig)));
     e.dataTransfer.effectAllowed = 'copy';
   });
   return cell;
@@ -5020,6 +5296,37 @@ function wireUI(){
     dz.classList.remove('drag-over');
     addLocalFiles(e.dataTransfer.files);
   });
+
+  // PDF readings panel — upload a PDF, extract or crop figures from its pages
+  const pdfDz = $('#pdf-upload-zone');
+  $('#pdf-upload-btn').addEventListener('click', () => $('#pdf-upload').click());
+  $('#pdf-upload').addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) loadPdfFile(f);
+    e.target.value = '';
+  });
+  pdfDz.addEventListener('dragover', e => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    pdfDz.classList.add('drag-over');
+  });
+  pdfDz.addEventListener('dragleave', () => pdfDz.classList.remove('drag-over'));
+  pdfDz.addEventListener('drop', e => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    pdfDz.classList.remove('drag-over');
+    const f = [...e.dataTransfer.files].find(f => f.type === 'application/pdf');
+    if (f) loadPdfFile(f);
+    else pdfStatus('That file is not a PDF', true);
+  });
+  $('#pdf-remove').addEventListener('click', clearPdf);
+  $('#pdf-prev').addEventListener('click', () => gotoPdfPage(-1));
+  $('#pdf-next').addEventListener('click', () => gotoPdfPage(1));
+  $('#pdf-extract-page').addEventListener('click', () => autoExtractFigures(false));
+  $('#pdf-extract-all').addEventListener('click', () => autoExtractFigures(true));
+  $('#pdf-crop-mode').addEventListener('click', () => setCropMode(pdfState && !pdfState.cropMode));
+  $('#pdf-page-wrap').addEventListener('pointerdown', pdfCropPointerDown);
+
   const autoBox = $('#ip-auto');
   if (autoBox){
     autoBox.checked = autoImages;

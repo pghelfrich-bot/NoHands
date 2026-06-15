@@ -333,6 +333,25 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 #tab-background .check{padding:0 14px;margin:10px 0}
 #bg-blur,#bg-textscale{accent-color:var(--accent);padding:0;height:auto;width:100%;margin-top:5px;background:none;border:none}
 
+/* ---------- PDF readings / figure extraction ---------- */
+#pdf-doc-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#pdf-page-indicator{flex:1;text-align:center}
+.pdf-page-wrap{
+  position:relative;margin:8px 14px 0;border:1px solid var(--line);border-radius:8px;
+  background:#0c1117;overflow:auto;max-height:340px;
+}
+#pdf-page-canvas{display:block;max-width:100%}
+.pdf-page-wrap.crop-mode #pdf-page-canvas{cursor:crosshair}
+.pdf-crop-box{
+  position:absolute;border:2px dashed var(--accent);background:rgba(110,168,254,.18);
+  pointer-events:none;
+}
+#pdf-figures{
+  padding:10px 14px 14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;
+}
+.pdf-fig-cut{cursor:pointer;color:var(--accent2);margin-left:6px;white-space:nowrap}
+.pdf-fig-cut:hover{text-decoration:underline}
+
 /* ---------- modals ---------- */
 .modal{
   border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--ink);

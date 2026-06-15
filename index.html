@@ -199,6 +199,7 @@ Design: free-text notes
       <button class="ip-tab current" data-tab="images">Images</button>
       <button class="ip-tab" data-tab="layout">Layout</button>
       <button class="ip-tab" data-tab="background">Background</button>
+      <button class="ip-tab" data-tab="pdf">Readings</button>
     </div>
 
     <div id="tab-images" class="ip-tab-body">
@@ -282,6 +283,38 @@ Design: free-text notes
       </div>
       <div id="bg-status" class="status" hidden></div>
       <div id="bg-results"></div>
+    </div>
+
+    <div id="tab-pdf" class="ip-tab-body" hidden>
+      <p class="panel-hint">Upload a reading (PDF) for this deck. Auto-extract its figures, or open a
+      page and drag to crop one yourself — then click or drag a figure onto a slide. Each figure can
+      have its background removed before you insert it. The PDF itself isn't saved with the deck.</p>
+      <div id="pdf-upload-zone" class="ip-upload-zone">
+        <span>📄 Drag a PDF here, or <button id="pdf-upload-btn" class="link-btn" type="button">browse</button></span>
+        <input id="pdf-upload" type="file" accept="application/pdf" hidden>
+      </div>
+      <div id="pdf-doc" hidden>
+        <div class="ip-row">
+          <span id="pdf-doc-name" class="ip-meta"></span>
+          <button id="pdf-remove" class="btn small danger">Remove PDF</button>
+        </div>
+        <div class="ip-row">
+          <button id="pdf-prev" class="btn small">‹ Prev</button>
+          <span id="pdf-page-indicator" class="ip-meta"></span>
+          <button id="pdf-next" class="btn small">Next ›</button>
+        </div>
+        <div class="ip-row">
+          <button id="pdf-extract-page" class="btn small">Auto-extract this page</button>
+          <button id="pdf-extract-all" class="btn small">Auto-extract all pages</button>
+          <button id="pdf-crop-mode" class="btn small">✂ Crop a region</button>
+        </div>
+        <div id="pdf-page-wrap" class="pdf-page-wrap">
+          <canvas id="pdf-page-canvas"></canvas>
+          <div id="pdf-crop-box" class="pdf-crop-box" hidden></div>
+        </div>
+      </div>
+      <div id="pdf-status" class="status" hidden></div>
+      <div id="pdf-figures"></div>
     </div>
   </aside>
 </main>
