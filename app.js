@@ -444,6 +444,17 @@ function saveDeckNow(){
 }
 const save = debounce(saveDeckNow, 400);
 
+/* persist a brand-new deck (not the currently open one) to storage and the
+   deck index — used by batch outline import, which creates several decks
+   without switching the editor away from the home screen */
+function saveNewDeck(d, folder = null){
+  localStorage.setItem(LS.deck(d.id), JSON.stringify(d));
+  const idx = deckIndex();
+  idx.unshift({ id: d.id, title: d.title || 'Untitled deck', updated: Date.now(),
+                count: d.slides.length, folder });
+  saveIndex(idx);
+}
+
 function loadDeck(id){
   try { return migrateDeck(JSON.parse(localStorage.getItem(LS.deck(id)))); } catch (e) { return null; }
 }
@@ -2650,8 +2661,11 @@ const PROVIDERS = {
   openverse: {
     label: 'Openverse',
     ready: () => true,
-    async search(q){
-      const j = await getJSON(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=20`);
+    async search(q, opts = {}){
+      let url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=20`;
+      // bias toward PNGs/SVGs, which are the formats that can carry transparency
+      if (opts.transparent) url += '&extension=png,svg';
+      const j = await getJSON(url);
       return (j.results || []).map(r => ({
         provider:'openverse', id:'ov-' + r.id,
         thumb: r.thumbnail, full: r.url || r.thumbnail,
@@ -2665,9 +2679,11 @@ const PROVIDERS = {
   wikimedia: {
     label: 'Wikimedia Commons',
     ready: () => true,
-    async search(q){
+    async search(q, opts = {}){
+      // PNG/SVG/GIF can carry an alpha channel; plain "bitmap" pulls in JPEGs too
+      const filetype = opts.transparent ? 'filetype:png OR filetype:svg OR filetype:gif' : 'filetype:bitmap';
       const u = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*'
-        + '&generator=search&gsrsearch=' + encodeURIComponent('filetype:bitmap ' + q)
+        + '&generator=search&gsrsearch=' + encodeURIComponent(filetype + ' ' + q)
         + '&gsrlimit=20&gsrnamespace=6&prop=imageinfo&iiprop=url%7Cextmetadata%7Csize&iiurlwidth=480';
       const j = await getJSON(u);
       const pages = Object.values((j.query && j.query.pages) || {});
@@ -2692,8 +2708,11 @@ const PROVIDERS = {
   unsplash: {
     label: 'Unsplash',
     ready: () => !!settings.unsplashKey,
-    async search(q){
-      const j = await getJSON(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=20&client_id=${settings.unsplashKey}`);
+    async search(q, opts = {}){
+      // Unsplash serves photos only (no transparency), so steer the query
+      // toward illustration-style results that are more likely to be cut out
+      const term = opts.transparent ? `${q} transparent png` : q;
+      const j = await getJSON(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(term)}&per_page=20&client_id=${settings.unsplashKey}`);
       return (j.results || []).map(r => ({
         provider:'unsplash', id:'us-' + r.id,
         thumb: r.urls.small, full: r.urls.regular,
@@ -2708,8 +2727,10 @@ const PROVIDERS = {
   pexels: {
     label: 'Pexels',
     ready: () => !!settings.pexelsKey,
-    async search(q){
-      const j = await getJSON(`https://api.pexels.com/v1/search?query=${encodeURIComponent(q)}&per_page=20`,
+    async search(q, opts = {}){
+      // Pexels has no transparency filter either; nudge the query the same way
+      const term = opts.transparent ? `${q} transparent png` : q;
+      const j = await getJSON(`https://api.pexels.com/v1/search?query=${encodeURIComponent(term)}&per_page=20`,
         { headers: { Authorization: settings.pexelsKey } });
       return (j.photos || []).map(r => ({
         provider:'pexels', id:'px-' + r.id,
@@ -2791,11 +2812,11 @@ function interleave(lists){
 /* fan out to the given (or every ready) provider for a query plus optional
    alternate terms, interleave + de-dupe the results. Shared by the side panel
    search and the batch "Fill figures" pass. */
-async function fetchImages(query, { limit = 24, alts = [], provs } = {}){
+async function fetchImages(query, { limit = 24, alts = [], provs, transparent = false } = {}){
   provs = provs || Object.keys(PROVIDERS).filter(k => PROVIDERS[k].ready());
   const queries = [query, ...alts].filter(Boolean);
   const perTerm = await Promise.all(queries.map(async term => {
-    const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(term)));
+    const settled = await Promise.allSettled(provs.map(p => PROVIDERS[p].search(term, { transparent })));
     return {
       lists: settled.map(s => s.status === 'fulfilled' ? s.value : []),
       failed: settled.map((s, i) => s.status === 'rejected' ? PROVIDERS[provs[i]].label : null).filter(Boolean),
@@ -2833,7 +2854,8 @@ async function runImageSearch(opts = {}){
 
   // also search any checked alternate subjects, alongside the main query
   const altTerms = $$('#ip-alts input:checked').map(cb => cb.dataset.term);
-  const { results: merged, failed: failedProvs } = await fetchImages(q, { limit: auto ? 15 : 48, alts: altTerms, provs });
+  const transparent = $('#ip-transparent').checked;
+  const { results: merged, failed: failedProvs } = await fetchImages(q, { limit: auto ? 15 : 48, alts: altTerms, provs, transparent });
   if (token !== searchToken) return;
 
   if (!merged.length){
@@ -3906,24 +3928,58 @@ function stopPresent(){
   $('#present-overlay').hidden = true;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
-function renderPresent(){
+/* dir: 0 = no transition (initial open / resize), +1 = advancing to the
+   next slide, -1 = going back to the previous slide. The outgoing and
+   incoming slides cross-fade with a directional push so navigating
+   backwards feels like the mirror image of going forwards. */
+function renderPresent(dir = 0){
   const deck = state.deck;
   presentIdx = clamp(presentIdx, 0, deck.slides.length - 1);
   const stage = $('#present-stage');
-  stage.innerHTML = '';
   const sc = Math.min(innerWidth / SLIDE_W, (innerHeight - 10) / SLIDE_H);
   stage.style.width = (SLIDE_W * sc) + 'px';
   stage.style.height = (SLIDE_H * sc) + 'px';
   const slide = deck.slides[presentIdx];
   const node = renderSlide(slide, deck, { index: presentIdx, total: deck.slides.length });
   if (deck.motion) node.classList.add('lf-motion');
-  node.style.transform = `scale(${sc})`;
   node.style.transformOrigin = 'top left';
-  stage.appendChild(node);
+
+  const prevNode = presentNode;
+  const animate = dir !== 0 && prevNode && prevNode.parentNode === stage;
+
+  if (animate){
+    // place the incoming slide off to the side it's entering from, then
+    // transition both slides toward their resting positions next frame
+    const offscreen = dir > 0 ? '100%' : '-100%';
+    node.style.transition = 'none';
+    node.style.transform = `scale(${sc}) translateX(${offscreen})`;
+    stage.appendChild(node);
+    prevNode.style.transition = 'none';
+    prevNode.style.transform = `scale(${sc}) translateX(0)`;
+    // force layout so the "no transition" starting positions are committed
+    // before we switch transitions on and move toward the resting positions
+    void node.offsetWidth;
+    requestAnimationFrame(() => {
+      prevNode.style.transition = node.style.transition = 'transform .38s ease, opacity .38s ease';
+      prevNode.style.transform = `scale(${sc}) translateX(${dir > 0 ? '-100%' : '100%'})`;
+      prevNode.style.opacity = '0';
+      node.style.transform = `scale(${sc}) translateX(0)`;
+    });
+    prevNode.addEventListener('transitionend', () => prevNode.remove(), { once: true });
+  } else {
+    stage.innerHTML = '';
+    node.style.transform = `scale(${sc})`;
+    stage.appendChild(node);
+  }
   presentNode = node;
   // sequential reveal: each annotation / panel is a build step you advance into
   // the takeaway banner (Annotated figure) is always shown, not a build step
   presentSteps = deck.motion ? Array.from(node.querySelectorAll('.lf-ann, .lf-panel')).filter(n => !n.classList.contains('lf-takeaway-banner')) : [];
+  // "show fully built" (presentReveal = 1e9, set when stepping to the prior
+  // slide) only means something relative to *this* slide's step count — clamp
+  // it now so the very next ArrowLeft steps the build back instead of just
+  // counting down from a billion
+  presentReveal = Math.min(presentReveal, presentSteps.length);
   applyPresentReveal();
   $('#present-counter').textContent = `${presentIdx + 1} / ${deck.slides.length}`;
   const notes = $('#present-notes');
@@ -4451,6 +4507,27 @@ function wireUI(){
   $('#file-import').addEventListener('change', e => {
     const f = e.target.files[0]; if (f) importDeckFile(f); e.target.value = '';
   });
+  $('#btn-batch-outline').addEventListener('click', () => $('#file-outline-batch').click());
+  $('#file-outline-batch').addEventListener('change', async e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    const folder = homeFolder !== 'all' ? homeFolder : null;
+    let made = 0;
+    const failed = [];
+    for (const f of files){
+      const text = await f.text();
+      const deck = parseOutline(text);
+      if (!deck.slides.length){ failed.push(f.name); continue; }
+      if (deck.title === 'Untitled deck') deck.title = f.name.replace(/\.[^.]+$/, '');
+      saveNewDeck(deck, folder);
+      made++;
+    }
+    renderHome();
+    if (made) toast(`Built ${made} deck${made === 1 ? '' : 's'} from ${files.length} outline${files.length === 1 ? '' : 's'}`
+      + (failed.length ? ` — couldn't parse: ${failed.join(', ')}` : ''));
+    else toast(`Couldn't find any slides in ${failed.join(', ')}`);
+  });
   $('#btn-from-template').addEventListener('click', () => {
     renderTemplatesModal();
     $('#templates-modal').showModal();
@@ -4682,6 +4759,9 @@ function wireUI(){
   // image panel
   $('#ip-go').addEventListener('click', () => runImageSearch());
   $('#ip-query').addEventListener('keydown', e => { if (e.key === 'Enter') runImageSearch(); });
+  $('#ip-transparent').addEventListener('change', () => {
+    if ($('#ip-query').value.trim()) runImageSearch();
+  });
   $$('.ip-tab').forEach(t => t.addEventListener('click', () => showPanelTab(t.dataset.tab)));
 
   // "your images" — drag-and-drop or browse from computer, kept for this session only
@@ -4796,12 +4876,12 @@ function wireUI(){
       if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown'){
         e.preventDefault();
         if (presentReveal < presentSteps.length){ presentReveal++; applyPresentReveal(); }  // reveal next build step
-        else { presentIdx++; presentReveal = 0; renderPresent(); }                          // then advance the slide
+        else if (presentIdx < state.deck.slides.length - 1){ presentIdx++; presentReveal = 0; renderPresent(1); }  // then advance the slide
       }
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp'){
         e.preventDefault();
         if (presentReveal > 0){ presentReveal--; applyPresentReveal(); }                     // step the build back
-        else { presentIdx--; presentReveal = 1e9; renderPresent(); }                         // prior slide shown fully built
+        else if (presentIdx > 0){ presentIdx--; presentReveal = 1e9; renderPresent(-1); }     // prior slide shown fully built
       }
       else if (e.key.toLowerCase() === 's'){ e.preventDefault(); presentNotesOn = !presentNotesOn; renderPresent(); }
       else if (e.key === 'Escape'){ stopPresent(); }
@@ -4825,9 +4905,9 @@ function wireUI(){
   });
   $('#present-overlay').addEventListener('click', e => {
     if (e.target.closest('#present-notes') || e.target.closest('#present-exit')) return;
-    presentIdx++;
-    if (presentIdx >= state.deck.slides.length){ stopPresent(); presentIdx = state.deck.slides.length - 1; }
-    else renderPresent();
+    if (presentReveal < presentSteps.length){ presentReveal++; applyPresentReveal(); return; }
+    if (presentIdx >= state.deck.slides.length - 1){ stopPresent(); return; }
+    presentIdx++; presentReveal = 0; renderPresent(1);
   });
   $('#present-exit').addEventListener('click', e => { e.stopPropagation(); stopPresent(); });
   // some browsers (e.g. Chrome) exit fullscreen on Esc without delivering that

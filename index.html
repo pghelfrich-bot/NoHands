@@ -106,6 +106,7 @@ Design: free-text notes
       <h1 id="home-title">All decks</h1>
       <span class="spacer"></span>
       <button id="btn-import-deck" class="btn ghost">Import deck</button>
+      <button id="btn-batch-outline" class="btn ghost" title="Build a separate deck from each outline .txt file you pick">Batch from outlines</button>
       <button id="btn-from-template" class="btn ghost" title="Start a new deck from a saved skeleton">From template</button>
       <button id="btn-new-deck" class="btn primary">＋ New deck</button>
     </div>
@@ -220,6 +221,9 @@ Design: free-text notes
           <input type="checkbox" id="ip-auto" checked> Auto
         </label>
       </div>
+      <label class="check" title="Bias results toward images with a transparent background (PNGs) — handy for logos, icons, and cut-out figures">
+        <input type="checkbox" id="ip-transparent"> Transparent background only
+      </label>
       <p class="panel-hint">Openly licensed only. Seeded from this slide's FIGURE; click or drag a
       result onto the slide. Check an alternate subject to include it too. Attribution is kept and carried into exports.</p>
       <div id="ip-upload-zone" class="ip-upload-zone">
@@ -390,6 +394,7 @@ Design: free-text notes
 <div id="print-area" aria-hidden="true"></div>
 <input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
 <input type="file" id="file-import" accept=".json,application/json" hidden>
+<input type="file" id="file-outline-batch" accept=".txt,.md,.markdown,.text,text/*" multiple hidden>
 <div id="toast" hidden></div>
 
 <script src="app.js"></script>
