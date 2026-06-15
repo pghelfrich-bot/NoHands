@@ -979,7 +979,7 @@ function contentLayout(slide){
     const chipPts = pts.filter((a, i) => i !== bannerIdx);
     const colTop = 216, colBottom = 596, gap = 20;
     // pick the largest chip font size whose two-column stack fits above the banner
-    let fs = 20;
+    let fs = 22;
     for (; fs > 14; fs -= 2){
       const colY = [colTop, colTop];
       for (const a of chipPts){
@@ -990,13 +990,13 @@ function contentLayout(slide){
     }
     const colY = [colTop, colTop], colX = [64, 928];
     out.anns = pts.map((a, i) => {
-      if (i === bannerIdx) return { x: 80, y: 596, w: 1120, fs: 22, banner: true };
+      if (i === bannerIdx) return { x: 80, y: 596, w: 1120, fs: 24, banner: true };
       const col = colY[0] <= colY[1] ? 0 : 1;
       const pos = { x: colX[col], y: colY[col], w: ANN_W, fs };
       colY[col] += chipBoxH(annDisplayText(a), ANN_W, fs, 12) + gap;
       return pos;
     });
-    if (slide.callout) out.callout = { x: 80, y: 596, w: 1120, fs: 22, banner: true };
+    if (slide.callout) out.callout = { x: 80, y: 596, w: 1120, fs: 24, banner: true };
   } else if (lay === 'cards'){
     // each point is its own bordered, draggable/resizable card around the figure
     out.annStyle = 'card'; out.connectors = true;
