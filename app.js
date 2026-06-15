@@ -387,6 +387,7 @@ const state = {
 };
 let viewScale = 1;
 let panelSeedFor = null;
+let textScale = 1;   // deck.textScale, applied to default (non-overridden) font sizes while rendering
 
 function blankSlide(type = 'content'){
   return { id: uid(), type, headline:'', callout:'', figure:'', notes:'',
@@ -406,10 +407,11 @@ function migrateDeck(d){
   if (!d.frame) d.frame = false;
   if (!d.motion) d.motion = false;
   if (!d.arrows) d.arrows = 'none';
+  if (!d.textScale) d.textScale = 1;
   return d;
 }
 function newDeck(){
-  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false, motion:false, arrows:'none' };
+  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false, motion:false, arrows:'none', textScale:1 };
 }
 function cur(){ return state.deck ? state.deck.slides[state.cur] : null; }
 function palette(deck){ return PALETTES[deck.accent] || PALETTES.indigo; }
@@ -469,6 +471,8 @@ function normLayoutName(s){
   if (/time|step|process|sequence|chronolog|stages?/.test(s)) return 'timeline';
   if (/quote|pull|epigraph/.test(s)) return 'quote';
   if (/statement|big idea|hero/.test(s)) return 'statement';
+  if (/figure left/.test(s)) return 'figureLeft';
+  if (/figure right/.test(s)) return 'figureRight';
   if (/galler|grid|multi.?image|figure grid/.test(s)) return 'figureGrid';
   if (/cinematic|full.?bleed|edge/.test(s)) return 'cinematic';
   if (/cards?/.test(s)) return 'cards';
@@ -617,6 +621,62 @@ function parseOutline(text){
     deck.slides.unshift(t);
   }
   return deck;
+}
+
+/* ================= deck → outline (export) ================= */
+
+// reverse of normLayoutName: content-layout key -> LAYOUT: text that
+// normLayoutName maps back to the same key, for round-tripping
+const LAYOUT_TO_OUTLINE = {
+  cinematic: 'cinematic', cards: 'cards', figureLeft: 'figure left', figureRight: 'figure right',
+  spotlight: 'spotlight', bandTop: 'band', panels: 'panels', comparison: 'comparison',
+  timeline: 'timeline', statement: 'statement', quote: 'quote', gallery: 'gallery', figureGrid: 'figure grid',
+};
+
+// drop the auto-generated "Point details:" block — it's regenerated from
+// POINTS on re-parse, so exporting it too would duplicate it
+function stripPointDetails(notes){
+  return (notes || '').replace(/\n*Point details:\n(?:[•\-]\s.*(?:\n|$))*$/, '').trim();
+}
+
+// avoid lines parseOutline's slide-start regex would mistake for "N. <new slide>"
+function safeNotesLine(line){
+  return line.replace(/^(\d+)\s*([.):])\s*/, '$1 — ');
+}
+
+/* turn the current deck back into the plain-text outline format, for
+   bulk-editing wording across many slides and rebuilding. Rebuilding from
+   this text replaces the deck, so placed images and manual positions/sizes
+   are not preserved — only headlines, points, callouts, figure/notes text,
+   layout choices and deck-level title/presenter/date/design notes. */
+function deckToOutline(deck){
+  const out = [`# ${deck.title || 'Untitled deck'}`];
+  if (deck.presenter) out.push(`Presenter: ${deck.presenter}`);
+  if (deck.date) out.push(`Date: ${deck.date}`);
+  if (deck.designNotes) out.push(`Design: ${deck.designNotes}`);
+  out.push('');
+
+  deck.slides.forEach((s, i) => {
+    out.push(`${i + 1}. TYPE: ${s.type}`);
+    if (s.headline) out.push(`   HEADLINE: ${s.headline}`);
+    const lay = LAYOUT_TO_OUTLINE[s.layout];
+    if (lay) out.push(`   LAYOUT: ${lay}`);
+    if (s.annotations && s.annotations.length){
+      out.push('   POINTS:');
+      s.annotations.forEach(a => out.push(`   - ${(a.full && a.full.trim()) || a.text}`));
+    }
+    if (s.callout) out.push(`   CALLOUT: ${s.callout}`);
+    if (s.figure) out.push(`   FIGURE: ${s.figure}`);
+    const notes = stripPointDetails(s.notes);
+    if (notes){
+      const [first, ...rest] = notes.split('\n');
+      out.push(`   NOTES: ${first}`);
+      rest.forEach(line => out.push(`   ${safeNotesLine(line)}`));
+    }
+    out.push('');
+  });
+
+  return out.join('\n').trim() + '\n';
 }
 
 /* ================= outline-from-prose ================= */
@@ -1083,6 +1143,7 @@ function roadmapGeom(n){
 /* ================= slide renderer ================= */
 
 function renderSlide(slide, deck, opts = {}){
+  textScale = deck.textScale || 1;
   const pal = palette(deck);
   const dark = isDark(slide);
   const accLine = dark ? pal.accent : pal.accentInk;
@@ -1151,7 +1212,7 @@ function mkBox(slide, key, def, content, css, opts){
   const x = o.x != null ? o.x : def.x;
   const y = o.y != null ? o.y : def.y;
   const w = o.w != null ? o.w : def.w;
-  const fs = o.fs != null ? o.fs : def.fs;
+  const fs = o.fs != null ? o.fs : (def.fs != null ? def.fs * textScale : null);
   const node = el('div', 'lf-box', `position:absolute;left:${x}px;top:${y}px;width:${w}px;`
     + (fs != null ? `font-size:${fs}px;` : '') + `z-index:${def.z || 5};` + (css || '')
     + (o.align ? `text-align:${o.align};` : '')
@@ -1390,7 +1451,7 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   const x = a.x != null ? a.x : def.x;
   const y = a.y != null ? a.y : def.y;
   const w = a.w != null ? a.w : def.w;
-  const fs = a.fs != null ? a.fs : (def.fs || 19);
+  const fs = a.fs != null ? a.fs : (def.fs || 19) * textScale;
   const cls = (cardNum ? 'lf-ann lf-anncard lf-box' : 'lf-ann lf-box') + (extraCls ? ' ' + extraCls : '');
   const node = el('div', cls, `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`
     + (a.align ? `text-align:${a.align};` : '')
@@ -2997,6 +3058,9 @@ function showBgCurrent(){
   $('#bg-frame').checked = !!(state.deck && state.deck.frame);
   $('#bg-motion').checked = !!(state.deck && state.deck.motion);
   $('#bg-arrows').value = (state.deck && state.deck.arrows) || 'none';
+  const textScaleVal = (state.deck && state.deck.textScale) || 1;
+  $('#bg-textscale').value = textScaleVal;
+  $('#bg-textscale-val').textContent = Math.round(textScaleVal * 100) + '%';
 }
 
 function fitRect(natW, natH, zone){
@@ -3463,6 +3527,7 @@ async function exportPPTX(){
   await ensureEmbedded(state.deck);
 
   const deck = state.deck, pal = palette(deck);
+  const TS = deck.textScale || 1;
   const p = new window.PptxGenJS();
   p.defineLayout({ name: 'LF', width: 13.333, height: 7.5 });
   p.layout = 'LF';
@@ -3526,10 +3591,10 @@ async function exportPPTX(){
     const pt = px => Math.max(8, Math.round(px * 0.62));   // slide px → PPT points
 
     if (s.type === 'title'){
-      T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12, charSpacing: 4, color: C(pal.accent2), align: boxAlign('kicker') });
+      T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12 * TS, charSpacing: 4, color: C(pal.accent2), align: boxAlign('kicker') });
       rule(96, 268, 64);
-      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: (s.headline || deck.title).length > 48 ? 34 : 44, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
-      if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16, color: dark ? '9FB2C4' : '5B6B7C', align: boxAlign('presenter') });
+      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: ((s.headline || deck.title).length > 48 ? 34 : 44) * TS, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+      if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16 * TS, color: dark ? '9FB2C4' : '5B6B7C', align: boxAlign('presenter') });
     }
     else if (s.type === 'roadmap'){
       T(s.headline || 'Roadmap', { x: I(96), y: I(60), w: I(1000), h: I(70), fontFace: SERIF, fontSize: 28, bold: true });
@@ -3564,13 +3629,13 @@ async function exportPPTX(){
       T(pad2(partNo), { x: I(880), y: I(380), w: I(360), h: I(320), fontFace: SERIF, fontSize: 160, bold: true,
         color: dark ? '24384A' : 'E1E8EE', align: 'right' });
       T('PART ' + pad2(partNo), { x: I(96), y: I(262), w: I(400), h: I(30), fontSize: 11, charSpacing: 4, color: C(pal.accent2) });
-      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+      T(s.headline || 'Section', { x: I(96), y: I(296), w: I(840), h: I(170), fontFace: SERIF, fontSize: 38 * TS, bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
     }
     else if (s.type === 'takeaway'){
       if (s.layout === 'takeawayQuote'){
         T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: boxAlign('callout') || 'center',
-          fontFace: SERIF, fontSize: 26, italic: true, bold: true, ...colorOpts(boxObj('callout')) });
-        T(s.headline || '', { x: I(200), y: I(470), w: I(880), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C', ...colorOpts(boxObj('headline')) });
+          fontFace: SERIF, fontSize: 26 * TS, italic: true, bold: true, ...colorOpts(boxObj('callout')) });
+        T(s.headline || '', { x: I(200), y: I(470), w: I(880), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13 * TS, color: dark ? '9FB2C4' : '5B6B7C', ...colorOpts(boxObj('headline')) });
       } else {
         const chipW = 168;
         sl.addShape('roundRect', { x: I(640 - chipW / 2), y: I(150), w: I(chipW), h: I(34), rectRadius: 0.5, fill: { color: accBar } });
@@ -3578,14 +3643,14 @@ async function exportPPTX(){
           fontSize: 11, charSpacing: 3, bold: true, color: '06222F' });
         rule(608, 218, 64);
         T(s.headline || '', { x: I(150), y: I(258), w: I(980), h: I(220), align: boxAlign('headline') || 'center', fontFace: SERIF,
-          fontSize: (s.headline || '').length > 90 ? 24 : 30, bold: true, ...colorOpts(boxObj('headline')) });
-        if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: boxAlign('callout') || 'center', italic: true, fontSize: 14, color: dark ? 'B9C8D6' : '5B6B7C', ...colorOpts(boxObj('callout')) });
+          fontSize: ((s.headline || '').length > 90 ? 24 : 30) * TS, bold: true, ...colorOpts(boxObj('headline')) });
+        if (s.callout) T(s.callout, { x: I(190), y: I(488), w: I(900), h: I(64), align: boxAlign('callout') || 'center', italic: true, fontSize: 14 * TS, color: dark ? 'B9C8D6' : '5B6B7C', ...colorOpts(boxObj('callout')) });
         if (s.annotations.length){
           const n = s.annotations.length, gap = 24, w = Math.min(320, (1120 - (n - 1) * gap) / n);
           const startX = (1280 - (n * w + (n - 1) * gap)) / 2;
           s.annotations.forEach((a, i) => {
             const x = a.x != null ? a.x : (startX + i * (w + gap)), y = a.y != null ? a.y : 552, aw = a.w != null ? a.w : w;
-            const fs = a.fs != null ? a.fs : 16;
+            const fs = a.fs != null ? a.fs : 16 * TS;
             const textH = estimateAnnH(a.text) * 0.75;
             const cardH = Math.max(70, textH + 36);
             sl.addShape('roundRect', { x: I(x), y: I(y), w: I(aw), h: I(cardH), rectRadius: 0.07,
@@ -3618,12 +3683,12 @@ async function exportPPTX(){
 
       if (L.bigQuote){
         T(s.callout || s.headline || '', { x: I(150), y: I(210), w: I(980), h: I(220), align: boxAlign('callout') || 'center',
-          fontFace: SERIF, fontSize: 26, italic: true, bold: true, ...colorOpts(boxObj('callout')) });
-        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13, color: dark ? '9FB2C4' : '5B6B7C', ...colorOpts(boxObj('headline')) });
+          fontFace: SERIF, fontSize: 26 * TS, italic: true, bold: true, ...colorOpts(boxObj('callout')) });
+        T(s.headline || '', { x: I(150), y: I(470), w: I(980), h: I(40), align: boxAlign('headline') || 'center', fontSize: 13 * TS, color: dark ? '9FB2C4' : '5B6B7C', ...colorOpts(boxObj('headline')) });
       } else {
         rule(L.headline.x, L.headline.y - 14, 54);
         T(s.headline || '', { x: I(L.headline.x), y: I(L.headline.y), w: I(L.headline.w), h: I(110),
-          fontFace: SERIF, fontSize: pt(L.headline.fs), bold: true, valign: 'top', align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+          fontFace: SERIF, fontSize: pt(L.headline.fs * TS), bold: true, valign: 'top', align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
 
         if (L.annStyle === 'step' && L.timelineGeom){
           const g = L.timelineGeom;
@@ -3646,7 +3711,7 @@ async function exportPPTX(){
             const def = L.anns[i];
             if (L.annStyle === 'none' || L.annStyle === 'caption' || !def) return;
             const x = a.x != null ? a.x : def.x, y = a.y != null ? a.y : def.y;
-            const w = a.w != null ? a.w : def.w, fs = a.fs != null ? a.fs : (def.fs || 19);
+            const w = a.w != null ? a.w : def.w, fs = a.fs != null ? a.fs : (def.fs || 19) * TS;
             if (L.annStyle === 'panel'){
               sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(def.h || 120), rectRadius: 0.06,
                 fill: bgFill(a, dark ? '22303E' : 'FFFFFF'), line: { color: dark ? '3A4A5C' : 'E2E9EF', width: 0.75 } });
@@ -3715,16 +3780,17 @@ async function exportPPTX(){
             const cobj = boxObj('callout');
             const isLight = cobj.chip === 'light';
             const padY = 18;
-            const boxH = chipBoxH(s.callout, L.callout.w, L.callout.fs || 22, padY);
+            const calloutFs = (L.callout.fs || 22) * TS;
+            const boxH = chipBoxH(s.callout, L.callout.w, calloutFs, padY);
             sl.addShape('roundRect', { x: I(L.callout.x), y: I(L.callout.y), w: I(L.callout.w), h: I(boxH), rectRadius: 0.05,
               fill: { color: cobj.bg ? C(cobj.bg) : (isLight ? 'F6EFE2' : '0A121C'), transparency: cobj.bg ? 0 : (isLight ? 0 : 28) },
               line: { type: 'none' } });
             sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(6), h: I(boxH), fill: { color: accBar } });
-            T(s.callout, { x: I(L.callout.x + 14), y: I(L.callout.y), w: I(L.callout.w - 22), h: I(boxH), fontSize: pt(L.callout.fs || 22), bold: true,
+            T(s.callout, { x: I(L.callout.x + 14), y: I(L.callout.y), w: I(L.callout.w - 22), h: I(boxH), fontSize: pt(calloutFs), bold: true,
               valign: 'middle', align: boxAlign('callout'), color: cobj.color ? C(cobj.color) : (isLight ? '23303D' : 'FFFFFF') });
           } else {
             sl.addShape('rect', { x: I(L.callout.x), y: I(L.callout.y), w: I(4), h: I(70), fill: { color: accBar } });
-            T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt(L.callout.fs || 18), align: boxAlign('callout'), ...colorOpts(boxObj('callout')) });
+            T(s.callout, { x: I(L.callout.x + 12), y: I(L.callout.y), w: I(L.callout.w - 16), h: I(70), italic: true, fontSize: pt((L.callout.fs || 18) * TS), align: boxAlign('callout'), ...colorOpts(boxObj('callout')) });
           }
         }
       }
@@ -4369,7 +4435,10 @@ function wireUI(){
   $('#deck-title').addEventListener('input', e => {
     if (state.deck){ state.deck.title = e.target.value; save(); }
   });
-  $('#btn-outline').addEventListener('click', () => showScreen('outline'));
+  $('#btn-outline').addEventListener('click', () => {
+    if (state.deck && state.deck.slides.length) $('#outline-text').value = deckToOutline(state.deck);
+    showScreen('outline');
+  });
   $('#btn-decks').addEventListener('click', () => showScreen('home'));
   const brand = $('#brand');
   if (brand){ brand.style.cursor = 'pointer'; brand.addEventListener('click', () => showScreen('home')); }
@@ -4394,6 +4463,11 @@ function wireUI(){
   $('#export-pptx').addEventListener('click', () => { dd.classList.remove('open'); exportPPTX(); });
   $('#export-pdf').addEventListener('click', () => { dd.classList.remove('open'); exportPDF(); });
   $('#export-html').addEventListener('click', () => { dd.classList.remove('open'); exportHTML(); });
+  $('#export-outline').addEventListener('click', () => {
+    dd.classList.remove('open');
+    if (!guardDeck()) return;
+    downloadText(safeName(state.deck.title) + '.outline.txt', deckToOutline(state.deck), 'text/plain');
+  });
 
   // settings
   $('#btn-settings').addEventListener('click', () => {
@@ -4681,6 +4755,20 @@ function wireUI(){
     checkpoint();
     state.deck.arrows = $('#bg-arrows').value;
     refreshAll();
+  });
+  let textScaleCheckpointed = false;
+  $('#bg-textscale').addEventListener('pointerdown', () => { textScaleCheckpointed = false; });
+  $('#bg-textscale').addEventListener('input', () => {
+    if (!guardDeck()) return;
+    if (!textScaleCheckpointed){ checkpoint(); textScaleCheckpointed = true; }
+    state.deck.textScale = +$('#bg-textscale').value;
+    $('#bg-textscale-val').textContent = Math.round(state.deck.textScale * 100) + '%';
+    renderEditor();
+    renderRail();
+  });
+  $('#bg-textscale').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    save();
   });
 
   // drop images onto the canvas

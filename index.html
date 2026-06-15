@@ -26,6 +26,7 @@
         <button id="export-pptx">PowerPoint (.pptx)</button>
         <button id="export-pdf">PDF (print)</button>
         <button id="export-html">Standalone HTML</button>
+        <button id="export-outline" title="Download this deck's text as an outline you can bulk-edit and rebuild">Outline (.txt)</button>
       </div>
     </div>
     <button id="btn-settings" class="btn ghost" title="Image provider API keys">⚙</button>
@@ -263,6 +264,9 @@ Design: free-text notes
           <option value="black">Black arrows</option>
           <option value="white">White arrows</option>
         </select>
+      </label>
+      <label class="field" title="Scales the default text size across every slide (text you've manually resized stays as-is) — handy for matching a projector or room size">Slide text size <span id="bg-textscale-val">100%</span>
+        <input id="bg-textscale" type="range" min="0.8" max="1.4" step="0.05" value="1">
       </label>
 
       <div class="ip-search">

@@ -331,7 +331,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .bg-current-info .ip-meta .lic{color:var(--accent2)}
 #tab-background .field{padding:0 14px;margin:10px 0}
 #tab-background .check{padding:0 14px;margin:10px 0}
-#bg-blur{accent-color:var(--accent);padding:0;height:auto;width:100%;margin-top:5px;background:none;border:none}
+#bg-blur,#bg-textscale{accent-color:var(--accent);padding:0;height:auto;width:100%;margin-top:5px;background:none;border:none}
 
 /* ---------- modals ---------- */
 .modal{
