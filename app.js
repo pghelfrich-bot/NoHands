@@ -149,6 +149,10 @@ const SLIDE_CSS = `
 .slide .lf-frame{position:absolute;inset:16px;border:2px solid rgba(20,32,44,.16);border-radius:8px;z-index:46;pointer-events:none}
 .slide.dark .lf-frame{border-color:rgba(255,255,255,.4)}
 .slide.has-bg .lf-frame{border-color:rgba(255,255,255,.6)}
+/* keep the footer/credit/flow-arrow clear of the frame's border */
+.slide.framed .lf-footer{bottom:32px}
+.slide.framed .lf-credit{bottom:29px}
+.slide.framed .lf-flow{bottom:34px}
 /* with an HD background showing through (no wash), pick text colour to match the
    photo's brightness and add a legibility halo so it reads on any photo */
 .slide.has-bg.bg-light:not(.cine),
@@ -1085,7 +1089,7 @@ function renderSlide(slide, deck, opts = {}){
   const bg = deck.background;
   const bgCls = (bg && bg.src) ? ' has-bg ' + (bg.dark ? 'bg-dark' : 'bg-light') : '';
   const cine = slide.type === 'content' && slide.images.length && effContentLayout(slide) === 'cinematic';
-  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + bgCls + (cine ? ' cine' : ''));
+  const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + bgCls + (cine ? ' cine' : '') + (deck.frame ? ' framed' : ''));
   root.dataset.type = slide.type;
   root.style.background = dark ? pal.darkBg : pal.lightBg;
   root.style.setProperty('--lf-accent', cine ? pal.accent : accLine);
@@ -2828,6 +2832,68 @@ function resultCell(r, imEl, onInsert){
   return cell;
 }
 
+/* ---------- "your images" (drag-and-drop / browse from computer) ----------
+   session-only — never written to localStorage; once an image is inserted
+   onto a slide it's embedded as a data-URL on that slide like any other. */
+let localImages = [];
+
+async function addLocalFiles(files){
+  const imgFiles = [...files].filter(f => f.type.startsWith('image/'));
+  if (!imgFiles.length) return;
+  for (const f of imgFiles){
+    try {
+      const src = await blobToDataURL(f);
+      localImages.unshift({
+        provider: 'local', id: 'local-' + uid(),
+        thumb: src, full: src,
+        title: f.name, author: '', authorUrl: '', license: '', licenseUrl: '', pageUrl: '',
+        sourceName: 'Your device',
+      });
+    } catch (e) { /* unreadable file — skip */ }
+  }
+  renderLocalImages();
+  toast(`${imgFiles.length} image${imgFiles.length === 1 ? '' : 's'} added — click or drag onto the slide`);
+}
+
+function removeLocalImage(id){
+  localImages = localImages.filter(r => r.id !== id);
+  renderLocalImages();
+}
+
+function renderLocalImages(){
+  const grid = $('#ip-local-results');
+  if (!grid) return;
+  grid.innerHTML = '';
+  grid.hidden = !localImages.length;
+  localImages.forEach(r => grid.appendChild(localResultCell(r)));
+}
+
+function localResultCell(r){
+  const cell = el('div', 'ip-cell');
+  cell.title = `${r.title}\nClick to insert · drag onto the slide`;
+  const imEl = new Image();
+  imEl.src = r.thumb;
+  imEl.alt = r.title || '';
+  const wrap = el('div', 'ip-imgwrap');
+  wrap.appendChild(imEl);
+  cell.appendChild(wrap);
+  cell.appendChild(el('span', 'ip-src', '', 'Your image'));
+  cell.appendChild(el('span', 'ip-add', '', '＋ Insert'));
+  const meta = el('div', 'ip-meta');
+  meta.appendChild(document.createTextNode(r.title || 'Untitled'));
+  const rm = el('span', 'ip-local-rm', '', '✕ remove');
+  rm.addEventListener('click', e => { e.stopPropagation(); removeLocalImage(r.id); });
+  meta.appendChild(rm);
+  cell.appendChild(meta);
+  cell.addEventListener('click', () => insertImageFromResult(r));
+  cell.draggable = true;
+  cell.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/lf-image', JSON.stringify(r));
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+  return cell;
+}
+
 function bgResultCell(r, imEl){
   const cell = el('div', 'ip-cell');
   cell.title = `${r.title || 'Untitled'}\n${r.author} — ${r.sourceName}\n${r.license}\nClick to use as the deck background`;
@@ -3722,12 +3788,13 @@ async function exportPPTX(){
       });
     }
 
-    // footer + attribution
-    sl.addText(`${idx + 1} / ${deck.slides.length}`, { x: I(20), y: I(688), w: I(80), h: I(24), fontSize: 8, color: dark ? '7E8FA0' : '8A98A6' });
+    // footer + attribution — pulled up clear of the frame border when present
+    const footY = deck.frame ? 672 : 688;
+    sl.addText(`${idx + 1} / ${deck.slides.length}`, { x: I(20), y: I(footY), w: I(80), h: I(24), fontSize: 8, color: dark ? '7E8FA0' : '8A98A6' });
     const attrs = s.images.filter(im => im.attr && im.attr.author)
       .map(im => `${im.attr.author} / ${im.attr.sourceName} (${im.attr.license})`);
     if (attrs.length)
-      sl.addText('Photo: ' + [...new Set(attrs)].join(' · '), { x: I(84), y: I(688), w: I(1000), h: I(24), fontSize: 7.5, color: dark ? '7E8FA0' : '8A98A6' });
+      sl.addText('Photo: ' + [...new Set(attrs)].join(' · '), { x: I(84), y: I(footY), w: I(1000), h: I(24), fontSize: 7.5, color: dark ? '7E8FA0' : '8A98A6' });
     if (s.notes) sl.addNotes(s.notes);
     addFrame(sl, dark);
   });
@@ -4542,6 +4609,26 @@ function wireUI(){
   $('#ip-go').addEventListener('click', () => runImageSearch());
   $('#ip-query').addEventListener('keydown', e => { if (e.key === 'Enter') runImageSearch(); });
   $$('.ip-tab').forEach(t => t.addEventListener('click', () => showPanelTab(t.dataset.tab)));
+
+  // "your images" — drag-and-drop or browse from computer, kept for this session only
+  const dz = $('#ip-upload-zone');
+  $('#ip-upload-btn').addEventListener('click', () => $('#ip-upload').click());
+  $('#ip-upload').addEventListener('change', e => {
+    addLocalFiles(e.target.files);
+    e.target.value = '';
+  });
+  dz.addEventListener('dragover', e => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dz.classList.add('drag-over');
+  });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dz.classList.remove('drag-over');
+    addLocalFiles(e.dataTransfer.files);
+  });
   const autoBox = $('#ip-auto');
   if (autoBox){
     autoBox.checked = autoImages;
