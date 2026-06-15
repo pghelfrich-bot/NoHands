@@ -161,6 +161,11 @@ const SLIDE_CSS = `
 .slide.has-bg.bg-dark:not(.cine),
 .slide.has-bg.bg-dark:not(.cine) .lf-box,.slide.has-bg.bg-dark:not(.cine) .serif,.slide.has-bg.bg-dark:not(.cine) .lf-ann{
   color:#f4f8fb;text-shadow:0 1px 4px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.65)}
+/* inline / display math (KaTeX), typeset from $...$ and $$...$$ in slide text */
+.lf-math{color:inherit}
+.lf-math-display{display:block;margin:.35em 0;text-align:center;overflow-x:auto}
+.lf-math .katex,.lf-math-display .katex{color:inherit;font-size:1.08em}
+#present-notes .lf-math-display{text-align:left}
 `;
 
 const SAMPLE_OUTLINE = `# How Rivers Shape the Land
@@ -262,6 +267,153 @@ function debounce(fn, ms){ let t; return (...a) => { clearTimeout(t); t = setTim
 function escHTML(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function stripHTML(s){ const d = document.createElement('div'); d.innerHTML = s || ''; return d.textContent.trim(); }
 function pad2(n){ return String(n).padStart(2, '0'); }
+
+/* ================= inline math (KaTeX) ================= */
+
+/* Split text into alternating plain-text and math segments, recognizing
+   $$...$$ (display) and $...$ (inline). Uses Pandoc-style delimiter rules so
+   ordinary prose like "funding ranges from $5 to $10 million" isn't mistaken
+   for an equation: an opening $ must be followed by a non-space character
+   and the closing $ must be preceded by a non-space character and not
+   immediately followed by a digit. */
+function splitMathSegments(text){
+  const re = /\$\$([\s\S]+?)\$\$|\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\\)(?<!\s)\$(?!\d)/g;
+  const segs = [];
+  let last = 0, m;
+  while ((m = re.exec(text))){
+    if (m.index > last) segs.push({ math: false, text: text.slice(last, m.index) });
+    if (m[1] != null) segs.push({ math: true, display: true, tex: m[1].trim() });
+    else segs.push({ math: true, display: false, tex: m[2].replace(/\\\$/g, '$') });
+    last = re.lastIndex;
+  }
+  if (last < text.length) segs.push({ math: false, text: text.slice(last) });
+  return segs;
+}
+
+/* KaTeX is loaded from a CDN on first use (mirrors the pptxgenjs export
+   dependency) so decks without equations never pay for it. */
+let katexReady = false, katexLoading = null;
+function ensureKatex(){
+  if (katexReady) return Promise.resolve();
+  if (!katexLoading){
+    const css = new Promise((res, rej) => {
+      if (document.querySelector('link[data-katex]')) return res();
+      const l = document.createElement('link');
+      l.rel = 'stylesheet'; l.dataset.katex = '1';
+      l.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+      l.onload = res; l.onerror = () => rej(new Error('katex css load failed'));
+      document.head.appendChild(l);
+    });
+    katexLoading = Promise.all([loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js'), css])
+      .then(() => { katexReady = true; });
+  }
+  return katexLoading;
+}
+
+/* re-render whatever's currently on screen once KaTeX finishes loading, so
+   equations that were shown as raw $...$ source pop into typeset notation */
+function rerenderMath(){
+  try {
+    if (presenting) renderPresent(0);
+    else if (state.deck) refreshAll();
+  } catch (e) {}
+}
+
+/* Set `node`'s content to `text`, typesetting any $...$ / $$...$$ segments
+   with KaTeX. Falls back to the raw source (delimiters included) until KaTeX
+   has loaded, or if a segment doesn't parse as valid TeX. Plain text with no
+   math is set via textContent exactly as before (cheap, common case). */
+function setMathContent(node, text){
+  text = text == null ? '' : String(text);
+  const segs = splitMathSegments(text);
+  if (segs.length === 1 && !segs[0].math){ node.textContent = text; delete node.dataset.mathRaw; return; }
+  node.dataset.mathRaw = text;
+  node.textContent = '';
+  for (const seg of segs){
+    if (!seg.math){ if (seg.text) node.appendChild(document.createTextNode(seg.text)); continue; }
+    const span = el(seg.display ? 'div' : 'span', 'lf-math' + (seg.display ? ' lf-math-display' : ''));
+    const src = (seg.display ? '$$' : '$') + seg.tex + (seg.display ? '$$' : '$');
+    if (katexReady){
+      try { katex.render(seg.tex, span, { throwOnError: false, displayMode: seg.display }); }
+      catch (e) { span.textContent = src; }
+    } else {
+      span.textContent = src;
+      ensureKatex().then(rerenderMath).catch(() => {});
+    }
+    node.appendChild(span);
+  }
+}
+
+/* like el(), but typesets $...$ / $$...$$ math in `text` instead of setting
+   it as plain textContent — for slide-authored content (headlines, points,
+   callouts, …) so equations render smoothly */
+function elMath(tag, cls, style, text){
+  const n = el(tag, cls, style, null);
+  setMathContent(n, text);
+  return n;
+}
+
+/* ---------- best-effort LaTeX -> plain text, for PPTX export ---------- */
+
+const MATH_GREEK = { alpha:'α', beta:'β', gamma:'γ', delta:'δ', epsilon:'ε', varepsilon:'ε',
+  zeta:'ζ', eta:'η', theta:'θ', vartheta:'ϑ', iota:'ι', kappa:'κ', lambda:'λ', mu:'μ', nu:'ν',
+  xi:'ξ', pi:'π', varpi:'ϖ', rho:'ρ', varrho:'ϱ', sigma:'σ', varsigma:'ς', tau:'τ',
+  upsilon:'υ', phi:'φ', varphi:'φ', chi:'χ', psi:'ψ', omega:'ω',
+  Alpha:'Α', Beta:'Β', Gamma:'Γ', Delta:'Δ', Epsilon:'Ε', Zeta:'Ζ', Eta:'Η', Theta:'Θ',
+  Iota:'Ι', Kappa:'Κ', Lambda:'Λ', Mu:'Μ', Nu:'Ν', Xi:'Ξ', Pi:'Π', Rho:'Ρ', Sigma:'Σ',
+  Tau:'Τ', Upsilon:'Υ', Phi:'Φ', Chi:'Χ', Psi:'Ψ', Omega:'Ω' };
+const MATH_SYM = { times:'×', cdot:'·', div:'÷', pm:'±', mp:'∓', leq:'≤', le:'≤', geq:'≥', ge:'≥',
+  neq:'≠', ne:'≠', approx:'≈', sim:'∼', simeq:'≃', equiv:'≡', propto:'∝', infty:'∞',
+  partial:'∂', nabla:'∇', rightarrow:'→', to:'→', longrightarrow:'→', leftarrow:'←',
+  leftrightarrow:'↔', Rightarrow:'⇒', Leftarrow:'⇐', sum:'Σ', prod:'Π', int:'∫', oint:'∮',
+  forall:'∀', exists:'∃', in:'∈', notin:'∉', subset:'⊂', subseteq:'⊆', cup:'∪', cap:'∩',
+  emptyset:'∅', varnothing:'∅', cdots:'⋯', ldots:'…', dots:'…', circ:'°', degree:'°',
+  perp:'⊥', parallel:'∥', therefore:'∴', because:'∵', angle:'∠', prime:'′' };
+const MATH_SUP = { '0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹',
+  '+':'⁺','-':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ' };
+const MATH_SUB = { '0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉',
+  '+':'₊','-':'₋','=':'₌','(':'₍',')':'₎','a':'ₐ','e':'ₑ','h':'ₕ','i':'ᵢ','j':'ⱼ','k':'ₖ',
+  'l':'ₗ','m':'ₘ','n':'ₙ','o':'ₒ','p':'ₚ','r':'ᵣ','s':'ₛ','t':'ₜ','u':'ᵤ','v':'ᵥ','x':'ₓ' };
+
+function texSupSub(content, map, prefix){
+  const chars = [...content].map(c => map[c]);
+  return chars.every(Boolean) ? chars.join('') : prefix + '(' + content + ')';
+}
+
+/* Best-effort LaTeX -> plain text for contexts that can't typeset math
+   (PPTX export): handles \frac, \sqrt, Greek letters, common operators, and
+   sub/superscripts via unicode where a matching character exists. */
+function texToPlain(tex){
+  let s = tex;
+  s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, (_, a, b) => `(${texToPlain(a)})/(${texToPlain(b)})`);
+  s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, (_, a) => `√(${texToPlain(a)})`);
+  s = s.replace(/\\(?:text|mathrm|mathbf|boldsymbol|mathit|operatorname)\s*\{([^{}]*)\}/g, '$1');
+  s = s.replace(/\\left|\\right/g, '');
+  s = s.replace(/\\([a-zA-Z]+)/g, (m, name) => MATH_GREEK[name] || MATH_SYM[name] || name);
+  s = s.replace(/\^\{([^{}]*)\}|\^(.)/g, (m, b, c) => texSupSub(b != null ? b : c, MATH_SUP, '^'));
+  s = s.replace(/_\{([^{}]*)\}|_(.)/g, (m, b, c) => texSupSub(b != null ? b : c, MATH_SUB, '_'));
+  s = s.replace(/[{}]/g, '');
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/* PPTX text boxes can't typeset TeX — flatten $...$ / $$...$$ segments to a
+   readable plain-text approximation, leaving ordinary text untouched. */
+function mathToPlainText(text){
+  if (typeof text !== 'string' || !text.includes('$')) return text;
+  return splitMathSegments(text).map(seg => seg.math ? texToPlain(seg.tex) : seg.text).join('');
+}
+
+/* true if any slide-authored text in the deck contains $...$ / $$...$$ math */
+function deckHasMath(deck){
+  const fields = [];
+  for (const s of deck.slides){
+    fields.push(s.headline, s.callout, s.notes);
+    for (const a of (s.annotations || [])) fields.push(a.text, a.full);
+    for (const t of (s.texts || [])) fields.push(t.text);
+  }
+  for (const o of (deck.overlays || [])) fields.push(o.text);
+  return fields.some(f => typeof f === 'string' && splitMathSegments(f).some(seg => seg.math));
+}
 
 /* words that add no search value — articles, age/sex modifiers, and the
    "photo of / aerial view / detailed" descriptive filler that makes a FIGURE
@@ -714,7 +866,11 @@ TYPE: title slide; add a TYPE: roadmap after it when there are 4+ themes; use
 TYPE: section dividers between major parts; end with a TYPE: takeaway. Reach for
 LAYOUT: comparison when contrasting two things, LAYOUT: timeline for a sequence
 or chronology, LAYOUT: quote for a single strong quotation, LAYOUT: statement
-for one punchy claim. Output ONLY the outline, no commentary or code fences.`;
+for one punchy claim. Math: write equations as LaTeX, inline with $...$ or on
+their own as $$...$$ (e.g. "Population growth follows $\\frac{dN}{dt} = rN(1-N/K)$"
+or its own POINT "$$p^2 + 2pq + q^2 = 1$$") — these render as typeset notation,
+so define each symbol in the surrounding POINTS or NOTES. Output ONLY the
+outline, no commentary or code fences.`;
 
 /* deterministic, no-network draft: turns raw prose into a LectureFlow outline
    string, biased toward image-first annotated content slides but mixing in
@@ -890,8 +1046,11 @@ async function proseToOutlineAI(text, { key, model } = {}){
 
 /* ================= layout geometry (shared by DOM renderer & PPTX export) ================= */
 
+// text-length estimators below use the plain-text rendering of any $...$ /
+// $$...$$ math (compact TeX source like "\frac{dN}{dt}" reads much shorter
+// than it typesets) so layout stays close for equation-bearing slides
 function estimateAnnH(text){
-  const lines = Math.max(1, Math.ceil((text || ' ').length / 23));
+  const lines = Math.max(1, Math.ceil((mathToPlainText(text) || ' ').length / 23));
   return 10 + lines * 25;
 }
 // the full original point if there is one, else the (already short) text —
@@ -902,7 +1061,7 @@ function annDisplayText(a){
 // height of a filled "chip" label box that fits its text at the given width/font-size
 function chipBoxH(text, w, fs, padY){
   const charsPerLine = Math.max(4, Math.floor(w / (fs * 0.56)));
-  const lines = Math.max(1, Math.ceil((text || ' ').length / charsPerLine));
+  const lines = Math.max(1, Math.ceil((mathToPlainText(text) || ' ').length / charsPerLine));
   return lines * fs * 1.42 + padY * 2;
 }
 function figRectOf(slide){
@@ -1231,7 +1390,7 @@ function mkBox(slide, key, def, content, css, opts){
     + (o.bg ? `background-color:${o.bg};padding:6px 10px;border-radius:8px;` : ''));
   node.dataset.box = key;
   node.dataset.sel = 'box:' + key;
-  if (content != null) node.textContent = content;
+  if (content != null) setMathContent(node, content);
   if (opts && opts.editor){
     node.dataset.edit = (opts.editKey || key);
     node.dataset.editable = '1';
@@ -1262,7 +1421,7 @@ function withSerif(node){ if (node) node.classList.add('serif'); return node; }
 function appendBox(root, node){ if (node) root.appendChild(node); return node; }
 
 function renderRoadmap(root, slide, deck, pal, dark, opts){
-  root.appendChild(editable(el('div', 'serif',
+  root.appendChild(editable(elMath('div', 'serif',
     'position:absolute;left:96px;top:64px;width:1000px;font-size:46px;font-weight:600;z-index:5;',
     slide.headline || 'Roadmap'), 'headline', opts));
   const anns = slide.annotations;
@@ -1309,9 +1468,9 @@ function renderRoadmap(root, slide, deck, pal, dark, opts){
       root.appendChild(tag);
     }
     const lbl = g.horizontal
-      ? el('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy + 58}px;width:200px;
+      ? elMath('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy + 58}px;width:200px;
           text-align:center;font-size:18px;font-weight:600;line-height:1.3;${fade}`, a.text)
-      : el('div', '', `position:absolute;z-index:6;left:${st.cx + 58}px;top:${st.cy - 16}px;width:900px;
+      : elMath('div', '', `position:absolute;z-index:6;left:${st.cx + 58}px;top:${st.cy - 16}px;width:900px;
           font-size:21px;font-weight:600;line-height:1.3;${fade}`, a.text);
     root.appendChild(editable(lbl, 'ann:' + a.id, opts));
   });
@@ -1398,9 +1557,9 @@ function renderContent(root, slide, deck, pal, dark, opts){
     if (L.annStyle === 'panel'){
       const p = el('div', 'lf-panel', `left:${def.x}px;top:${def.y}px;width:${def.w}px;height:${def.h}px;`);
       p.appendChild(el('div', 'serif', `font-size:22px;font-weight:700;color:${accLine};margin-bottom:6px;`, pad2(i + 1)));
-      p.appendChild(editable(el('div', '', 'font-size:19px;font-weight:650;line-height:1.3;', a.text), 'ann:' + a.id, opts));
+      p.appendChild(editable(elMath('div', '', 'font-size:19px;font-weight:650;line-height:1.3;', a.text), 'ann:' + a.id, opts));
       if (a.full && a.full.trim() !== a.text.trim())
-        p.appendChild(editable(el('div', '', 'font-size:13.5px;opacity:.72;margin-top:6px;line-height:1.4;', a.full), 'annfull:' + a.id, opts));
+        p.appendChild(editable(elMath('div', '', 'font-size:13.5px;opacity:.72;margin-top:6px;line-height:1.4;', a.full), 'annfull:' + a.id, opts));
       root.appendChild(p);
     } else if (L.annStyle === 'step'){
       // timeline rendered separately below
@@ -1474,9 +1633,9 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   const hasFull = a.full && a.full.trim() && a.full.trim() !== a.text.trim();
   const mainText = (useFull && hasFull) ? a.full : a.text;
   const mainKey = (useFull && hasFull) ? 'annfull:' + a.id : 'ann:' + a.id;
-  node.appendChild(editable(el('div', 'lf-ann-text', '', mainText), mainKey, opts));
+  node.appendChild(editable(elMath('div', 'lf-ann-text', '', mainText), mainKey, opts));
   if (showDetail && hasFull)
-    node.appendChild(editable(el('div', 'lf-ann-full', '', a.full), 'annfull:' + a.id, opts));
+    node.appendChild(editable(elMath('div', 'lf-ann-full', '', a.full), 'annfull:' + a.id, opts));
   root.appendChild(node);
 }
 
@@ -1497,8 +1656,8 @@ function renderTimeline(root, slide, pal, dark, g, opts){
       width:${r * 2}px;height:${r * 2}px;border:2.5px solid ${pal.accent};border-radius:50%;
       display:flex;align-items:center;justify-content:center;font-size:${g.horizontal ? 28 : 20}px;color:${pal.accent2};`, String(i + 1)));
     const lbl = g.horizontal
-      ? el('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy + 54}px;width:200px;text-align:center;font-size:17px;font-weight:600;line-height:1.3;`, a.text)
-      : el('div', '', `position:absolute;z-index:6;left:${st.cx + 54}px;top:${st.cy - 14}px;width:900px;font-size:20px;font-weight:600;line-height:1.3;`, a.text);
+      ? elMath('div', '', `position:absolute;z-index:6;left:${st.cx - 100}px;top:${st.cy + 54}px;width:200px;text-align:center;font-size:17px;font-weight:600;line-height:1.3;`, a.text)
+      : elMath('div', '', `position:absolute;z-index:6;left:${st.cx + 54}px;top:${st.cy - 14}px;width:900px;font-size:20px;font-weight:600;line-height:1.3;`, a.text);
     root.appendChild(editable(lbl, 'ann:' + a.id, opts));
   });
 }
@@ -1591,7 +1750,7 @@ function renderTexts(root, slide, opts){
       + (t.color ? `color:${t.color};` : '')
       + (t.bg ? `background-color:${t.bg};padding:8px 12px;border-radius:8px;` : ''));
     node.dataset.sel = 'text:' + t.id;
-    node.textContent = t.text;
+    setMathContent(node, t.text);
     if (opts.editor){ node.dataset.edit = 'text:' + t.id; node.dataset.editable = '1'; }
     root.appendChild(node);
   });
@@ -1613,7 +1772,7 @@ function renderOverlays(root, slide, deck, opts){
       + (o.color ? `color:${o.color};` : '')
       + (o.bg ? `background-color:${o.bg};padding:8px 12px;border-radius:8px;` : ''));
     node.dataset.sel = 'overlay:' + o.id;
-    node.textContent = o.text;
+    setMathContent(node, o.text);
     if (opts.editor){ node.dataset.edit = 'overlay:' + o.id; node.dataset.editable = '1'; }
     root.appendChild(node);
   });
@@ -2044,6 +2203,9 @@ function wireSlideEditing(root, slide){
     const real = document.elementFromPoint(e.clientX, e.clientY) || e.target;
     const ed = real.closest('[data-edit]');
     if (!ed) return;
+    // a field showing typeset math displays rendered KaTeX markup, not the
+    // $...$ source — swap back to the raw source so it's what gets edited
+    if (ed.dataset.mathRaw != null) ed.textContent = ed.dataset.mathRaw;
     try { ed.contentEditable = 'plaintext-only'; } catch (err) { ed.contentEditable = 'true'; }
     ed.focus();
     const r = document.createRange(); r.selectNodeContents(ed);
@@ -2057,8 +2219,10 @@ function wireSlideEditing(root, slide){
   root.addEventListener('focusout', e => {
     const ed = e.target.closest ? e.target.closest('[data-edit]') : null;
     if (!ed || !ed.isContentEditable) return;
-    applyEdit(slide, ed.dataset.edit, ed.textContent.trim());
+    const val = ed.textContent.trim();
+    applyEdit(slide, ed.dataset.edit, val);
     ed.contentEditable = 'false';
+    setMathContent(ed, val);
     drawConnectors(root, slide, arrowColor(state.deck));
     updateAnchorHandle(root, slide);
     refreshRailThumb(state.cur);
@@ -3491,10 +3655,16 @@ async function exportHTML(){
   toast('Building standalone HTML…');
   await ensureEmbedded(state.deck);
   const deck = state.deck;
+  // pre-typeset any $...$ / $$...$$ math so the export captures static KaTeX
+  // markup; the exported page just needs KaTeX's CSS (+ webfonts) to display it
+  const hasMath = deckHasMath(deck);
+  if (hasMath) await ensureKatex().catch(() => {});
+  const katexLink = hasMath
+    ? '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">\n' : '';
   const doc = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <title>${escHTML(deck.title)}</title>
-<style>
+${katexLink}<style>
 ${SLIDE_CSS}
 html,body{margin:0;height:100%;background:#000;overflow:hidden}
 body>.slide{position:fixed;top:50%;left:50%;display:none;transform-origin:center}
@@ -3527,11 +3697,15 @@ async function exportPDF(){
   if (!guardDeck()) return;
   await ensureEmbedded(state.deck);
   const deck = state.deck;
+  const hasMath = deckHasMath(deck);
+  if (hasMath) await ensureKatex().catch(() => {});
+  const katexLink = hasMath
+    ? '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">\n' : '';
   const w = window.open('', '_blank');
   if (!w){ toast('Pop-up blocked — allow pop-ups to export PDF'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>${escHTML(deck.title)}</title>
-<style>${SLIDE_CSS}
+${katexLink}<style>${SLIDE_CSS}
 @page{size:1280px 720px;margin:0}
 html,body{margin:0;padding:0}
 .slide{page-break-after:always;break-after:page}
@@ -3602,7 +3776,8 @@ async function exportPPTX(){
     const accBar = C(pal.accent);
 
     const rule = (x, y, w) => sl.addShape('rect', { x: I(x), y: I(y), w: I(w), h: I(5), fill: { color: accBar } });
-    const T = (text, o) => sl.addText(text, { fontFace: SANS, color: ink, shadow: txtShadow, ...o });
+    // PPTX text boxes can't typeset $...$ / $$...$$ TeX, so flatten it to readable plain text
+    const T = (text, o) => sl.addText(mathToPlainText(text), { fontFace: SANS, color: ink, shadow: txtShadow, ...o });
     const boxAlign = key => (s.boxes && s.boxes[key] && s.boxes[key].align) || undefined;
     const boxObj = key => (s.boxes && s.boxes[key]) || {};
     // custom text colour / background fill carried over from the editor
@@ -3984,7 +4159,7 @@ function renderPresent(dir = 0){
   $('#present-counter').textContent = `${presentIdx + 1} / ${deck.slides.length}`;
   const notes = $('#present-notes');
   notes.hidden = !presentNotesOn;
-  notes.textContent = slide.notes || '(no notes)';
+  setMathContent(notes, slide.notes || '(no notes)');
 }
 
 /* hide build steps beyond presentReveal; redraw connectors for what's shown */
