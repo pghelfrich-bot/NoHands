@@ -1,0 +1,245 @@
+# What Defines a Bird?
+Presenter:
+Date:
+Design: deep indigo and gold tones, dramatic wildlife documentary feel
+
+1. TYPE: title
+   HEADLINE: What Defines a Bird?
+   LAYOUT: quote
+   CALLOUT: "Feathers evolved into diverse structures, which led to flight — and a new group of vertebrates thrived." — Gill & Prum
+   FIGURE: King of Saxony Bird-of-Paradise displaying its elaborate head plumes
+
+2. TYPE: content
+   HEADLINE: The Most Species-Rich Tetrapod Class
+   POINTS:
+   - More than 10,000 living bird species
+   - More species than all other tetrapod classes combined
+   - Found on every continent, including Antarctica
+   - Hummingbirds alone: 300+ species of hovering nectarivores
+   CALLOUT: One structure — the feather — produced the most diverse class of land vertebrates.
+   FIGURE: Ruby-throated or Anna's hummingbird hovering at a flower, wings blurred in motion
+
+3. TYPE: roadmap
+   HEADLINE: Five Defining Features
+   POINTS:
+   - The Feather
+   - The Bill
+   - The Skeleton
+   - Physiology & Reproduction
+   - Brain, Voice & Senses
+
+4. TYPE: section
+   HEADLINE: The Feather
+   CALLOUT: Feathers are the single structure that distinguishes birds from all other living vertebrates.
+   FIGURE: close-up of peacock feather iridescence, or a preening great horned owl
+   NOTES: Unique to birds — no other living vertebrate has feathers. Evolved from theropod dinosaur scales.
+
+5. TYPE: content
+   HEADLINE: What Feathers Do
+   POINTS:
+   - Insulation: traps air, regulates body temperature
+   - Flight: lift and thrust from a precise aerodynamic shape
+   - Waterproofing: keeps skin dry in rain and diving
+   - Communication through color, pattern, and display
+   - Dead structures: worn feathers are replaced by molt each year
+   CALLOUT: No comparable structure exists in any other living vertebrate.
+   FIGURE: Snowy Owl or ptarmigan with dense insulating plumage visible
+
+6. TYPE: section
+   HEADLINE: The Bill
+   CALLOUT: The bill is the most visually obvious marker of a bird's ecological role.
+   FIGURE: Roseate Spoonbill with its spatula-shaped bill, or a Red Crossbill showing crossed mandibles
+   NOTES: Toothless — covered with a keeled horny sheath. Diverse bill forms reflect diverse diets.
+
+7. TYPE: content
+   HEADLINE: Bill Diversity: Five Feeding Strategies
+   LAYOUT: figure grid
+   POINTS:
+   - Red Crossbill: extracts seeds from pine cones
+   - Northern Cardinal: cracks large hard seeds
+   - Northern Shoveler: strains food from mud
+   - Reddish Egret: spears or grips fish
+   - Golden Eagle: tears flesh with its hooked bill
+   CALLOUT: Bill shape = diet = ecological niche — read a bird's lifestyle from its face.
+   FIGURE: Northern Shoveler straining food from mud
+   NOTES: Figure-grid slide — fill the remaining panels with the Red Crossbill, Northern Cardinal, Reddish Egret, and Golden Eagle so each point has its own photo.
+
+8. TYPE: content
+   HEADLINE: The Gizzard: A Stomach That Chews
+   POINTS:
+   - No teeth — a muscular gizzard replaces chewing
+   - Turkey gizzards can pulverize steel needles and surgical lancets
+   - Often contains grit that grinds food
+   - Moa gizzards held up to 2.3 kg of grit
+   CALLOUT: The gizzard is arguably more powerful than any set of teeth.
+   FIGURE: Wild Turkey foraging on the ground
+   NOTES: Gizzards are less muscular in raptors and fruit-eaters, which eat softer food.
+
+9. TYPE: section
+   HEADLINE: The Skeleton
+   CALLOUT: The avian skeleton solves an engineering challenge — maximum strength at minimum weight.
+   FIGURE: Herring Gull or Frigatebird in flight with wings fully extended
+   NOTES: Lightweight but reinforced — strength without mass.
+
+10. TYPE: content
+    HEADLINE: Flight-Adapted Skeleton
+    POINTS:
+    - Hollow, strutted bones: strong but lightweight
+    - Keeled sternum anchors the massive flight muscles
+    - Furcula (wishbone) compresses and springs with each wingbeat
+    - Fused hand bones support the primary flight feathers
+    CALLOUT: Every skeletal fusion and reduction in birds is a direct adaptation for flight.
+    FIGURE: Herring Gull in flight, or a labeled skeleton diagram showing the keeled sternum and furcula
+    NOTES: A fifth adaptation if time allows — uncinate processes are rib projections that reinforce the chest wall.
+
+11. TYPE: content
+    HEADLINE: The Perching Mechanism
+    POINTS:
+    - Leg tendons run along the back of the ankle joint
+    - Squatting flexes the tendons and closes the toes
+    - Standing releases the tension and opens the toes
+    - Passerines add a ridge-and-pad lock for sleeping
+    CALLOUT: A bird's grip on a branch is automatic — it takes effort to let go, not to hold on.
+    FIGURE: songbird asleep on a branch with its toes locked around it
+
+12. TYPE: content
+    HEADLINE: Challenge — Why Can't Loons Walk?
+    LAYOUT: statement
+    POINTS:
+    - Common Loons have short femurs and long tibiotarsi
+    - Powerful swimmers, but almost unable to walk on land
+    CALLOUT: Using the avian skeleton and center of gravity — why do short femurs help swimming but hurt walking, and what would have to change for a bird to do both well?
+    FIGURE: Common Loon swimming on water
+    NOTES: Discussion prompt — guide students toward leg placement relative to the body's center of gravity, and the trade-off between underwater propulsion and an upright walking gait.
+
+13. TYPE: section
+    HEADLINE: Physiology & Reproduction
+    CALLOUT: Birds are physiologically extreme — high temperature, high metabolism, and the most elaborate eggs of any animal.
+    FIGURE: Emperor Penguin balancing an egg on its feet
+    NOTES: Endothermy. Eggs. Parental care. High-output hearts.
+
+14. TYPE: content
+    HEADLINE: Endothermy: Warm-Blooded at 40-44°C
+    POINTS:
+    - Body temperature of 40-44°C, higher than mammals
+    - A four-chambered heart fully separates oxygenated blood
+    - Air-sac lungs are more efficient than mammalian lungs
+    - Shivering is the primary cold-weather heat source
+    CALLOUT: Bird physiology runs hotter and harder than any other vertebrate class.
+    FIGURE: Rock Ptarmigan or Snow Bunting in winter snow
+
+15. TYPE: content
+    HEADLINE: The Avian Egg: Most Complex Reproductive Cell
+    POINTS:
+    - A hard calcium carbonate shell, unique to birds
+    - A large yolk with more nutrients than any other vertebrate egg
+    - No bird species bears live young
+    - Eggs require dedicated parental incubation
+    CALLOUT: The avian egg is the most elaborate reproductive cell in the animal kingdom.
+    FIGURE: Killdeer nest on the ground with camouflaged eggs visible
+    NOTES: A single clutch can sometimes have mixed paternity — sets up the next slide on mating systems.
+
+16. TYPE: content
+    HEADLINE: Monogamy, Pair Bonds & Mating Systems
+    POINTS:
+    - Most birds form monogamous pair bonds
+    - Some, like albatrosses and cranes, pair for life
+    - Many still engage in extra-pair copulations
+    - Mixed paternity within a single nest is common
+    CALLOUT: Monogamy in birds is real — but faithfulness is not guaranteed.
+    FIGURE: Albatross pair in a bill-clapping courtship display
+
+17. TYPE: section
+    HEADLINE: Brain, Voice & Senses
+    CALLOUT: Bird brains are 6-11x larger than an equivalently sized reptile brain.
+    FIGURE: American Crow, close-up portrait
+    NOTES: Birds are smarter than most people think.
+
+18. TYPE: content
+    HEADLINE: The Avian Brain: More Than We Thought
+    POINTS:
+    - Brain size is 6-11x larger than an equivalent-sized reptile
+    - Larger than many mammals of the same body mass
+    - The left hemisphere dominates learning and vocal innovation
+    - Functional lateralization mirrors primate brain organization
+    CALLOUT: The avian brain rivals primate brains in complexity of function.
+    FIGURE: New Caledonian Crow using a tool
+
+19. TYPE: content
+    HEADLINE: The Syrinx: An Instrument Without Parallel
+    POINTS:
+    - A unique sound organ at the base of the trachea
+    - Evolved after the bony tongue replaced the larynx
+    - Can produce two independent sounds simultaneously
+    - More acoustically complex than the mammalian larynx
+    CALLOUT: The syrinx is why birds can outsing any other animal on Earth.
+    FIGURE: Wood Thrush or Hermit Thrush singing on a branch, beak open
+
+20. TYPE: content
+    HEADLINE: Vision Beyond Human Range
+    POINTS:
+    - Four types of cone cells, where humans have three
+    - Birds perceive UV light invisible to humans
+    - Kestrels track vole urine trails using UV vision
+    - UV also guides mate choice and food selection
+    CALLOUT: Birds see a dimension of color that is completely invisible to us.
+    FIGURE: American Kestrel hovering while hunting
+
+21. TYPE: content
+    HEADLINE: Hearing: Infrasound to Ultrasound
+    POINTS:
+    - Hearing spans both infrasound and ultrasound
+    - Infrasound below 20 Hz detects distant storms and terrain
+    - Ultrasound above 20,000 Hz aids cave navigation in some species
+    - Barn Owls pinpoint prey by sound alone in total darkness
+    CALLOUT: Birds hear frequencies inaudible to humans at both ends of the spectrum.
+    FIGURE: Barn Owl facing forward, showing its parabolic facial disc
+
+22. TYPE: content
+    HEADLINE: Adaptive Radiation: One Body Plan, Infinite Forms
+    LAYOUT: figure grid
+    POINTS:
+    - 10,000+ species from one common ancestor
+    - Convergent evolution: similar problems, similar solutions
+    - Hummingbirds evolved from nocturnal insectivores
+    - Penguin flight feathers became flippers for swimming
+    CALLOUT: Birds are a single body plan that evolution has taken to every extreme.
+    FIGURE: hummingbird, ostrich, puffin, and flamingo side by side
+
+23. TYPE: content
+    HEADLINE: Biogeography: Where Birds Live and Why
+    POINTS:
+    - Tropical regions hold the highest species diversity
+    - Oceanic islands are hotbeds of adaptive radiation
+    - Continental drift shaped today's distributions
+    - Migration bridges otherwise separate ranges
+    CALLOUT: Where a bird lives is as much about history as about habitat.
+    FIGURE: Bird-of-paradise in a tropical rainforest canopy
+
+24. TYPE: content
+    HEADLINE: Challenge — One Ancestor, Three Extremes
+    LAYOUT: statement
+    POINTS:
+    - Sword-billed Hummingbird: a bill longer than its own body
+    - Northern Shoveler: strains food from mud
+    - Reddish Egret: spears fish
+    CALLOUT: All three share the same basic skeletal plan — how could one ancestral beak type give rise to all three, and what does that say about the rate and direction of evolution under strong selection?
+    FIGURE: Sword-billed Hummingbird feeding from a passionflower
+    NOTES: Discussion prompt — connect back to adaptive radiation (slide 22) and bill diversity (slide 7).
+
+25. TYPE: takeaway
+    HEADLINE: Every Feature Is an Adaptation
+    POINTS:
+    - Feathers: unique to birds, found in no other living vertebrate
+    - The gizzard replaces teeth with stones and muscle
+    - The furcula stores and releases energy like a spring
+    - Perching is automatic — tendons lock the toes at rest
+    - UV-sensitive cone cells reveal a hidden world of color
+    CALLOUT: Feathers, bills, hollow bones, a four-chambered heart, a syrinx, and UV vision — every feature of a bird is an adaptation. There are no accidents in avian form.
+    FIGURE: Resplendent Quetzal or King of Saxony Bird-of-Paradise
+    NOTES: Competency quiz (teacher copy — answers marked, not for the slide):
+    Question 1 — Feathers are unique to birds because: A) They evolved directly from reptile scales via a simple mutation. B) No other living vertebrate has homologous structures. (correct) C) They are found in all tetrapods but most visible in birds. D) They evolved independently in bats, birds, and pterosaurs.
+    Question 2 — A turkey gizzard can pulverize steel needles because: A) Its beak is reinforced with iron. B) It contains stones and powerful grinding muscles that replace chewing. (correct) C) Its stomach acid is more corrosive than other birds. D) It has partial teeth retained from theropod ancestors.
+    Question 3 — The furcula (wishbone) functions during flight by: A) Reducing body weight by replacing solid bones. B) Anchoring the main flight muscles to the sternum. C) Compressing and rebounding as a spring with each wingbeat. (correct) D) Connecting the wings directly to the synsacrum.
+    Question 4 — Birds can sleep while gripping a perch because: A) They have voluntary muscle control over their toes during sleep. B) Leg tendons automatically flex the toes when the ankle bends. (correct) C) Passerine toes are permanently fused in a gripping position. D) Special adhesive pads on the toes grip the branch.
+    Question 5 — Birds perceive UV light because they have: A) A wider pupil diameter than mammals. B) A tapetum lucidum that reflects UV wavelengths. C) Four types of cone cells, including one sensitive to UV. (correct) D) A transparent nictitating membrane that filters UV.
