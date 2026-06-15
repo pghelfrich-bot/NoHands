@@ -5114,6 +5114,10 @@ function wireUI(){
     if (presenting) renderPresent();
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveDeckNow(); });
+  // belt-and-suspenders for closing the tab/window: visibilitychange usually
+  // covers this, but pagehide fires in a few cases it doesn't (and is safe
+  // to call twice since saveDeckNow is a plain synchronous write)
+  window.addEventListener('pagehide', () => saveDeckNow());
 }
 
 /* ================= init ================= */
