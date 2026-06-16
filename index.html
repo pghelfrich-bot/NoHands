@@ -305,6 +305,10 @@ Design: free-text notes
           <button id="pdf-extract-all" class="btn small">Extract all</button>
           <button id="pdf-crop-mode" class="btn small">✂ Crop</button>
         </div>
+        <div class="ip-row">
+          <label class="check" title="Automatically insert each snipped region onto the current slide"><input type="checkbox" id="pdf-auto-insert"> Auto-insert</label>
+          <label class="check" title="Automatically remove the white page background from each snipped figure"><input type="checkbox" id="pdf-auto-cutout" checked> Auto-cutout</label>
+        </div>
         <div id="pdf-page-wrap" class="pdf-page-wrap">
           <canvas id="pdf-page-canvas"></canvas>
           <div id="pdf-crop-box" class="pdf-crop-box" hidden></div>

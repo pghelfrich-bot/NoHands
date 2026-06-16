@@ -3224,7 +3224,7 @@ async function loadPdfFile(file){
     await ensurePdfJs();
     const buf = await file.arrayBuffer();
     const doc = await window.pdfjsLib.getDocument({ data: buf }).promise;
-    pdfState = { doc, file, numPages: doc.numPages, pageNum: 1, page: null, viewport: null, figures: [], cropMode: false };
+    pdfState = { doc, file, numPages: doc.numPages, pageNum: 1, page: null, viewport: null, figures: [], cropMode: false, highResCanvas: null };
     $('#pdf-doc-name').textContent = `${file.name} · ${doc.numPages} page${doc.numPages === 1 ? '' : 's'}`;
     $('#pdf-doc').hidden = false;
     setCropMode(false);
@@ -3266,6 +3266,7 @@ async function gotoPdfPage(delta){
   const n = clamp(pdfState.pageNum + delta, 1, pdfState.numPages);
   if (n === pdfState.pageNum) return;
   pdfState.pageNum = n;
+  pdfState.highResCanvas = null;
   setCropMode(false);
   await renderPdfPage();
 }
@@ -3323,13 +3324,12 @@ function findImageBoxes(opList, viewport){
 
 /* crop a region of a rendered page canvas into a standalone figure, capping its
    resolution so the resulting data URL stays a reasonable size */
-function cropCanvasRegion(srcCanvas, box, pageNum){
+function cropCanvasRegion(srcCanvas, box, pageNum, maxDim = 1600){
   const x = Math.max(0, Math.round(box.x)), y = Math.max(0, Math.round(box.y));
   const w = Math.min(srcCanvas.width - x, Math.round(box.w));
   const h = Math.min(srcCanvas.height - y, Math.round(box.h));
   if (w < 24 || h < 24) return null;
-  const maxSide = 1200;
-  const sc = Math.min(1, maxSide / Math.max(w, h));
+  const sc = maxDim > 0 ? Math.min(1, maxDim / Math.max(w, h)) : 1;
   const cv = document.createElement('canvas');
   cv.width = Math.max(1, Math.round(w * sc));
   cv.height = Math.max(1, Math.round(h * sc));
@@ -3381,20 +3381,28 @@ function pdfCropPointerDown(e){
   };
   update(e.clientX, e.clientY);
   const onMove = ev => update(ev.clientX, ev.clientY);
-  const onUp = ev => {
+  const onUp = async ev => {
     wrap.removeEventListener('pointermove', onMove);
     wrap.removeEventListener('pointerup', onUp);
     const { left, top, w, h } = update(ev.clientX, ev.clientY);
     box.hidden = true;
     if (w < 8 || h < 8) return;
-    // scale from displayed CSS pixels to the canvas's actual pixel buffer
-    const sx = canvas.width / canvas.clientWidth, sy = canvas.height / canvas.clientHeight;
-    const fig = cropCanvasRegion(canvas, { x: left * sx, y: top * sy, w: w * sx, h: h * sy }, pdfState.pageNum);
-    if (fig){
-      pdfState.figures.push(fig);
-      setCropMode(false);
-      renderPdfFigures();
-      pdfStatus('Figure added below — click it to insert onto the current slide.');
+    // crop from the high-res canvas if available (scale 3), otherwise fall back to display canvas
+    const src = pdfState.highResCanvas || canvas;
+    const sx = src.width / canvas.clientWidth, sy = src.height / canvas.clientHeight;
+    const fig = cropCanvasRegion(src, { x: left * sx, y: top * sy, w: w * sx, h: h * sy }, pdfState.pageNum, 0);
+    if (!fig) return;
+    pdfState.figures.push(fig);
+    setCropMode(false);
+    renderPdfFigures();
+    if ($('#pdf-auto-cutout').checked){
+      pdfStatus('Removing background…');
+      await togglePdfFigureCutout(fig);
+    }
+    if ($('#pdf-auto-insert').checked){
+      insertPdfFigure(fig);
+    } else {
+      pdfStatus('Figure added — click "Insert onto slide" below.');
       document.querySelector('#pdf-figures').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
@@ -5334,7 +5342,16 @@ function wireUI(){
   $('#pdf-crop-mode').addEventListener('click', async () => {
     const on = !!(pdfState && !pdfState.cropMode);
     setCropMode(on);
-    if (on) await renderPdfPage();
+    if (on){
+      await renderPdfPage();
+      // render a high-res canvas (scale 3) in the background for crop quality
+      const page = pdfState.page;
+      const vp = page.getViewport({ scale: 3 });
+      const hrc = document.createElement('canvas');
+      hrc.width = Math.round(vp.width); hrc.height = Math.round(vp.height);
+      await page.render({ canvasContext: hrc.getContext('2d'), viewport: vp }).promise;
+      if (pdfState) pdfState.highResCanvas = hrc;
+    }
   });
   $('#pdf-page-wrap').addEventListener('pointerdown', pdfCropPointerDown);
 
