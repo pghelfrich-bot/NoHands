@@ -24,6 +24,7 @@
     <div class="dropdown">
       <button id="btn-export" class="btn ghost">Export ▾</button>
       <div class="dropdown-menu" id="export-menu">
+        <button id="export-drive">Save to Drive ☁</button>
         <button id="export-pptx">PowerPoint (.pptx)</button>
         <button id="export-pdf">PDF (print)</button>
         <button id="export-html">Standalone HTML</button>
@@ -107,6 +108,7 @@ Design: free-text notes
     <div id="home-head">
       <h1 id="home-title">All decks</h1>
       <span class="spacer"></span>
+      <button id="btn-drive" class="btn ghost" title="Browse and open decks from Google Drive">☁ Drive</button>
       <button id="btn-import-deck" class="btn ghost">Import deck</button>
       <button id="btn-batch-outline" class="btn ghost" title="Build a separate deck from each outline .txt file you pick">Batch from outlines</button>
       <button id="btn-from-template" class="btn ghost" title="Start a new deck from a saved skeleton">From template</button>
@@ -361,9 +363,26 @@ Design: free-text notes
     <label class="field">Anthropic API key <span class="muted">(optional — for "Draft from prose" AI mode)</span>
       <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
     </label>
+    <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
+    <p style="font-size:13.5px;font-weight:600;margin-bottom:4px">Google Drive sync</p>
+    <label class="field">OAuth Client ID <span class="muted">(create a <em>Web Application</em> OAuth 2.0 credential in <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud Console</a>, enable the Drive API, and add this page's origin as an Authorized JavaScript Origin)</span>
+      <input id="set-drive-client-id" type="text" autocomplete="off" placeholder="123456789-xxxx.apps.googleusercontent.com">
+    </label>
     <div class="modal-actions">
       <button value="cancel" class="btn ghost" type="submit">Cancel</button>
       <button id="set-save" class="btn primary" type="button">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== GOOGLE DRIVE ===================== -->
+<dialog id="drive-modal" class="modal" style="width:min(600px,94vw)">
+  <form method="dialog">
+    <h2>Google Drive</h2>
+    <p class="modal-sub">Your LectureFlow decks backed up to Drive — open from any device.</p>
+    <ul id="drive-list" style="list-style:none;padding:0;max-height:380px;overflow-y:auto;margin:12px 0"></ul>
+    <div class="modal-actions">
+      <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>
 </dialog>

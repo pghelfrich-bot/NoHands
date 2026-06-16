@@ -566,7 +566,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', braveKey:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', braveKey:'', driveClientId:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -5255,6 +5255,7 @@ function wireUI(){
   // home screen
   $('#btn-new-deck').addEventListener('click', () => showScreen('outline'));
   $('#btn-new-folder').addEventListener('click', newFolder);
+  $('#btn-drive').addEventListener('click', openDriveModal);
   $('#btn-import-deck').addEventListener('click', () => $('#file-import').click());
   $('#file-import').addEventListener('change', e => {
     const f = e.target.files[0]; if (f) importDeckFile(f); e.target.value = '';
@@ -5289,6 +5290,7 @@ function wireUI(){
   const dd = $('#btn-export').closest('.dropdown');
   $('#btn-export').addEventListener('click', e => { e.stopPropagation(); dd.classList.toggle('open'); });
   document.addEventListener('click', () => dd.classList.remove('open'));
+  $('#export-drive').addEventListener('click', () => { dd.classList.remove('open'); driveSaveDeck(); });
   $('#export-pptx').addEventListener('click', () => { dd.classList.remove('open'); exportPPTX(); });
   $('#export-pdf').addEventListener('click', () => { dd.classList.remove('open'); exportPDF(); });
   $('#export-html').addEventListener('click', () => { dd.classList.remove('open'); exportHTML(); });
@@ -5309,6 +5311,7 @@ function wireUI(){
     $('#set-google-cx').value = settings.googleCx || '';
     $('#set-bing').value = settings.bingKey || '';
     $('#set-brave').value = settings.braveKey || '';
+    $('#set-drive-client-id').value = settings.driveClientId || '';
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
@@ -5321,6 +5324,9 @@ function wireUI(){
     settings.googleCx = $('#set-google-cx').value.trim();
     settings.bingKey = $('#set-bing').value.trim();
     settings.braveKey = $('#set-brave').value.trim();
+    const prevDriveId = settings.driveClientId;
+    settings.driveClientId = $('#set-drive-client-id').value.trim();
+    if (settings.driveClientId !== prevDriveId){ _driveToken = null; _driveTokenClient = null; _driveFolderId = null; }
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
     toast('Settings saved');
@@ -5774,6 +5780,201 @@ function wireUI(){
   // covers this, but pagehide fires in a few cases it doesn't (and is safe
   // to call twice since saveDeckNow is a plain synchronous write)
   window.addEventListener('pagehide', () => saveDeckNow());
+}
+
+/* ================= Google Drive sync ================= */
+
+let _driveToken = null, _driveTokenExpiry = 0, _driveTokenClient = null, _driveFolderId = null;
+
+async function driveAuth(){
+  if (!settings.driveClientId){
+    toast('Add a Google OAuth Client ID in Settings → Google Drive sync to enable this feature');
+    return null;
+  }
+  if (_driveToken && Date.now() < _driveTokenExpiry) return _driveToken;
+  if (!window.google?.accounts?.oauth2){
+    try { await loadScript('https://accounts.google.com/gsi/client'); }
+    catch(e){ toast('Could not load Google Sign-In library — check your network'); return null; }
+  }
+  return new Promise(resolve => {
+    if (!_driveTokenClient || _driveTokenClient._cid !== settings.driveClientId){
+      _driveTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: settings.driveClientId,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: resp => {
+          if (resp.error){ resolve(null); return; }
+          _driveToken = resp.access_token;
+          _driveTokenExpiry = Date.now() + (resp.expires_in || 3600) * 1000 - 60000;
+          _driveFolderId = null;
+          resolve(_driveToken);
+        },
+        error_callback: () => resolve(null),
+      });
+      _driveTokenClient._cid = settings.driveClientId;
+    }
+    _driveTokenClient.requestAccessToken();
+  });
+}
+
+async function driveUpload(fileId, meta, content){
+  const token = await driveAuth();
+  if (!token) return null;
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=resumable&fields=id`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id';
+  const initRes = await fetch(url, {
+    method: fileId ? 'PATCH' : 'POST',
+    headers: { 'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json; charset=UTF-8',
+                'X-Upload-Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  });
+  if (!initRes.ok){ if (initRes.status === 401) _driveToken = null; throw new Error('Drive API ' + initRes.status); }
+  const uploadUrl = initRes.headers.get('Location');
+  const uploadRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: content });
+  if (!uploadRes.ok) throw new Error('Drive upload ' + uploadRes.status);
+  return uploadRes.json();
+}
+
+async function driveEnsureFolder(){
+  if (_driveFolderId) return _driveFolderId;
+  const token = await driveAuth();
+  if (!token) return null;
+  const q = encodeURIComponent("name='LectureFlow' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+    { headers: { 'Authorization': 'Bearer ' + token } });
+  const d = await r.json();
+  if (d.files?.length){ _driveFolderId = d.files[0].id; return _driveFolderId; }
+  const cr = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'LectureFlow', mimeType: 'application/vnd.google-apps.folder' }),
+  });
+  const folder = await cr.json();
+  _driveFolderId = folder.id;
+  return _driveFolderId;
+}
+
+async function driveSaveDeck(d){
+  d = d || state.deck;
+  if (!d){ toast('Open a deck first, then use Export → Save to Drive'); return; }
+  if (!settings.driveClientId){ toast('Add a Google OAuth Client ID in Settings → Google Drive sync'); return; }
+  toast('Saving to Google Drive…', 12000);
+  try {
+    const folderId = await driveEnsureFolder();
+    if (!folderId) return;
+    const fileName = safeName(d.title || 'Untitled') + '.lectureflow.json';
+    const content = JSON.stringify(d);
+    const result = await driveUpload(
+      d.driveFileId || null,
+      d.driveFileId ? { name: fileName } : { name: fileName, parents: [folderId] },
+      content);
+    if (!result) return;
+    if (!d.driveFileId){
+      d.driveFileId = result.id;
+      saveDeckNow();
+    }
+    toast('Saved to Google Drive ✓');
+  } catch(e){
+    console.error('Drive save:', e);
+    toast('Drive save failed — ' + (e.message || 'unknown error'));
+  }
+}
+
+async function driveListFiles(){
+  const folderId = await driveEnsureFolder();
+  if (!folderId) return [];
+  const token = await driveAuth();
+  if (!token) return [];
+  const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+  const r = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime,size)&orderBy=modifiedTime+desc`,
+    { headers: { 'Authorization': 'Bearer ' + token } });
+  if (!r.ok) return [];
+  return (await r.json()).files || [];
+}
+
+async function driveDeleteFile(fileId){
+  const token = await driveAuth();
+  if (!token) return;
+  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`,
+    { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+}
+
+async function driveOpenDeck(fileId){
+  try {
+    const token = await driveAuth();
+    if (!token) return;
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) throw new Error('download ' + r.status);
+    const d = migrateDeck(await r.json());
+    if (!d || !Array.isArray(d.slides)) throw new Error('invalid deck');
+    d.id = d.id || uid();
+    d.driveFileId = fileId;
+    openDeck(d);
+    $('#drive-modal')?.close();
+    toast(`Opened "${d.title || 'Untitled'}" from Drive`);
+  } catch(e){
+    console.error('Drive open:', e);
+    toast('Could not open deck from Drive — ' + e.message);
+  }
+}
+
+async function openDriveModal(){
+  if (!settings.driveClientId){
+    toast('Add a Google OAuth Client ID in Settings → Google Drive sync first');
+    $('#btn-settings').click();
+    return;
+  }
+  const dlg = $('#drive-modal');
+  const list = $('#drive-list');
+  list.innerHTML = '';
+  const loading = el('p', 'muted'); loading.style.padding = '16px 0';
+  loading.textContent = 'Connecting to Google Drive…';
+  list.appendChild(loading);
+  dlg.showModal();
+  try {
+    const files = await driveListFiles();
+    list.innerHTML = '';
+    if (!files.length){
+      const msg = el('p', 'muted'); msg.style.padding = '16px 0';
+      msg.textContent = 'No LectureFlow decks in Drive yet. Open a deck in the editor and use Export → Save to Drive to back it up.';
+      list.appendChild(msg);
+      return;
+    }
+    files.forEach(f => {
+      const li = el('li', 'drive-item');
+      const info = el('div', 'drive-item-info');
+      const name = el('div', 'drive-item-name');
+      name.textContent = f.name.replace(/\.lectureflow\.json$/i, '');
+      const meta = el('div', 'drive-item-meta');
+      const sz = f.size ? ' · ' + (f.size / 1048576).toFixed(1) + ' MB' : '';
+      meta.textContent = new Date(f.modifiedTime).toLocaleDateString() + sz;
+      info.append(name, meta);
+      const btns = el('div', 'drive-item-btns');
+      const openBtn = el('button', 'btn small ghost'); openBtn.textContent = 'Open';
+      openBtn.onclick = () => driveOpenDeck(f.id);
+      const delBtn = el('button', 'btn small ghost'); delBtn.textContent = '✕';
+      delBtn.title = 'Delete from Drive (your local copy is unaffected)';
+      delBtn.style.color = '#f87171';
+      delBtn.onclick = async () => {
+        if (!confirm(`Delete "${name.textContent}" from Google Drive?\n\nThis only removes the Drive backup — your local copy in this browser is unaffected.`)) return;
+        await driveDeleteFile(f.id);
+        li.remove();
+        if (!$('#drive-list li')){ const msg = el('p','muted'); msg.style.padding='16px 0'; msg.textContent='No decks in Drive.'; list.appendChild(msg); }
+        toast('Deleted from Drive');
+      };
+      btns.append(openBtn, delBtn);
+      li.append(info, btns);
+      list.appendChild(li);
+    });
+  } catch(e){
+    list.innerHTML = '';
+    const err = el('p'); err.style.cssText = 'color:#f87171;padding:16px 0';
+    err.textContent = 'Could not load Drive files — ' + (e.message || 'check your Client ID and try again');
+    list.appendChild(err);
+  }
 }
 
 /* ================= init ================= */
