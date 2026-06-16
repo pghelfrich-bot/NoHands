@@ -1705,7 +1705,7 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   // Non-banner chips use fit-content+max-width via CSS by default.
   // When the user has explicitly dragged to a custom width (a.w != null), honour it with an inline width.
   const isAutoChip = extraCls.includes('lf-chip') && !extraCls.includes('lf-takeaway-banner');
-  const widthStyle = isAutoChip ? (a.w != null ? `width:${a.w}px;` : '') : `width:${w}px;`;
+  const widthStyle = isAutoChip ? (a.w != null ? `width:${a.w}px;max-width:none;` : '') : `width:${w}px;`;
   const node = el('div', cls, `left:${x}px;top:${y}px;${widthStyle}font-size:${fs}px;`
     + (a.align ? `text-align:${a.align};` : '')
     + (a.color ? `color:${a.color};` : '')
@@ -2370,6 +2370,7 @@ function startResize(e, dir, node, slide, info, root, accLine){
     } else {
       const patch = { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw) };
       node.style.left = patch.x + 'px'; node.style.top = patch.y + 'px'; node.style.width = patch.w + 'px';
+      node.style.maxWidth = 'none'; // let user override CSS max-width on chips
       // vertical / corner drags rescale the text
       if (dir.includes('n') || dir.includes('s')){
         const nfs = clamp(Math.round(fs0 * nh / h0), 8, 200);
