@@ -97,6 +97,7 @@ const SLIDE_CSS = `
    readable presets: dark fill/white text (default) or beige/dark text */
 .slide .lf-ann.lf-chip{padding:12px 16px;border-radius:8px;border-left:4px solid var(--lf-accent);
   background:rgba(10,18,28,.72);color:#fff;box-shadow:0 10px 24px rgba(6,14,24,.18)}
+.slide .lf-ann.lf-chip:not(.lf-takeaway-banner){width:fit-content;min-width:80px;max-width:${ANN_W}px}
 .slide .lf-ann.lf-chip::before{display:none}
 .slide .lf-ann.lf-chip.lf-chip-light{background:#f6efe2;color:#23303d;box-shadow:0 10px 24px rgba(15,30,45,.10)}
 /* the slide's one big takeaway — a CALLOUT or the last point — as a wide bottom banner */
@@ -545,6 +546,7 @@ const state = {
   selMulti: [],      // sel strings forming a multi-selection (group), when length >= 2
 };
 let viewScale = 1;
+let userZoom = 1;   // multiplicative zoom on top of fit-to-window scale
 let panelSeedFor = null;
 let textScale = 1;   // deck.textScale, applied to default (non-overridden) font sizes while rendering
 
@@ -1648,7 +1650,9 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   const w = a.w != null ? a.w : def.w;
   const fs = a.fs != null ? a.fs : (def.fs || 19) * textScale;
   const cls = (cardNum ? 'lf-ann lf-anncard lf-box' : 'lf-ann lf-box') + (extraCls ? ' ' + extraCls : '');
-  const node = el('div', cls, `left:${x}px;top:${y}px;width:${w}px;font-size:${fs}px;`
+  // non-banner chips auto-size to their text via CSS; skip the inline width so CSS wins
+  const isAutoChip = extraCls.includes('lf-chip') && !extraCls.includes('lf-takeaway-banner');
+  const node = el('div', cls, `left:${x}px;top:${y}px;${isAutoChip ? '' : `width:${w}px;`}font-size:${fs}px;`
     + (a.align ? `text-align:${a.align};` : '')
     + (a.color ? `color:${a.color};` : '')
     + (a.bg ? `background-color:${a.bg};` + (cardNum ? '' : 'padding:10px 14px;border-radius:10px;') : ''));
@@ -1923,7 +1927,8 @@ function fitCanvas(){
   const wrap = $('#canvas-wrap');
   if (!wrap) return;
   const availW = wrap.clientWidth - 36, availH = wrap.clientHeight - 36;
-  viewScale = Math.max(0.1, Math.min(availW / SLIDE_W, availH / SLIDE_H));
+  const baseScale = Math.max(0.1, Math.min(availW / SLIDE_W, availH / SLIDE_H));
+  viewScale = baseScale * userZoom;
   const sc = $('#canvas-scale');
   sc.style.width = (SLIDE_W * viewScale) + 'px';
   sc.style.height = (SLIDE_H * viewScale) + 'px';
@@ -5222,8 +5227,17 @@ function wireUI(){
   $('#btn-add-label').addEventListener('click', () => {
     const s = cur(); if (!s) return;
     checkpoint();
-    s.annotations.push({ id: uid(), text: 'New label', full: '', x: null, y: null });
+    const newAnn = { id: uid(), text: 'Label', full: '', x: null, y: null };
+    s.annotations.push(newAnn);
     refreshAll();
+    requestAnimationFrame(() => {
+      const ed = document.querySelector(`[data-edit="ann:${newAnn.id}"]`);
+      if (!ed) return;
+      try { ed.contentEditable = 'plaintext-only'; } catch (err) { ed.contentEditable = 'true'; }
+      ed.focus();
+      const r = document.createRange(); r.selectNodeContents(ed);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    });
   });
   $('#sel-front').addEventListener('click', () => { checkpoint(); reorderImage(+1); });
   $('#sel-back').addEventListener('click', () => { checkpoint(); reorderImage(-1); });
@@ -5523,6 +5537,16 @@ function wireUI(){
 
   // drop images onto the canvas
   const wrap = $('#canvas-wrap');
+
+  // trackpad pinch or ctrl+scroll → zoom the slide canvas
+  wrap.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const factor = Math.pow(0.998, e.deltaY);
+    userZoom = Math.max(0.4, Math.min(3, userZoom * factor));
+    fitCanvas();
+  }, { passive: false });
+
   wrap.addEventListener('dragover', e => {
     if (e.dataTransfer.types.includes('text/lf-image')) e.preventDefault();
   });
