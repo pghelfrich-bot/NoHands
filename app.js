@@ -607,7 +607,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', pixabayKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', braveKey:'', driveClientId:'' };
+let settings = { unsplashKey:'', pexelsKey:'', pixabayKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', serperKey:'', bingKey:'', braveKey:'', driveClientId:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -3079,6 +3079,27 @@ const PROVIDERS = {
       }));
     },
   },
+  serper: {
+    label: 'Google Images (Serper)',
+    ready: () => !!settings.serperKey,
+    async search(q, opts = {}){
+      const term = opts.transparent ? `${q} transparent png` : q;
+      const j = await getJSON('https://google.serper.dev/images', {
+        method: 'POST',
+        headers: { 'X-API-KEY': settings.serperKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: term, num: opts.limit || 30 }),
+      });
+      return (j.images || []).map((r, i) => ({
+        provider: 'serper', id: 'sp-' + i + '-' + (r.imageUrl || '').slice(-24),
+        thumb: r.thumbnailUrl || r.imageUrl, full: r.imageUrl,
+        title: r.title || '', author: r.source || r.domain || 'Unknown site',
+        authorUrl: r.link || '', pageUrl: r.link || '',
+        // raw web results — not pre-cleared for reuse like the open-license providers
+        license: 'Unknown — verify rights before reuse', licenseUrl: '',
+        sourceName: 'Google Images',
+      }));
+    },
+  },
   bing: {
     label: 'Bing Images',
     ready: () => !!settings.bingKey,
@@ -5391,6 +5412,7 @@ function wireUI(){
     $('#set-anthropic').value = settings.anthropicKey || '';
     $('#set-google-key').value = settings.googleKey || '';
     $('#set-google-cx').value = settings.googleCx || '';
+    $('#set-serper').value = settings.serperKey || '';
     $('#set-bing').value = settings.bingKey || '';
     $('#set-brave').value = settings.braveKey || '';
     $('#set-drive-client-id').value = settings.driveClientId || '';
@@ -5405,6 +5427,7 @@ function wireUI(){
     settings.anthropicKey = $('#set-anthropic').value.trim();
     settings.googleKey = $('#set-google-key').value.trim();
     settings.googleCx = $('#set-google-cx').value.trim();
+    settings.serperKey = $('#set-serper').value.trim();
     settings.bingKey = $('#set-bing').value.trim();
     settings.braveKey = $('#set-brave').value.trim();
     const prevDriveId = settings.driveClientId;

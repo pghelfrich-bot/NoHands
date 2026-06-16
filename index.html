@@ -219,7 +219,8 @@ Design: free-text notes
           <option value="unsplash">Unsplash (key)</option>
           <option value="pexels">Pexels (key)</option>
           <option value="pixabay">Pixabay (key)</option>
-          <option value="google">Google Images (key)</option>
+          <option value="google">Google Images — Custom Search (key)</option>
+          <option value="serper">Google Images — full web (key)</option>
           <option value="bing">Bing Images (key)</option>
           <option value="brave">Brave Images (key)</option>
         </select>
@@ -354,7 +355,14 @@ Design: free-text notes
       <input id="set-google-cx" type="text" autocomplete="off" placeholder="e.g. 0123456789abcdef0">
     </label>
     <p class="modal-sub">Google Images results aren't pre-filtered by license like the other
-    sources — check usage rights before reusing or sharing an image beyond your own slides.</p>
+    sources — check usage rights before reusing or sharing an image beyond your own slides. Note: by
+    default a Programmable Search Engine only searches the sites you list — turn on "Search the entire
+    web" in its settings at programmablesearchengine.google.com to get full Google Images breadth.</p>
+    <label class="field">Serper API key <span class="muted">(optional — full unrestricted Google Images results, ~2,500 free on signup, then ~$0.001/search)</span>
+      <input id="set-serper" type="password" autocomplete="off" placeholder="from serper.dev">
+    </label>
+    <p class="modal-sub">Serper returns real Google Images results across the whole web — no Custom
+    Search Engine setup needed. Not pre-filtered by license — verify usage rights before reuse.</p>
     <label class="field">Bing Image Search API key <span class="muted">(optional — 1,000 free searches/month via Azure free tier)</span>
       <input id="set-bing" type="password" autocomplete="off" placeholder="from portal.azure.com → Bing Search v7">
     </label>
