@@ -536,7 +536,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', clipdropKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', serperKey:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -2985,6 +2985,27 @@ const PROVIDERS = {
       }));
     },
   },
+  serper: {
+    label: 'Google via Serper',
+    ready: () => !!settings.serperKey,
+    async search(q, opts = {}){
+      const body = { q, num: opts.limit || 20, hl: 'en' };
+      if (opts.transparent) body.tbs = 'ic:trans';
+      const j = await getJSON('https://google.serper.dev/images', {
+        method: 'POST',
+        headers: { 'X-API-KEY': settings.serperKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return (j.images || []).map(r => ({
+        provider: 'serper', id: 'serper-' + encodeURIComponent(r.imageUrl || '').slice(0, 40),
+        thumb: r.thumbnailUrl || r.imageUrl, full: r.imageUrl,
+        title: r.title || '', author: r.source || '',
+        authorUrl: r.link || '', pageUrl: r.link || '',
+        license: 'Unknown — verify rights before reuse', licenseUrl: '',
+        sourceName: 'Google Images (Serper)',
+      }));
+    },
+  },
 };
 
 function ipStatus(msg, isErr){
@@ -3873,20 +3894,20 @@ async function applyCutout(im){
     const crossOrigin = !im.src.startsWith('data:');
     toast(crossOrigin
       ? 'Could not remove the background (image is cross-origin — insert it onto the slide first to embed it)'
-      : 'The built-in remover works best for solid/white backgrounds — add a remove.bg or Clipdrop API key for photos');
+      : 'The built-in remover works best for solid/white backgrounds — add a remove.bg or PhotoRoom API key for photos');
   }
 }
 
 /* try each configured background-removal service in order, falling back to
-   the next if one fails (e.g. monthly limit hit) and finally to the local remover */
+   the next if one fails (e.g. monthly limit hit), then to the free in-browser ML model */
 async function cutoutBestAvailable(im){
   if (settings.removebgKey){
     try { return await cutoutRemoveBg(im); } catch (e) { /* try next */ }
   }
-  if (settings.clipdropKey){
-    try { return await cutoutClipdrop(im); } catch (e) { /* try next */ }
+  if (settings.photoroomKey){
+    try { return await cutoutPhotoRoom(im); } catch (e) { /* try next */ }
   }
-  return await cutoutLocal(im);
+  return await cutoutImgly(im);
 }
 
 async function cutoutRemoveBg(im){
@@ -3901,25 +3922,38 @@ async function cutoutRemoveBg(im){
   return blobToDataURL(await res.blob());
 }
 
-async function cutoutClipdrop(im){
-  // Clipdrop needs the image as a Blob (not base64 or URL).
-  // For data URLs this works instantly; for cross-origin URLs the fetch may be
-  // blocked by CORS, in which case we throw so the cascade tries the next service.
+async function cutoutPhotoRoom(im){
   let blob;
   if (im.src.startsWith('data:')){
     blob = await (await fetch(im.src)).blob();
   } else {
     const res = await fetch(im.src);
-    if (!res.ok) throw new Error('Could not fetch image for Clipdrop');
+    if (!res.ok) throw new Error('Could not fetch image for PhotoRoom');
     blob = await res.blob();
   }
   const fd = new FormData();
   fd.append('image_file', blob, 'image.png');
-  const res = await fetch('https://clipdrop-api.co/remove-background/v1', {
-    method: 'POST', headers: { 'x-api-key': settings.clipdropKey }, body: fd,
+  const res = await fetch('https://sdk.photoroom.com/v1/segment', {
+    method: 'POST', headers: { 'x-api-key': settings.photoroomKey }, body: fd,
   });
-  if (!res.ok) throw new Error('Clipdrop HTTP ' + res.status);
+  if (!res.ok) throw new Error('PhotoRoom HTTP ' + res.status);
   return blobToDataURL(await res.blob());
+}
+
+let _imglyMod = null;
+async function cutoutImgly(im){
+  if (!_imglyMod){
+    _imglyMod = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal/dist/index.browser.js');
+  }
+  const publicPath = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal/dist/';
+  let input;
+  if (im.src.startsWith('data:')){
+    input = await (await fetch(im.src)).blob();
+  } else {
+    input = im.src;
+  }
+  const blob = await _imglyMod.removeBackground(input, { publicPath });
+  return blobToDataURL(blob);
 }
 
 /* fast white-background remover for PDF figures.
@@ -5174,22 +5208,24 @@ function wireUI(){
     $('#set-unsplash').value = settings.unsplashKey || '';
     $('#set-pexels').value = settings.pexelsKey || '';
     $('#set-removebg').value = settings.removebgKey || '';
-    $('#set-clipdrop').value = settings.clipdropKey || '';
+    $('#set-photoroom').value = settings.photoroomKey || '';
     $('#set-anthropic').value = settings.anthropicKey || '';
     $('#set-google-key').value = settings.googleKey || '';
     $('#set-google-cx').value = settings.googleCx || '';
     $('#set-bing').value = settings.bingKey || '';
+    $('#set-serper').value = settings.serperKey || '';
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
     settings.unsplashKey = $('#set-unsplash').value.trim();
     settings.pexelsKey = $('#set-pexels').value.trim();
     settings.removebgKey = $('#set-removebg').value.trim();
-    settings.clipdropKey = $('#set-clipdrop').value.trim();
+    settings.photoroomKey = $('#set-photoroom').value.trim();
     settings.anthropicKey = $('#set-anthropic').value.trim();
     settings.googleKey = $('#set-google-key').value.trim();
     settings.googleCx = $('#set-google-cx').value.trim();
     settings.bingKey = $('#set-bing').value.trim();
+    settings.serperKey = $('#set-serper').value.trim();
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
     toast('Settings saved');

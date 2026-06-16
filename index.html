@@ -217,6 +217,7 @@ Design: free-text notes
           <option value="pexels">Pexels (key)</option>
           <option value="google">Google Images (key)</option>
           <option value="bing">Bing Images (key)</option>
+          <option value="serper">Google via Serper (key)</option>
         </select>
         <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
           <input type="checkbox" id="ip-cutout"> Cutout
@@ -336,9 +337,10 @@ Design: free-text notes
     <label class="field">remove.bg API key <span class="muted">(background removal — 50 free/month)</span>
       <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
     </label>
-    <label class="field">Clipdrop API key <span class="muted">(background removal — larger daily free tier; used if remove.bg fails or isn't set)</span>
-      <input id="set-clipdrop" type="password" autocomplete="off" placeholder="from clipdrop.co/apis">
+    <label class="field">PhotoRoom API key <span class="muted">(background removal — 100 free/month; used if remove.bg fails or isn't set)</span>
+      <input id="set-photoroom" type="password" autocomplete="off" placeholder="from app.photoroom.com/api">
     </label>
+    <p class="modal-sub">No API keys set? Background removal falls back to a free in-browser ML model (downloads ~5 MB of model weights on first use, then cached).</p>
     <label class="field">Google API key <span class="muted">(optional — for Google Images search)</span>
       <input id="set-google-key" type="password" autocomplete="off" placeholder="from Google Cloud Console">
     </label>
@@ -351,6 +353,10 @@ Design: free-text notes
       <input id="set-bing" type="password" autocomplete="off" placeholder="from portal.azure.com → Bing Search v7">
     </label>
     <p class="modal-sub">Bing Images results aren't pre-filtered by license — verify usage rights before sharing beyond your own slides.</p>
+    <label class="field">Serper API key <span class="muted">(optional — Google Images via serper.dev, 2,500 free/month)</span>
+      <input id="set-serper" type="password" autocomplete="off" placeholder="from serper.dev/api-key">
+    </label>
+    <p class="modal-sub">Serper returns real Google Images results. Like Google/Bing, these aren't pre-filtered by license — verify rights before reuse.</p>
     <label class="field">Anthropic API key <span class="muted">(optional — for "Draft from prose" AI mode)</span>
       <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
     </label>
