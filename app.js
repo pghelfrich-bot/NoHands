@@ -4252,7 +4252,7 @@ html,body{margin:0;padding:0}
 
 async function exportPPTX(){
   if (!guardDeck()) return;
-  toast('Preparing PowerPoint…', 8000);
+  toast('Preparing PowerPoint…', 15000);
   try { await loadScript('https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js'); }
   catch (e) { toast('Could not load the PPTX library — check your network'); return; }
   await ensureEmbedded(state.deck);
@@ -4300,8 +4300,14 @@ async function exportPPTX(){
     });
   };
 
-  deck.slides.forEach((s, idx) => {
+  for (const [idx, s] of deck.slides.entries()) {
     const dark = isDark(s);
+    // cinematic reveal: for content slides create one PPTX slide per reveal step
+    const isContentBranch = s.type !== 'title' && s.type !== 'roadmap' && s.type !== 'section' && s.type !== 'takeaway';
+    const revealAnns = deck.motion && isContentBranch && s.annotations && s.annotations.length > 0;
+    const revSteps = revealAnns ? s.annotations.length + 1 : 1;
+    for (let revStep = 0; revStep < revSteps; revStep++) {
+    const maxAnns = revealAnns ? revStep : Infinity;
     const sl = p.addSlide();
     sl.background = { color: C(dark ? pal.darkSolid : pal.lightSolid) };
     addBackground(sl, dark);
@@ -4425,6 +4431,7 @@ async function exportPPTX(){
         if (L.annStyle === 'step' && L.timelineGeom){
           const g = L.timelineGeom;
           s.annotations.forEach((a, i) => {
+            if (i >= maxAnns) return;
             const st = g.stops[i]; if (!st) return;
             const r = g.horizontal ? 36 : 26;
             sl.addText(String(i + 1), { shape: 'ellipse', x: I(st.cx - r), y: I(st.cy - r), w: I(r * 2), h: I(r * 2),
@@ -4440,6 +4447,7 @@ async function exportPPTX(){
           });
         } else {
           s.annotations.forEach((a, i) => {
+            if (i >= maxAnns) return;
             const def = L.anns[i];
             if (L.annStyle === 'none' || L.annStyle === 'caption' || !def) return;
             const x = a.x != null ? a.x : def.x, y = a.y != null ? a.y : def.y;
@@ -4574,6 +4582,7 @@ async function exportPPTX(){
     // figure-grid captions, drawn on top of their own photo
     if (cl.annStyle === 'caption'){
       s.annotations.forEach((a, i) => {
+        if (i >= maxAnns) return;
         const def = cl.anns[i];
         if (!def) return;
         const x = a.x != null ? a.x : def.x, y = a.y != null ? a.y : def.y;
@@ -4595,7 +4604,8 @@ async function exportPPTX(){
       sl.addText('Photo: ' + [...new Set(attrs)].join(' · '), { x: I(84), y: I(footY), w: I(1000), h: I(24), fontSize: 7.5, color: dark ? '7E8FA0' : '8A98A6' });
     if (s.notes) sl.addNotes(s.notes);
     addFrame(sl, dark);
-  });
+    } // end revStep inner loop (cinematic reveal)
+  } // end deck.slides for-of
 
   // credits slide
   const attrs = collectAttributions(deck);
