@@ -21,6 +21,47 @@ const LS = {
   deck:   id => 'lectureflow.deck.' + id,
 };
 
+/* IndexedDB for deck content — no 5MB cap, survives large image decks */
+const IDB = (() => {
+  let _db = null;
+  function openDb(){
+    if (_db) return Promise.resolve(_db);
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('LectureFlowDecks', 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore('decks');
+      r.onsuccess = e => { _db = e.target.result; res(_db); };
+      r.onerror = () => rej(r.error);
+    });
+  }
+  async function get(key){
+    const db = await openDb();
+    return new Promise((res, rej) => {
+      const r = db.transaction('decks','readonly').objectStore('decks').get(key);
+      r.onsuccess = () => res(r.result ?? null);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  async function set(key, val){
+    const db = await openDb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('decks','readwrite');
+      tx.objectStore('decks').put(val, key);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  }
+  async function del(key){
+    const db = await openDb();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('decks','readwrite');
+      tx.objectStore('decks').delete(key);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  }
+  return { get, set, del };
+})();
+
 const PALETTES = {
   ocean:  { accent:'#38bdf8', accent2:'#5eead4', accentInk:'#0b7cae',
             darkSolid:'#0b1f2e', lightSolid:'#f7fafc',
@@ -636,11 +677,11 @@ function updateSaveBtn(){
   }
 }
 
-function saveDeckNow(){
+async function saveDeckNow(){
   const d = state.deck;
   if (!d) return;
   try {
-    localStorage.setItem(LS.deck(d.id), JSON.stringify(d));
+    await IDB.set(LS.deck(d.id), JSON.stringify(d));
     const all = deckIndex();
     const prev = all.find(e => e.id === d.id);
     const idx = all.filter(e => e.id !== d.id);
@@ -649,9 +690,11 @@ function saveDeckNow(){
     saveIndex(idx);
     localStorage.setItem(LS.current, d.id);
     saveStatus = 'ok';
+    // auto-sync to Drive if already authenticated (silent, no popup)
+    if (settings.driveClientId && _driveToken && Date.now() < _driveTokenExpiry) _driveAutoSave();
   } catch (e) {
     saveStatus = 'failed';
-    toast('Could not save (storage full) — try exporting the deck, then delete some others to free space');
+    toast('Could not save — please try exporting your deck');
   }
   updateSaveBtn();
 }
@@ -660,19 +703,25 @@ const save = debounce(saveDeckNow, 400);
 /* persist a brand-new deck (not the currently open one) to storage and the
    deck index — used by batch outline import, which creates several decks
    without switching the editor away from the home screen */
-function saveNewDeck(d, folder = null){
-  localStorage.setItem(LS.deck(d.id), JSON.stringify(d));
+async function saveNewDeck(d, folder = null){
+  await IDB.set(LS.deck(d.id), JSON.stringify(d));
   const idx = deckIndex();
   idx.unshift({ id: d.id, title: d.title || 'Untitled deck', updated: Date.now(),
                 count: d.slides.length, folder });
   saveIndex(idx);
 }
 
-function loadDeck(id){
-  try { return migrateDeck(JSON.parse(localStorage.getItem(LS.deck(id)))); } catch (e) { return null; }
+async function loadDeck(id){
+  try {
+    let raw = await IDB.get(LS.deck(id));
+    // fall back to localStorage for decks saved before IDB migration
+    if (!raw) raw = localStorage.getItem(LS.deck(id));
+    return raw ? migrateDeck(JSON.parse(raw)) : null;
+  } catch (e) { return null; }
 }
-function deleteDeck(id){
-  localStorage.removeItem(LS.deck(id));
+async function deleteDeck(id){
+  await IDB.del(LS.deck(id));
+  localStorage.removeItem(LS.deck(id)); // remove legacy copy too
   localStorage.setItem(LS.index, JSON.stringify(deckIndex().filter(e => e.id !== id)));
 }
 
@@ -4832,19 +4881,20 @@ function deckCard(entry){
     ev.dataTransfer.effectAllowed = 'move';
   });
   const thumb = el('div', 'dc-thumb');
-  const d = loadDeck(entry.id);
-  if (d && d.slides && d.slides.length){
-    const scaleWrap = el('div', '', `transform:scale(${260 / SLIDE_W});transform-origin:top left;width:${SLIDE_W}px;height:${SLIDE_H}px;pointer-events:none;`);
-    scaleWrap.appendChild(renderSlide(d.slides[0], d, { index: 0, total: d.slides.length }));
-    thumb.appendChild(scaleWrap);
-  }
+  loadDeck(entry.id).then(d => {
+    if (d && d.slides && d.slides.length){
+      const scaleWrap = el('div', '', `transform:scale(${260 / SLIDE_W});transform-origin:top left;width:${SLIDE_W}px;height:${SLIDE_H}px;pointer-events:none;`);
+      scaleWrap.appendChild(renderSlide(d.slides[0], d, { index: 0, total: d.slides.length }));
+      thumb.appendChild(scaleWrap);
+    }
+  });
   card.appendChild(thumb);
   const body = el('div', 'dc-body');
   body.appendChild(el('div', 'dc-title', '', entry.title || 'Untitled deck'));
   body.appendChild(el('div', 'dc-meta', '',
     `${entry.count} slide${entry.count === 1 ? '' : 's'} · ${new Date(entry.updated).toLocaleDateString()}`));
   card.appendChild(body);
-  const open = () => { const dk = loadDeck(entry.id); if (dk) openDeck(dk); else toast('Could not load that deck'); };
+  const open = async () => { const dk = await loadDeck(entry.id); if (dk) openDeck(dk); else toast('Could not load that deck'); };
   thumb.addEventListener('click', open);
   body.addEventListener('click', open);
 
@@ -4857,15 +4907,15 @@ function deckCard(entry){
   actions.appendChild(mkBtn('Open', 'primary', 'Open this deck', open));
   actions.appendChild(mkBtn('Copy', 'ghost', 'Duplicate this deck', () => copyDeck(entry.id)));
   actions.appendChild(mkBtn('Download', 'ghost', 'Download as a .json project', () => downloadDeck(entry.id)));
-  actions.appendChild(mkBtn('Template', 'ghost', 'Save this deck as a reusable template (structure + layouts, content blanked)', () => {
-    const d = loadDeck(entry.id);
+  actions.appendChild(mkBtn('Template', 'ghost', 'Save this deck as a reusable template (structure + layouts, content blanked)', async () => {
+    const d = await loadDeck(entry.id);
     if (!d) return;
     const name = (prompt('Template name:', d.title || 'Template') || '').trim();
     if (name) saveTemplate(d, name);
   }));
-  actions.appendChild(mkBtn('✕', 'ghost danger', 'Delete this deck', () => {
+  actions.appendChild(mkBtn('✕', 'ghost danger', 'Delete this deck', async () => {
     if (!confirm(`Delete “${entry.title}”? This cannot be undone.`)) return;
-    deleteDeck(entry.id);
+    await deleteDeck(entry.id);
     if (state.deck && state.deck.id === entry.id) state.deck = null;
     renderHome();
   }));
@@ -4882,13 +4932,14 @@ function deckCard(entry){
   return card;
 }
 
-function copyDeck(id){
-  const d = loadDeck(id);
+async function copyDeck(id){
+  const d = await loadDeck(id);
   if (!d) return;
   const copy = JSON.parse(JSON.stringify(d));
   copy.id = uid();
   copy.title = (d.title || 'Untitled deck') + ' (copy)';
-  localStorage.setItem(LS.deck(copy.id), JSON.stringify(copy));
+  delete copy.driveFileId;
+  await IDB.set(LS.deck(copy.id), JSON.stringify(copy));
   const idx = deckIndex();
   const src = idx.find(e => e.id === id);
   idx.unshift({ id: copy.id, title: copy.title, updated: Date.now(), count: copy.slides.length,
@@ -4898,8 +4949,8 @@ function copyDeck(id){
   toast('Deck copied');
 }
 
-function downloadDeck(id){
-  const d = loadDeck(id);
+async function downloadDeck(id){
+  const d = await loadDeck(id);
   if (!d) return;
   downloadText(safeName(d.title) + '.lectureflow.json', JSON.stringify(d, null, 2), 'application/json');
 }
@@ -5239,11 +5290,11 @@ function wireUI(){
     if (state.deck && state.deck.slides.length) $('#outline-text').value = deckToOutline(state.deck);
     showScreen('outline');
   });
-  function goHome(){
+  async function goHome(){
     if (state.deck){
-      saveDeckNow();
+      await saveDeckNow();
       if (saveStatus === 'failed'){
-        if (!confirm('Could not save your deck — storage may be full.\n\nExport the deck first to keep a copy.\n\nLeave anyway?')) return;
+        if (!confirm('Could not save your deck.\n\nExport the deck first to keep a copy.\n\nLeave anyway?')) return;
       }
     }
     showScreen('home');
@@ -5260,8 +5311,8 @@ function wireUI(){
     }
   });
   $('#btn-present').addEventListener('click', startPresent);
-  $('#btn-save').addEventListener('click', () => {
-    saveDeckNow();
+  $('#btn-save').addEventListener('click', async () => {
+    await saveDeckNow();
     if (saveStatus === 'ok') toast('Saved');
   });
 
@@ -5286,7 +5337,7 @@ function wireUI(){
       const deck = parseOutline(text);
       if (!deck.slides.length){ failed.push(f.name); continue; }
       if (deck.title === 'Untitled deck') deck.title = f.name.replace(/\.[^.]+$/, '');
-      saveNewDeck(deck, folder);
+      await saveNewDeck(deck, folder);
       made++;
     }
     renderHome();
@@ -5789,15 +5840,34 @@ function wireUI(){
     if (presenting) renderPresent();
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveDeckNow(); });
-  // belt-and-suspenders for closing the tab/window: visibilitychange usually
-  // covers this, but pagehide fires in a few cases it doesn't (and is safe
-  // to call twice since saveDeckNow is a plain synchronous write)
+  // belt-and-suspenders: pagehide fires when navigating away or closing the tab
   window.addEventListener('pagehide', () => saveDeckNow());
 }
 
 /* ================= Google Drive sync ================= */
 
 let _driveToken = null, _driveTokenExpiry = 0, _driveTokenClient = null, _driveFolderId = null;
+
+// Silent auto-save to Drive (fires 60s after last edit, only if already authenticated)
+const _driveAutoSave = debounce(async () => {
+  if (!state.deck || !settings.driveClientId || !_driveToken || Date.now() >= _driveTokenExpiry) return;
+  try {
+    const folderId = await driveEnsureFolder();
+    if (!folderId) return;
+    const d = state.deck;
+    const fileName = safeName(d.title || 'Untitled') + '.lectureflow.json';
+    const content = JSON.stringify(d);
+    const result = await driveUpload(
+      d.driveFileId || null,
+      d.driveFileId ? { name: fileName } : { name: fileName, parents: [folderId] },
+      content);
+    if (result && !d.driveFileId){
+      d.driveFileId = result.id;
+      // persist the new driveFileId without re-triggering auto-save
+      await IDB.set(LS.deck(d.id), JSON.stringify(d));
+    }
+  } catch(e) { /* silent — user isn't expecting this */ }
+}, 60000);
 
 async function driveAuth(){
   if (!settings.driveClientId){
@@ -5885,7 +5955,7 @@ async function driveSaveDeck(d){
     if (!result) return;
     if (!d.driveFileId){
       d.driveFileId = result.id;
-      saveDeckNow();
+      await IDB.set(LS.deck(d.id), JSON.stringify(d)); // persist driveFileId without re-triggering auto-save
     }
     toast('Saved to Google Drive ✓');
   } catch(e){
@@ -5990,9 +6060,22 @@ async function openDriveModal(){
   }
 }
 
+/* ================= IDB migration ================= */
+
+async function idbMigrate(){
+  const idx = deckIndex();
+  for (const entry of idx){
+    const key = LS.deck(entry.id);
+    const raw = localStorage.getItem(key);
+    if (raw){
+      try { await IDB.set(key, raw); localStorage.removeItem(key); } catch(e) {}
+    }
+  }
+}
+
 /* ================= init ================= */
 
-function init(){
+async function init(){
   // shared slide styles, injected once (also embedded into exports)
   const st = document.createElement('style');
   st.textContent = SLIDE_CSS;
@@ -6000,8 +6083,11 @@ function init(){
 
   wireUI();
 
+  // migrate any decks still in localStorage → IndexedDB (one-time, safe to re-run)
+  await idbMigrate();
+
   const curId = localStorage.getItem(LS.current);
-  const d = curId && loadDeck(curId);
+  const d = curId && await loadDeck(curId);
   if (d && d.slides && d.slides.length){
     openDeck(d);
   } else if (deckIndex().length){
