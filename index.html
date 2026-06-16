@@ -218,6 +218,7 @@ Design: free-text notes
           <option value="wikimedia">Wikimedia Commons</option>
           <option value="unsplash">Unsplash (key)</option>
           <option value="pexels">Pexels (key)</option>
+          <option value="pixabay">Pixabay (key)</option>
           <option value="google">Google Images (key)</option>
           <option value="bing">Bing Images (key)</option>
           <option value="brave">Brave Images (key)</option>
@@ -329,13 +330,15 @@ Design: free-text notes
 <dialog id="settings-modal" class="modal">
   <form method="dialog">
     <h2>Settings</h2>
-    <p class="modal-sub">Keys are stored only in this browser (localStorage) and used directly from your
-    browser to each provider. Openverse and Wikimedia Commons need no key.</p>
+    <p class="modal-sub">Keys are stored only in this browser and used directly from your browser to each provider. Openverse and Wikimedia Commons need no key. Unsplash, Pexels, and Pixabay are free with instant signup.</p>
     <label class="field">Unsplash access key
       <input id="set-unsplash" type="password" autocomplete="off" placeholder="from unsplash.com/developers">
     </label>
     <label class="field">Pexels API key
       <input id="set-pexels" type="password" autocomplete="off" placeholder="from pexels.com/api">
+    </label>
+    <label class="field">Pixabay API key <span class="muted">(free, instant — photos, illustrations &amp; vectors, great for diagrams)</span>
+      <input id="set-pixabay" type="password" autocomplete="off" placeholder="from pixabay.com/api/docs">
     </label>
     <label class="field">remove.bg API key <span class="muted">(background removal — 50 free/month)</span>
       <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
