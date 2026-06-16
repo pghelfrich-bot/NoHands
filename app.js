@@ -3434,15 +3434,9 @@ function removePdfFigure(id){
 async function togglePdfFigureCutout(fig){
   if (fig.cutout){ fig.cutout = false; renderPdfFigures(); return; }
   if (fig.cutSrc){ fig.cutout = true; renderPdfFigures(); return; }
-  toast('Removing background…', 10000);
+  toast('Removing background…', 4000);
   try {
-    const proxy = { src: fig.src };
-    if (settings.removebgKey){
-      try { fig.cutSrc = await cutoutRemoveBg(proxy); }
-      catch (e) { fig.cutSrc = await cutoutLocal(proxy); toast('remove.bg failed — used the built-in remover'); }
-    } else {
-      fig.cutSrc = await cutoutLocal(proxy);
-    }
+    fig.cutSrc = await cutoutWhiteBg(fig.src);
     fig.cutout = true;
     toast('Background removed');
   } catch (e) {
@@ -3845,14 +3839,20 @@ async function applyCutout(im){
   try {
     if (settings.removebgKey){
       try { im.cutSrc = await cutoutRemoveBg(im); }
-      catch (e) { im.cutSrc = await cutoutLocal(im); toast('remove.bg failed — used the built-in remover'); }
+      catch (e) {
+        try { im.cutSrc = await cutoutLocal(im); toast('remove.bg failed — used the built-in remover (best for solid-colour backgrounds)'); }
+        catch (e2) { throw e2; }
+      }
     } else {
       im.cutSrc = await cutoutLocal(im);
     }
     im.cutout = true;
     toast('Background removed');
   } catch (e) {
-    toast('Could not remove the background for this image' + (im.src.startsWith('data:') ? '' : ' (image is cross-origin and not embeddable)'));
+    const crossOrigin = !im.src.startsWith('data:');
+    toast(crossOrigin
+      ? 'Could not remove the background (image is cross-origin — insert it first to embed it)'
+      : 'The built-in remover works best for solid/white backgrounds — add a remove.bg API key for photos');
   }
 }
 
@@ -3866,6 +3866,45 @@ async function cutoutRemoveBg(im){
   });
   if (!res.ok) throw new Error('remove.bg HTTP ' + res.status);
   return blobToDataURL(await res.blob());
+}
+
+/* fast white-background remover for PDF figures.
+   Unlike the region-grower below, this works per-pixel: any pixel that is
+   near-white with low saturation becomes transparent, with a short feather
+   band for smooth edges. Perfect for textbook/paper pages where the background
+   is reliably white and uses no API credits. */
+function cutoutWhiteBg(src, thresh = 238){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const maxSide = 1400;
+        const sc = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.max(1, Math.round(img.naturalWidth * sc));
+        const h = Math.max(1, Math.round(img.naturalHeight * sc));
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const id = ctx.getImageData(0, 0, w, h);
+        const d = id.data;
+        const feather = 22;
+        for (let i = 0; i < d.length; i += 4){
+          const r = d[i], g = d[i+1], b = d[i+2];
+          const mn = Math.min(r, g, b), sat = Math.max(r, g, b) - mn;
+          if (mn >= thresh && sat < 22){
+            d[i+3] = 0;
+          } else if (mn >= thresh - feather && sat < 28){
+            d[i+3] = Math.round(d[i+3] * (thresh - mn) / feather);
+          }
+        }
+        ctx.putImageData(id, 0, 0);
+        resolve(cv.toDataURL('image/png'));
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = src;
+  });
 }
 
 /* built-in fallback background remover.
@@ -3947,6 +3986,12 @@ function cutoutLocal(im, opts = {}){
           if (y + 1 < h) consider(p + w);
           if (y - 1 >= 0) consider(p - w);
         }
+
+        // sanity-check: if >80% of pixels were marked background the fill
+        // has leaked into the subject — reject instead of returning garbage
+        let bgCount = 0;
+        for (let i = 0; i < state.length; i++) bgCount += state[i];
+        if (bgCount > w * h * 0.80) throw new Error('fill leaked — background too complex for built-in remover');
 
         // apply transparency, feathering pixels that border the kept subject
         for (let y = 0; y < h; y++){
