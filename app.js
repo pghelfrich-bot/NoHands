@@ -3274,7 +3274,9 @@ function setCropMode(on){
   if (!pdfState) on = false;
   if (pdfState) pdfState.cropMode = on;
   $('#pdf-crop-mode').classList.toggle('primary', on);
-  $('#pdf-page-wrap').classList.toggle('crop-mode', on);
+  const wrap = $('#pdf-page-wrap');
+  wrap.hidden = !on;
+  wrap.classList.toggle('crop-mode', on);
   $('#pdf-crop-box').hidden = true;
 }
 
@@ -5331,7 +5333,11 @@ function wireUI(){
   $('#pdf-next').addEventListener('click', () => gotoPdfPage(1));
   $('#pdf-extract-page').addEventListener('click', () => autoExtractFigures(false));
   $('#pdf-extract-all').addEventListener('click', () => autoExtractFigures(true));
-  $('#pdf-crop-mode').addEventListener('click', () => setCropMode(pdfState && !pdfState.cropMode));
+  $('#pdf-crop-mode').addEventListener('click', async () => {
+    const on = !!(pdfState && !pdfState.cropMode);
+    setCropMode(on);
+    if (on) await renderPdfPage();
+  });
   $('#pdf-page-wrap').addEventListener('pointerdown', pdfCropPointerDown);
 
   const autoBox = $('#ip-auto');
