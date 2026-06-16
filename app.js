@@ -3274,9 +3274,7 @@ function setCropMode(on){
   if (!pdfState) on = false;
   if (pdfState) pdfState.cropMode = on;
   $('#pdf-crop-mode').classList.toggle('primary', on);
-  const wrap = $('#pdf-page-wrap');
-  wrap.hidden = !on;
-  wrap.classList.toggle('crop-mode', on);
+  $('#pdf-page-wrap').classList.toggle('crop-mode', on);
   $('#pdf-crop-box').hidden = true;
 }
 
