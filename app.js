@@ -516,6 +516,36 @@ function blobToDataURL(blob){
     r.readAsDataURL(blob);
   });
 }
+
+/* Resize an image to maxSide px on its longest side and re-encode.
+   PNG inputs are scanned for transparency; if found they stay PNG (preserving
+   cutout alpha); otherwise the output is JPEG at the given quality.
+   Both significantly reduce storage size vs. the raw blob or canvas export. */
+function shrinkImage(src, maxSide = 1200, quality = 0.84){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const ratio = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight, 1));
+        const w = Math.max(1, Math.round(img.naturalWidth * ratio));
+        const h = Math.max(1, Math.round(img.naturalHeight * ratio));
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        // Only PNG inputs can have transparency; scan alpha channel to decide format
+        let hasAlpha = false;
+        if (src.startsWith('data:image/png') || src.startsWith('data:image/webp')){
+          const d = ctx.getImageData(0, 0, w, h).data;
+          for (let i = 3; i < d.length; i += 4) if (d[i] < 250){ hasAlpha = true; break; }
+        }
+        resolve(hasAlpha ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', quality));
+      } catch (e){ reject(e); }
+    };
+    img.onerror = () => reject(new Error('shrink: load failed'));
+    img.src = src;
+  });
+}
 const scriptCache = {};
 function loadScript(url){
   if (!scriptCache[url]) scriptCache[url] = new Promise((res, rej) => {
@@ -587,6 +617,25 @@ function folders(){
 }
 function saveFolders(f){ localStorage.setItem(LS.folders, JSON.stringify(f)); }
 
+let saveStatus = 'ok';   // 'pending' | 'ok' | 'failed'
+
+function updateSaveBtn(){
+  const btn = $('#btn-save');
+  if (!btn) return;
+  if (!state.deck){ btn.hidden = true; return; }
+  btn.hidden = false;
+  if (saveStatus === 'failed'){
+    btn.textContent = '⚠ Save failed'; btn.title = 'Storage may be full — click to retry';
+    btn.classList.add('save-failed'); btn.classList.remove('save-pending');
+  } else if (saveStatus === 'pending'){
+    btn.textContent = '● Saving…'; btn.title = 'Saving…';
+    btn.classList.add('save-pending'); btn.classList.remove('save-failed');
+  } else {
+    btn.textContent = '✓ Saved'; btn.title = 'All changes saved';
+    btn.classList.remove('save-pending', 'save-failed');
+  }
+}
+
 function saveDeckNow(){
   const d = state.deck;
   if (!d) return;
@@ -599,9 +648,12 @@ function saveDeckNow(){
                   count: d.slides.length, folder: prev ? (prev.folder || null) : null });
     saveIndex(idx);
     localStorage.setItem(LS.current, d.id);
+    saveStatus = 'ok';
   } catch (e) {
-    toast('Could not save (browser storage full?) — large images count against the quota');
+    saveStatus = 'failed';
+    toast('Could not save (storage full) — try exporting the deck, then delete some others to free space');
   }
+  updateSaveBtn();
 }
 const save = debounce(saveDeckNow, 400);
 
@@ -2722,6 +2774,8 @@ function checkpoint(){
   if (undoStack.length > HISTORY_MAX) undoStack.shift();
   redoStack.length = 0;
   updateUndoButtons();
+  saveStatus = 'pending';
+  updateSaveBtn();
 }
 function restore(snap){
   state.deck = snap.deck;
@@ -3818,13 +3872,19 @@ function defaultImagePlacement(slide, natW, natH){
 }
 
 async function embedImage(im){
-  if (im.src.startsWith('data:')) return;
+  if (im.src.startsWith('data:')){
+    // Already embedded — compress it so it doesn't blow the storage quota
+    try { im.src = await shrinkImage(im.src); } catch (e) {}
+    return;
+  }
   try {
     const res = await fetch(im.src);
     if (!res.ok) throw new Error('fetch failed');
     const blob = await res.blob();
-    if (blob.size > 7 * 1024 * 1024) return;        // too big for localStorage — keep the URL
-    im.src = await blobToDataURL(blob);
+    if (blob.size > 20 * 1024 * 1024) return;  // absurdly large — keep URL
+    const raw = await blobToDataURL(blob);
+    try { im.src = await shrinkImage(raw); }
+    catch (e) { im.src = raw; }
   } catch (e) { /* CORS-blocked: keep remote URL; export will retry */ }
 }
 
@@ -3888,7 +3948,8 @@ async function applyCutout(im){
   if (im.cutSrc){ im.cutout = true; return; }
   toast('Removing background…', 10000);
   try {
-    im.cutSrc = await cutoutBestAvailable(im);
+    const raw = await cutoutBestAvailable(im);
+    try { im.cutSrc = await shrinkImage(raw, 1200, 0.88); } catch (e) { im.cutSrc = raw; }
     im.cutout = true;
     toast('Background removed');
   } catch (e) {
@@ -5012,8 +5073,10 @@ function openDeck(deck){
   state.cur = 0;
   state.sel = null;
   panelSeedFor = null;
+  saveStatus = 'ok';
   $('#deck-title').value = deck.title || '';
   showScreen('editor');
+  updateSaveBtn();
   renderRail();
   selectSlide(0);
   showBgCurrent();
@@ -5153,10 +5216,31 @@ function wireUI(){
     if (state.deck && state.deck.slides.length) $('#outline-text').value = deckToOutline(state.deck);
     showScreen('outline');
   });
-  $('#btn-decks').addEventListener('click', () => showScreen('home'));
+  function goHome(){
+    if (state.deck){
+      saveDeckNow();
+      if (saveStatus === 'failed'){
+        if (!confirm('Could not save your deck — storage may be full.\n\nExport the deck first to keep a copy.\n\nLeave anyway?')) return;
+      }
+    }
+    showScreen('home');
+  }
+  $('#btn-decks').addEventListener('click', goHome);
   const brand = $('#brand');
-  if (brand){ brand.style.cursor = 'pointer'; brand.addEventListener('click', () => showScreen('home')); }
+  if (brand){ brand.style.cursor = 'pointer'; brand.addEventListener('click', goHome); }
+
+  // Warn before closing/refreshing the tab if the last save failed
+  window.addEventListener('beforeunload', e => {
+    if (state.deck && saveStatus === 'failed'){
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
   $('#btn-present').addEventListener('click', startPresent);
+  $('#btn-save').addEventListener('click', () => {
+    saveDeckNow();
+    if (saveStatus === 'ok') toast('Saved');
+  });
 
   // home screen
   $('#btn-new-deck').addEventListener('click', () => showScreen('outline'));
@@ -5613,11 +5697,14 @@ function wireUI(){
     e.preventDefault();
     const file = item.getAsFile();
     if (!file) return;
-    blobToDataURL(file).then(src => insertImageFromResult({
-      provider: 'local', title: 'Pasted image', author: '', authorUrl: '',
-      license: '', licenseUrl: '', pageUrl: '', sourceName: 'Pasted image',
-      full: src, thumb: src,
-    }));
+    blobToDataURL(file).then(async src => {
+      try { src = await shrinkImage(src); } catch (e) {}
+      insertImageFromResult({
+        provider: 'local', title: 'Pasted image', author: '', authorUrl: '',
+        license: '', licenseUrl: '', pageUrl: '', sourceName: 'Pasted image',
+        full: src, thumb: src,
+      });
+    });
   });
 
   // keyboard

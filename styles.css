@@ -47,6 +47,10 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .btn.small{padding:4px 9px;font-size:12.5px}
 .btn.danger{color:var(--danger)}
 .btn.wide{width:100%}
+#btn-save{min-width:76px;font-size:12.5px;opacity:.7;transition:opacity .2s,color .2s}
+#btn-save:hover{opacity:1}
+#btn-save.save-pending{color:var(--ink-dim)}
+#btn-save.save-failed{color:#f87171;opacity:1;font-weight:600}
 .btn:disabled{opacity:.45;cursor:default}
 .btn.small.active{background:var(--accent);border-color:var(--accent);color:#06222f;font-weight:650}
 
