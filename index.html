@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LectureFlow — image-first presentation builder</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230c2233'/><path d='M22 64 C 38 30, 62 30, 78 50' stroke='%2338bdf8' stroke-width='7' fill='none' stroke-linecap='round'/><circle cx='78' cy='50' r='8' fill='%232dd4bf'/></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand" id="brand" title="LectureFlow">
+    <svg class="brand-mark" viewBox="0 0 100 100" width="22" height="22"><rect width="100" height="100" rx="18" fill="#0c2233"/><path d="M22 64 C 38 30, 62 30, 78 50" stroke="#38bdf8" stroke-width="7" fill="none" stroke-linecap="round"/><circle cx="78" cy="50" r="8" fill="#2dd4bf"/></svg>
+    <span class="brand-name">LectureFlow</span>
+  </div>
+  <input id="deck-title" type="text" placeholder="Untitled deck" spellcheck="false">
+  <div class="topbar-actions">
+    <button id="btn-undo" class="btn ghost" title="Undo (Ctrl/Cmd+Z)" disabled>↶</button>
+    <button id="btn-redo" class="btn ghost" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>↷</button>
+    <button id="btn-save" class="btn ghost" title="All changes saved" hidden>✓ Saved</button>
+    <button id="btn-decks"   class="btn ghost" title="Home — all your decks">Home</button>
+    <button id="btn-outline" class="btn ghost" title="Paste a new outline">＋ Outline</button>
+    <div class="dropdown">
+      <button id="btn-export" class="btn ghost">Export ▾</button>
+      <div class="dropdown-menu" id="export-menu">
+        <button id="export-drive">Save to Drive ☁</button>
+        <button id="export-pptx">PowerPoint (.pptx)</button>
+        <button id="export-pdf">PDF (print)</button>
+        <button id="export-html">Standalone HTML</button>
+        <button id="export-outline" title="Download this deck's text as an outline you can bulk-edit and rebuild">Outline (.txt)</button>
+      </div>
+    </div>
+    <button id="btn-settings" class="btn ghost" title="Image provider API keys">⚙</button>
+    <button id="btn-present" class="btn primary">▶ Present</button>
+  </div>
+</header>
+
+<!-- ===================== OUTLINE SCREEN ===================== -->
+<main id="screen-outline" class="screen">
+  <div class="outline-grid">
+    <section class="card outline-left">
+      <h1>Paste your outline</h1>
+      <p class="muted">LectureFlow turns a structured outline into an image-first deck: short annotation
+      labels arranged around a central figure instead of walls of bullets. Paste below, or upload a
+      <code>.md</code>/<code>.txt</code> file. Parsing is lenient — rough outlines are fine.</p>
+      <textarea id="outline-text" spellcheck="false" placeholder="# Deck title
+Presenter: Your name
+Date: 2026-06-12
+Design: ocean blues, calm
+
+1. TYPE: title
+   HEADLINE: Deck title
+
+2. TYPE: content
+   HEADLINE: A slide about something
+   POINTS:
+   - First point — long detail goes to speaker notes
+   - Second point
+   FIGURE: what the central image should show"></textarea>
+      <div class="row outline-actions">
+        <button id="btn-outline-file"   class="btn ghost">Upload file</button>
+        <button id="btn-outline-sample" class="btn ghost">Load sample</button>
+        <button id="btn-outline-prose"  class="btn ghost" title="Paste prose or notes and draft a LectureFlow outline from it">✨ Draft from prose</button>
+        <span class="spacer"></span>
+        <button id="btn-outline-build"  class="btn primary">Build deck →</button>
+      </div>
+    </section>
+    <aside class="card outline-right">
+      <h2>Outline format</h2>
+      <pre class="fmt"># Deck title
+Presenter: name
+Date: any text
+Design: free-text notes
+        (colors / mood)
+
+1. TYPE: title | roadmap |
+         section | content |
+         takeaway
+   HEADLINE: slide heading
+   POINTS:
+   - short or long point
+   - another point
+   CALLOUT: a highlighted
+            stat or quote
+   FIGURE: what the central
+           image should show
+   NOTES: speaker notes</pre>
+      <ul class="fmt-notes">
+        <li><b>title / roadmap / section / takeaway</b> render dark; <b>content</b> renders light.</li>
+        <li>On content slides, POINTS become short labels placed <i>around</i> the figure and connected to it — long points are compressed and the detail moves to speaker notes.</li>
+        <li>FIGURE seeds the image search for that slide.</li>
+        <li>Slides can also start with <code>## Heading</code> or be separated by <code>---</code>.</li>
+        <li>Equations: write LaTeX inline as <code>$...$</code> or on their own line as <code>$$...$$</code> — they render as typeset math, so explain each symbol in a nearby POINT or in NOTES.</li>
+      </ul>
+    </aside>
+  </div>
+</main>
+
+<!-- ===================== HOME SCREEN ===================== -->
+<main id="screen-home" class="screen" hidden>
+  <aside id="home-side">
+    <h2>Folders</h2>
+    <ul id="folder-list"></ul>
+    <button id="btn-new-folder" class="btn small wide">＋ New folder</button>
+  </aside>
+  <section id="home-main">
+    <div id="home-head">
+      <h1 id="home-title">All decks</h1>
+      <span class="spacer"></span>
+      <button id="btn-drive" class="btn ghost" title="Browse and open decks from Google Drive">☁ Drive</button>
+      <button id="btn-import-deck" class="btn ghost">Import deck</button>
+      <button id="btn-batch-outline" class="btn ghost" title="Build a separate deck from each outline .txt file you pick">Batch from outlines</button>
+      <button id="btn-from-template" class="btn ghost" title="Start a new deck from a saved skeleton">From template</button>
+      <button id="btn-new-deck" class="btn primary">＋ New deck</button>
+    </div>
+    <div id="home-grid"></div>
+  </section>
+</main>
+
+<!-- ===================== EDITOR SCREEN ===================== -->
+<main id="screen-editor" class="screen" hidden>
+
+  <!-- left: slide rail -->
+  <aside id="rail">
+    <ol id="rail-list"></ol>
+    <div class="rail-foot">
+      <button id="btn-add-slide" class="btn small wide">＋ Slide</button>
+      <button id="btn-add-recaps" class="btn small wide" title="Insert (or refresh) a roadmap recap slide before each section, with that section's stop highlighted">🗺 Recap slides</button>
+      <button id="btn-fill-figures" class="btn small wide" title="Find a licensed image for every slide that's missing one, in one pass">🖼 Fill figures</button>
+    </div>
+  </aside>
+
+  <!-- center: canvas -->
+  <section id="stage">
+    <div id="canvas-toolbar">
+      <label>Type
+        <select id="type-select">
+          <option value="title">Title</option>
+          <option value="roadmap">Roadmap</option>
+          <option value="section">Section</option>
+          <option value="content">Content</option>
+          <option value="takeaway">Takeaway</option>
+        </select>
+      </label>
+      <label>Theme
+        <select id="theme-select">
+          <option value="">Auto</option>
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </label>
+      <button id="btn-relayout" class="btn small" title="Reset image and label positions to the automatic layout">✦ Re-layout</button>
+      <button id="btn-add-label" class="btn small" title="Add an annotation label">＋ Label</button>
+      <button id="btn-add-text" class="btn small" title="Add a free text box">＋ Text</button>
+      <button id="btn-add-overlay" class="btn small" title="Add a recurring element shown on every slide (edit it once, updates everywhere)">↻ Recurring</button>
+      <button id="btn-add-arrow" class="btn small" title="Draw an arrow between any two points (for flows and concept diagrams)">→</button>
+      <span class="sep"></span>
+      <span id="sel-tools" hidden>
+        <select id="sel-scope" class="sel-scope" hidden title="Which slides this recurring element appears on">
+          <option value="all">On all slides</option>
+          <option value="content">Content slides</option>
+          <option value="title">Title slides</option>
+          <option value="section">Section slides</option>
+          <option value="takeaway">Takeaway slides</option>
+          <option value="roadmap">Roadmap slides</option>
+        </select>
+        <button id="sel-align-left" class="btn small" title="Align text left" data-align="left">L</button>
+        <button id="sel-align-center" class="btn small" title="Align text center" data-align="center">C</button>
+        <button id="sel-align-right" class="btn small" title="Align text right" data-align="right">R</button>
+        <span class="sel-color-group" title="Text color">
+          <input type="color" id="sel-color">
+          <button id="sel-color-reset" class="btn small" title="Reset text color">⟲</button>
+        </span>
+        <span class="sel-color-group" title="Background fill">
+          <input type="color" id="sel-bg">
+          <button id="sel-bg-clear" class="btn small" title="Remove background fill">⊘</button>
+        </span>
+        <button id="sel-chip" class="btn small" title="Switch this label between a dark fill (white text) and a beige fill (dark text)">◐</button>
+        <button id="sel-front" class="btn small" title="Bring forward">▲</button>
+        <button id="sel-back"  class="btn small" title="Send backward">▼</button>
+        <button id="sel-cutout" class="btn small" title="Toggle background cut-out">✂</button>
+        <button id="sel-delete" class="btn small danger" title="Delete element">✕</button>
+      </span>
+      <span class="spacer"></span>
+      <button id="btn-dup-slide" class="btn small" title="Duplicate slide">⧉</button>
+      <button id="btn-del-slide" class="btn small danger" title="Delete slide">🗑</button>
+      <span id="slide-pos" class="muted"></span>
+    </div>
+
+    <div id="canvas-wrap"><div id="canvas-scale"><div id="canvas"></div></div></div>
+
+    <div id="notes-wrap">
+      <label for="speaker-notes">Speaker notes</label>
+      <textarea id="speaker-notes" placeholder="Notes only you will see while presenting…"></textarea>
+    </div>
+  </section>
+
+  <!-- right: image + layout panel -->
+  <aside id="img-panel">
+    <div class="ip-tabs">
+      <button class="ip-tab current" data-tab="images">Images</button>
+      <button class="ip-tab" data-tab="layout">Layout</button>
+      <button class="ip-tab" data-tab="background">Background</button>
+      <button class="ip-tab" data-tab="pdf">Readings</button>
+    </div>
+
+    <div id="tab-images" class="ip-tab-body">
+      <div class="ip-search">
+        <input id="ip-query" type="search" placeholder="Search images…">
+        <button id="ip-go" class="btn primary small">Search</button>
+      </div>
+      <div id="ip-alts" class="ip-alts" hidden></div>
+      <div class="ip-row">
+        <select id="ip-provider" title="Image source">
+          <option value="all">All sources</option>
+          <option value="openverse">Openverse</option>
+          <option value="wikimedia">Wikimedia Commons</option>
+          <option value="unsplash">Unsplash (key)</option>
+          <option value="pexels">Pexels (key)</option>
+          <option value="google">Google Images (key)</option>
+          <option value="bing">Bing Images (key)</option>
+          <option value="brave">Brave Images (key)</option>
+        </select>
+        <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
+          <input type="checkbox" id="ip-cutout"> Cutout
+        </label>
+        <label class="check" title="Automatically show relevant images when you open a slide">
+          <input type="checkbox" id="ip-auto" checked> Auto
+        </label>
+      </div>
+      <label class="check" title="Bias results toward images with a transparent background (PNGs) — handy for logos, icons, and cut-out figures">
+        <input type="checkbox" id="ip-transparent"> Transparent background only
+      </label>
+      <p class="panel-hint">Openly licensed by default (Google Images, if enabled, is not — check
+      usage rights before reusing). Seeded from this slide's FIGURE; click or drag a
+      result onto the slide. Check an alternate subject to include it too. Attribution is kept and carried into exports.</p>
+      <div id="ip-upload-zone" class="ip-upload-zone">
+        <span>📁 Drag images from your computer here, or <button id="ip-upload-btn" class="link-btn" type="button">browse</button></span>
+        <input id="ip-upload" type="file" accept="image/*" multiple hidden>
+      </div>
+      <div id="ip-local-results" hidden></div>
+      <div id="ip-status" class="status" hidden></div>
+      <div id="ip-results"></div>
+    </div>
+
+    <div id="tab-layout" class="ip-tab-body" hidden>
+      <p class="panel-hint">Pick how this slide arranges its content. Your text and images flow into
+      the new layout; fine-tune by dragging afterwards.</p>
+      <div id="layout-list"></div>
+    </div>
+
+    <div id="tab-background" class="ip-tab-body" hidden>
+      <p class="panel-hint">Search for an HD photo to use as the background behind every slide.
+      Blur it so it stays out of the way, and add a thin frame for a polished look.</p>
+
+      <div id="bg-current" class="bg-current" hidden>
+        <img id="bg-current-img" alt="">
+        <div class="bg-current-info">
+          <div id="bg-current-attr" class="ip-meta"></div>
+          <button id="bg-remove" class="btn small danger">Remove background</button>
+        </div>
+      </div>
+
+      <label class="field">Blur <span id="bg-blur-val">8px</span>
+        <input id="bg-blur" type="range" min="0" max="20" step="1" value="8">
+      </label>
+      <label class="check">
+        <input type="checkbox" id="bg-frame"> Thin frame around the slide
+      </label>
+      <label class="check" title="In Present mode: slow Ken Burns drift on full-slide photos, and reveal points one at a time as you advance">
+        <input type="checkbox" id="bg-motion"> Cinematic motion in Present <span class="muted">(drift + reveal)</span>
+      </label>
+      <label class="field" title="Optional arrows from annotation labels to the figure on the Annotated layout">Annotation arrows
+        <select id="bg-arrows">
+          <option value="none">None</option>
+          <option value="black">Black arrows</option>
+          <option value="white">White arrows</option>
+        </select>
+      </label>
+      <label class="field" title="Scales the default text size across every slide (text you've manually resized stays as-is) — handy for matching a projector or room size">Slide text size <span id="bg-textscale-val">100%</span>
+        <input id="bg-textscale" type="range" min="0.8" max="1.4" step="0.05" value="1">
+      </label>
+
+      <div class="ip-search">
+        <input id="bg-query" type="search" placeholder="Search background photos…">
+        <button id="bg-go" class="btn primary small">Search</button>
+      </div>
+      <div id="bg-status" class="status" hidden></div>
+      <div id="bg-results"></div>
+    </div>
+
+    <div id="tab-pdf" class="ip-tab-body" hidden>
+      <p class="panel-hint">Upload a reading (PDF) for this deck. Auto-extract its figures, or click
+      "Crop" to open a page and drag a region — then insert figures onto slides.</p>
+      <div id="pdf-upload-zone" class="ip-upload-zone">
+        <span>📄 Drag a PDF here, or <button id="pdf-upload-btn" class="link-btn" type="button">browse</button></span>
+        <input id="pdf-upload" type="file" accept="application/pdf" hidden>
+      </div>
+      <div id="pdf-doc" hidden>
+        <div class="ip-row pdf-nav-row">
+          <button id="pdf-prev" class="btn small" title="Previous page">‹</button>
+          <span id="pdf-page-indicator"></span>
+          <button id="pdf-next" class="btn small" title="Next page">›</button>
+          <button id="pdf-remove" class="btn small danger" title="Remove PDF">✕ PDF</button>
+        </div>
+        <p id="pdf-doc-name" class="panel-hint pdf-doc-name"></p>
+        <div class="ip-row">
+          <button id="pdf-extract-page" class="btn small">Extract this page</button>
+          <button id="pdf-extract-all" class="btn small">Extract all</button>
+          <button id="pdf-crop-mode" class="btn small">✂ Crop</button>
+        </div>
+        <div class="ip-row">
+          <label class="check" title="Automatically insert each snipped region onto the current slide"><input type="checkbox" id="pdf-auto-insert"> Auto-insert</label>
+          <label class="check" title="Automatically remove the white page background from each snipped figure"><input type="checkbox" id="pdf-auto-cutout" checked> Auto-cutout</label>
+        </div>
+        <div id="pdf-page-wrap" class="pdf-page-wrap">
+          <canvas id="pdf-page-canvas"></canvas>
+          <div id="pdf-crop-box" class="pdf-crop-box" hidden></div>
+        </div>
+      </div>
+      <div id="pdf-status" class="status" hidden></div>
+      <div id="pdf-figures"></div>
+    </div>
+  </aside>
+</main>
+
+<!-- ===================== SETTINGS ===================== -->
+<dialog id="settings-modal" class="modal">
+  <form method="dialog">
+    <h2>Settings</h2>
+    <p class="modal-sub">Keys are stored only in this browser (localStorage) and used directly from your
+    browser to each provider. Openverse and Wikimedia Commons need no key.</p>
+    <label class="field">Unsplash access key
+      <input id="set-unsplash" type="password" autocomplete="off" placeholder="from unsplash.com/developers">
+    </label>
+    <label class="field">Pexels API key
+      <input id="set-pexels" type="password" autocomplete="off" placeholder="from pexels.com/api">
+    </label>
+    <label class="field">remove.bg API key <span class="muted">(background removal — 50 free/month)</span>
+      <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
+    </label>
+    <label class="field">PhotoRoom API key <span class="muted">(background removal — 100 free/month; used if remove.bg fails or isn't set)</span>
+      <input id="set-photoroom" type="password" autocomplete="off" placeholder="from app.photoroom.com/api">
+    </label>
+    <p class="modal-sub">No API keys set? Background removal falls back to a free in-browser ML model (downloads ~5 MB of model weights on first use, then cached).</p>
+    <label class="field">Google API key <span class="muted">(optional — for Google Images search)</span>
+      <input id="set-google-key" type="password" autocomplete="off" placeholder="from Google Cloud Console">
+    </label>
+    <label class="field">Google Search Engine ID <span class="muted">(from the Programmable Search Engine you create)</span>
+      <input id="set-google-cx" type="text" autocomplete="off" placeholder="e.g. 0123456789abcdef0">
+    </label>
+    <p class="modal-sub">Google Images results aren't pre-filtered by license like the other
+    sources — check usage rights before reusing or sharing an image beyond your own slides.</p>
+    <label class="field">Bing Image Search API key <span class="muted">(optional — 1,000 free searches/month via Azure free tier)</span>
+      <input id="set-bing" type="password" autocomplete="off" placeholder="from portal.azure.com → Bing Search v7">
+    </label>
+    <p class="modal-sub">Bing Images results aren't pre-filtered by license — verify usage rights before sharing beyond your own slides.</p>
+    <label class="field">Brave Search API key <span class="muted">(optional — 2,000 free image searches/month, recurring)</span>
+      <input id="set-brave" type="password" autocomplete="off" placeholder="from api.search.brave.com">
+    </label>
+    <p class="modal-sub">Brave Images results aren't pre-filtered by license — verify usage rights before sharing beyond your own slides.</p>
+    <label class="field">Anthropic API key <span class="muted">(optional — for "Draft from prose" AI mode)</span>
+      <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
+    </label>
+    <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
+    <p style="font-size:13.5px;font-weight:600;margin-bottom:4px">Google Drive sync</p>
+    <label class="field">OAuth Client ID <span class="muted">(create a <em>Web Application</em> OAuth 2.0 credential in <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud Console</a>, enable the Drive API, and add this page's origin as an Authorized JavaScript Origin)</span>
+      <input id="set-drive-client-id" type="text" autocomplete="off" placeholder="123456789-xxxx.apps.googleusercontent.com">
+    </label>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="set-save" class="btn primary" type="button">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== GOOGLE DRIVE ===================== -->
+<dialog id="drive-modal" class="modal" style="width:min(600px,94vw)">
+  <form method="dialog">
+    <h2>Google Drive</h2>
+    <p class="modal-sub">Your LectureFlow decks backed up to Drive — open from any device.</p>
+    <ul id="drive-list" style="list-style:none;padding:0;max-height:380px;overflow-y:auto;margin:12px 0"></ul>
+    <div class="modal-actions">
+      <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== DECK MANAGER ===================== -->
+<dialog id="decks-modal" class="modal">
+  <form method="dialog">
+    <h2>Your decks</h2>
+    <p class="modal-sub">Decks are saved automatically in this browser.</p>
+    <ul id="decks-list"></ul>
+    <div class="modal-actions">
+      <button id="decks-new" class="btn ghost" type="button">＋ New from outline</button>
+      <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== TEMPLATES ===================== -->
+<dialog id="templates-modal" class="modal">
+  <form method="dialog">
+    <h2>Start from a template</h2>
+    <p class="modal-sub">A template keeps the structure, layouts, palette, and recurring elements — the content is blanked for you to fill in.</p>
+    <ul id="templates-list"></ul>
+    <div class="modal-actions">
+      <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== FILL FIGURES ===================== -->
+<dialog id="fill-modal" class="modal fill-modal">
+  <div class="fill-head">
+    <h2>Fill figures</h2>
+    <span id="fill-progress" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="fill-auto" class="btn ghost" title="Auto-insert the top result on every remaining slide">⚡ Rough draft (auto-fill all)</button>
+    <button id="fill-close" class="btn ghost">Done</button>
+  </div>
+  <div id="fill-slidehead" class="fill-slidehead"></div>
+  <div class="ip-search">
+    <input id="fill-query" type="search" placeholder="Refine the search…">
+    <button id="fill-go" class="btn primary small">Search</button>
+  </div>
+  <div id="fill-status" class="status" hidden></div>
+  <div id="fill-grid" class="fill-grid"></div>
+  <div class="fill-actions">
+    <button id="fill-back" class="btn ghost">← Back</button>
+    <button id="fill-skip" class="btn ghost">Skip this slide →</button>
+  </div>
+</dialog>
+
+<!-- ===================== DRAFT FROM PROSE ===================== -->
+<dialog id="prose-modal" class="modal prose-modal">
+  <form method="dialog">
+    <h2>Draft an outline from prose</h2>
+    <p class="modal-sub">Paste notes, a textbook passage, or a transcript. LectureFlow drafts a LectureFlow outline (image-first by default) that you can review and edit before building.</p>
+    <textarea id="prose-text" spellcheck="false" placeholder="Paste your prose / notes here…"></textarea>
+    <div class="row">
+      <label class="check"><input type="radio" name="prose-mode" value="heuristic" checked> Quick (offline)</label>
+      <label class="check"><input type="radio" name="prose-mode" value="ai"> AI (Claude API)</label>
+      <span class="spacer"></span>
+    </div>
+    <div id="prose-ai-opts" hidden>
+      <label class="field">Anthropic API key <input id="prose-key" type="password" placeholder="sk-ant-… (saved in this browser)"></label>
+      <label class="field">Model <input id="prose-model" type="text" value="claude-sonnet-4-6"></label>
+    </div>
+    <div id="prose-status" class="status" hidden></div>
+    <div class="modal-actions">
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="prose-generate" class="btn primary" type="button">Generate outline</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== PRESENT MODE ===================== -->
+<div id="present-overlay" hidden>
+  <div id="present-stage"></div>
+  <div id="present-notes" hidden></div>
+  <div id="present-hud">
+    <span id="present-counter"></span>
+    <div class="present-hud-right">
+      <span class="muted">← → navigate · S notes · Esc exit</span>
+      <button id="present-exit" class="btn ghost small" title="Exit presentation">✕ Exit</button>
+    </div>
+  </div>
+</div>
+
+<div id="print-area" aria-hidden="true"></div>
+<input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
+<input type="file" id="file-import" accept=".json,application/json" hidden>
+<input type="file" id="file-outline-batch" accept=".txt,.md,.markdown,.text,text/*" multiple hidden>
+<div id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
