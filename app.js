@@ -535,7 +535,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', clipdropKey:'', anthropicKey:'', googleKey:'', googleCx:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', clipdropKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -2956,6 +2956,30 @@ const PROVIDERS = {
       }));
     },
   },
+  bing: {
+    label: 'Bing Images',
+    ready: () => !!settings.bingKey,
+    async search(q, opts = {}){
+      const params = new URLSearchParams({
+        q, count: opts.limit || 20,
+        safeSearch: 'Moderate',
+      });
+      if (opts.transparent) params.set('imageType', 'Transparent');
+      const j = await getJSON(
+        `https://api.bing.microsoft.com/v7.0/images/search?${params}`,
+        { headers: { 'Ocp-Apim-Subscription-Key': settings.bingKey } }
+      );
+      return (j.value || []).map(r => ({
+        provider: 'bing', id: 'bing-' + encodeURIComponent(r.contentUrl).slice(0, 40),
+        thumb: r.thumbnailUrl, full: r.contentUrl,
+        title: r.name || '', author: r.hostPageDisplayUrl || '',
+        authorUrl: r.hostPageUrl || '', pageUrl: r.hostPageUrl || '',
+        license: (r.license && r.license.name) || 'Verify before reuse',
+        licenseUrl: (r.license && r.license.url) || '',
+        sourceName: 'Bing Images',
+      }));
+    },
+  },
 };
 
 function ipStatus(msg, isErr){
@@ -5149,6 +5173,7 @@ function wireUI(){
     $('#set-anthropic').value = settings.anthropicKey || '';
     $('#set-google-key').value = settings.googleKey || '';
     $('#set-google-cx').value = settings.googleCx || '';
+    $('#set-bing').value = settings.bingKey || '';
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
@@ -5159,6 +5184,7 @@ function wireUI(){
     settings.anthropicKey = $('#set-anthropic').value.trim();
     settings.googleKey = $('#set-google-key').value.trim();
     settings.googleCx = $('#set-google-cx').value.trim();
+    settings.bingKey = $('#set-bing').value.trim();
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
     toast('Settings saved');

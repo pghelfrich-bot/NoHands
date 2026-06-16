@@ -216,6 +216,7 @@ Design: free-text notes
           <option value="unsplash">Unsplash (key)</option>
           <option value="pexels">Pexels (key)</option>
           <option value="google">Google Images (key)</option>
+          <option value="bing">Bing Images (key)</option>
         </select>
         <label class="check" title="Remove the background of inserted images so the subject floats on the slide">
           <input type="checkbox" id="ip-cutout"> Cutout
@@ -346,6 +347,10 @@ Design: free-text notes
     </label>
     <p class="modal-sub">Google Images results aren't pre-filtered by license like the other
     sources — check usage rights before reusing or sharing an image beyond your own slides.</p>
+    <label class="field">Bing Image Search API key <span class="muted">(optional — 1,000 free searches/month via Azure free tier)</span>
+      <input id="set-bing" type="password" autocomplete="off" placeholder="from portal.azure.com → Bing Search v7">
+    </label>
+    <p class="modal-sub">Bing Images results aren't pre-filtered by license — verify usage rights before sharing beyond your own slides.</p>
     <label class="field">Anthropic API key <span class="muted">(optional — for "Draft from prose" AI mode)</span>
       <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
     </label>
