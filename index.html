@@ -332,8 +332,11 @@ Design: free-text notes
     <label class="field">Pexels API key
       <input id="set-pexels" type="password" autocomplete="off" placeholder="from pexels.com/api">
     </label>
-    <label class="field">remove.bg API key <span class="muted">(optional — Cutout falls back to a built-in remover)</span>
+    <label class="field">remove.bg API key <span class="muted">(background removal — 50 free/month)</span>
       <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
+    </label>
+    <label class="field">Clipdrop API key <span class="muted">(background removal — larger daily free tier; used if remove.bg fails or isn't set)</span>
+      <input id="set-clipdrop" type="password" autocomplete="off" placeholder="from clipdrop.co/apis">
     </label>
     <label class="field">Google API key <span class="muted">(optional — for Google Images search)</span>
       <input id="set-google-key" type="password" autocomplete="off" placeholder="from Google Cloud Console">

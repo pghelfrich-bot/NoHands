@@ -535,7 +535,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', anthropicKey:'', googleKey:'', googleCx:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', clipdropKey:'', anthropicKey:'', googleKey:'', googleCx:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -3837,23 +3837,27 @@ async function applyCutout(im){
   if (im.cutSrc){ im.cutout = true; return; }
   toast('Removing background…', 10000);
   try {
-    if (settings.removebgKey){
-      try { im.cutSrc = await cutoutRemoveBg(im); }
-      catch (e) {
-        try { im.cutSrc = await cutoutLocal(im); toast('remove.bg failed — used the built-in remover (best for solid-colour backgrounds)'); }
-        catch (e2) { throw e2; }
-      }
-    } else {
-      im.cutSrc = await cutoutLocal(im);
-    }
+    im.cutSrc = await cutoutBestAvailable(im);
     im.cutout = true;
     toast('Background removed');
   } catch (e) {
     const crossOrigin = !im.src.startsWith('data:');
     toast(crossOrigin
-      ? 'Could not remove the background (image is cross-origin — insert it first to embed it)'
-      : 'The built-in remover works best for solid/white backgrounds — add a remove.bg API key for photos');
+      ? 'Could not remove the background (image is cross-origin — insert it onto the slide first to embed it)'
+      : 'The built-in remover works best for solid/white backgrounds — add a remove.bg or Clipdrop API key for photos');
   }
+}
+
+/* try each configured background-removal service in order, falling back to
+   the next if one fails (e.g. monthly limit hit) and finally to the local remover */
+async function cutoutBestAvailable(im){
+  if (settings.removebgKey){
+    try { return await cutoutRemoveBg(im); } catch (e) { /* try next */ }
+  }
+  if (settings.clipdropKey){
+    try { return await cutoutClipdrop(im); } catch (e) { /* try next */ }
+  }
+  return await cutoutLocal(im);
 }
 
 async function cutoutRemoveBg(im){
@@ -3865,6 +3869,27 @@ async function cutoutRemoveBg(im){
     method: 'POST', headers: { 'X-Api-Key': settings.removebgKey }, body: fd,
   });
   if (!res.ok) throw new Error('remove.bg HTTP ' + res.status);
+  return blobToDataURL(await res.blob());
+}
+
+async function cutoutClipdrop(im){
+  // Clipdrop needs the image as a Blob (not base64 or URL).
+  // For data URLs this works instantly; for cross-origin URLs the fetch may be
+  // blocked by CORS, in which case we throw so the cascade tries the next service.
+  let blob;
+  if (im.src.startsWith('data:')){
+    blob = await (await fetch(im.src)).blob();
+  } else {
+    const res = await fetch(im.src);
+    if (!res.ok) throw new Error('Could not fetch image for Clipdrop');
+    blob = await res.blob();
+  }
+  const fd = new FormData();
+  fd.append('image_file', blob, 'image.png');
+  const res = await fetch('https://clipdrop-api.co/remove-background/v1', {
+    method: 'POST', headers: { 'x-api-key': settings.clipdropKey }, body: fd,
+  });
+  if (!res.ok) throw new Error('Clipdrop HTTP ' + res.status);
   return blobToDataURL(await res.blob());
 }
 
@@ -5120,6 +5145,7 @@ function wireUI(){
     $('#set-unsplash').value = settings.unsplashKey || '';
     $('#set-pexels').value = settings.pexelsKey || '';
     $('#set-removebg').value = settings.removebgKey || '';
+    $('#set-clipdrop').value = settings.clipdropKey || '';
     $('#set-anthropic').value = settings.anthropicKey || '';
     $('#set-google-key').value = settings.googleKey || '';
     $('#set-google-cx').value = settings.googleCx || '';
@@ -5129,6 +5155,7 @@ function wireUI(){
     settings.unsplashKey = $('#set-unsplash').value.trim();
     settings.pexelsKey = $('#set-pexels').value.trim();
     settings.removebgKey = $('#set-removebg').value.trim();
+    settings.clipdropKey = $('#set-clipdrop').value.trim();
     settings.anthropicKey = $('#set-anthropic').value.trim();
     settings.googleKey = $('#set-google-key').value.trim();
     settings.googleCx = $('#set-google-cx').value.trim();
