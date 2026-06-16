@@ -607,7 +607,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', braveKey:'', driveClientId:'' };
+let settings = { unsplashKey:'', pexelsKey:'', pixabayKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', braveKey:'', driveClientId:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -3103,6 +3103,23 @@ const PROVIDERS = {
       }));
     },
   },
+  pixabay: {
+    label: 'Pixabay',
+    ready: () => !!settings.pixabayKey,
+    async search(q, opts = {}){
+      let url = `https://pixabay.com/api/?key=${settings.pixabayKey}&q=${encodeURIComponent(q)}&per_page=20&safesearch=true&image_type=all`;
+      if (opts.transparent) url += '&colors=transparent';
+      const j = await getJSON(url);
+      return (j.hits || []).map(r => ({
+        provider: 'pixabay', id: 'pbx-' + r.id,
+        thumb: r.webformatURL, full: r.largeImageURL || r.webformatURL,
+        title: r.tags || '', author: r.user,
+        authorUrl: `https://pixabay.com/users/${r.user}-${r.user_id}/`,
+        pageUrl: r.pageURL, license: 'Pixabay License',
+        licenseUrl: 'https://pixabay.com/service/license-summary/', sourceName: 'Pixabay',
+      }));
+    },
+  },
   brave: {
     label: 'Brave Images',
     ready: () => !!settings.braveKey,
@@ -5368,6 +5385,7 @@ function wireUI(){
   $('#btn-settings').addEventListener('click', () => {
     $('#set-unsplash').value = settings.unsplashKey || '';
     $('#set-pexels').value = settings.pexelsKey || '';
+    $('#set-pixabay').value = settings.pixabayKey || '';
     $('#set-removebg').value = settings.removebgKey || '';
     $('#set-photoroom').value = settings.photoroomKey || '';
     $('#set-anthropic').value = settings.anthropicKey || '';
@@ -5381,6 +5399,7 @@ function wireUI(){
   $('#set-save').addEventListener('click', () => {
     settings.unsplashKey = $('#set-unsplash').value.trim();
     settings.pexelsKey = $('#set-pexels').value.trim();
+    settings.pixabayKey = $('#set-pixabay').value.trim();
     settings.removebgKey = $('#set-removebg').value.trim();
     settings.photoroomKey = $('#set-photoroom').value.trim();
     settings.anthropicKey = $('#set-anthropic').value.trim();
