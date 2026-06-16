@@ -97,7 +97,7 @@ const SLIDE_CSS = `
    readable presets: dark fill/white text (default) or beige/dark text */
 .slide .lf-ann.lf-chip{padding:12px 16px;border-radius:8px;border-left:4px solid var(--lf-accent);
   background:rgba(10,18,28,.72);color:#fff;box-shadow:0 10px 24px rgba(6,14,24,.18)}
-.slide .lf-ann.lf-chip:not(.lf-takeaway-banner){width:fit-content;min-width:80px;max-width:120px}
+.slide .lf-ann.lf-chip:not(.lf-takeaway-banner){width:fit-content;min-width:80px}
 .slide .lf-ann.lf-chip::before{display:none}
 .slide .lf-ann.lf-chip.lf-chip-light{background:#f6efe2;color:#23303d;box-shadow:0 10px 24px rgba(15,30,45,.10)}
 /* the slide's one big takeaway — a CALLOUT or the last point — as a wide bottom banner */
@@ -1705,7 +1705,19 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   // Non-banner chips use fit-content+max-width via CSS by default.
   // When the user has explicitly dragged to a custom width (a.w != null), honour it with an inline width.
   const isAutoChip = extraCls.includes('lf-chip') && !extraCls.includes('lf-takeaway-banner');
-  const widthStyle = isAutoChip ? (a.w != null ? `width:${a.w}px;max-width:none;` : '') : `width:${w}px;`;
+  let widthStyle;
+  if (isAutoChip){
+    if (a.w != null){
+      widthStyle = `width:${a.w}px;max-width:none;`;
+    } else {
+      // Aim for ~2 lines: set width to ~half the estimated single-line text width
+      const dispLen = annDisplayText(a).length || 4;
+      const autoW = Math.max(80, Math.min(300, Math.round(dispLen * fs * 0.28 + 16)));
+      widthStyle = `width:${autoW}px;`;
+    }
+  } else {
+    widthStyle = `width:${w}px;`;
+  }
   const node = el('div', cls, `left:${x}px;top:${y}px;${widthStyle}font-size:${fs}px;`
     + (a.align ? `text-align:${a.align};` : '')
     + (a.color ? `color:${a.color};` : '')
