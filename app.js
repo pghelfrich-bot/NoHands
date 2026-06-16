@@ -97,7 +97,7 @@ const SLIDE_CSS = `
    readable presets: dark fill/white text (default) or beige/dark text */
 .slide .lf-ann.lf-chip{padding:12px 16px;border-radius:8px;border-left:4px solid var(--lf-accent);
   background:rgba(10,18,28,.72);color:#fff;box-shadow:0 10px 24px rgba(6,14,24,.18)}
-.slide .lf-ann.lf-chip:not(.lf-takeaway-banner){width:fit-content;min-width:80px;max-width:150px}
+.slide .lf-ann.lf-chip:not(.lf-takeaway-banner){width:fit-content;min-width:80px;max-width:120px}
 .slide .lf-ann.lf-chip::before{display:none}
 .slide .lf-ann.lf-chip.lf-chip-light{background:#f6efe2;color:#23303d;box-shadow:0 10px 24px rgba(15,30,45,.10)}
 /* the slide's one big takeaway — a CALLOUT or the last point — as a wide bottom banner */
