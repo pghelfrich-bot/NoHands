@@ -536,7 +536,7 @@ function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().repl
 
 /* ================= state & storage ================= */
 
-let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', serperKey:'' };
+let settings = { unsplashKey:'', pexelsKey:'', removebgKey:'', photoroomKey:'', anthropicKey:'', googleKey:'', googleCx:'', bingKey:'', braveKey:'' };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS.settings) || '{}')); } catch (e) {}
 
 const state = {
@@ -2985,24 +2985,23 @@ const PROVIDERS = {
       }));
     },
   },
-  serper: {
-    label: 'Google via Serper',
-    ready: () => !!settings.serperKey,
+  brave: {
+    label: 'Brave Images',
+    ready: () => !!settings.braveKey,
     async search(q, opts = {}){
-      const body = { q, num: opts.limit || 20, hl: 'en' };
-      if (opts.transparent) body.tbs = 'ic:trans';
-      const j = await getJSON('https://google.serper.dev/images', {
-        method: 'POST',
-        headers: { 'X-API-KEY': settings.serperKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      return (j.images || []).map(r => ({
-        provider: 'serper', id: 'serper-' + encodeURIComponent(r.imageUrl || '').slice(0, 40),
-        thumb: r.thumbnailUrl || r.imageUrl, full: r.imageUrl,
+      const params = new URLSearchParams({ q, count: opts.limit || 20, safesearch: 'moderate' });
+      if (opts.transparent) params.set('image_type', 'transparent');
+      const j = await getJSON(
+        `https://api.search.brave.com/res/v1/images/search?${params}`,
+        { headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip', 'X-Subscription-Token': settings.braveKey } }
+      );
+      return (j.results || []).map(r => ({
+        provider: 'brave', id: 'brave-' + encodeURIComponent(r.properties?.url || r.url || '').slice(0, 40),
+        thumb: r.thumbnail?.src || '', full: r.properties?.url || r.thumbnail?.original || '',
         title: r.title || '', author: r.source || '',
-        authorUrl: r.link || '', pageUrl: r.link || '',
+        authorUrl: r.url || '', pageUrl: r.url || '',
         license: 'Unknown — verify rights before reuse', licenseUrl: '',
-        sourceName: 'Google Images (Serper)',
+        sourceName: 'Brave Images',
       }));
     },
   },
@@ -5213,7 +5212,7 @@ function wireUI(){
     $('#set-google-key').value = settings.googleKey || '';
     $('#set-google-cx').value = settings.googleCx || '';
     $('#set-bing').value = settings.bingKey || '';
-    $('#set-serper').value = settings.serperKey || '';
+    $('#set-brave').value = settings.braveKey || '';
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
@@ -5225,7 +5224,7 @@ function wireUI(){
     settings.googleKey = $('#set-google-key').value.trim();
     settings.googleCx = $('#set-google-cx').value.trim();
     settings.bingKey = $('#set-bing').value.trim();
-    settings.serperKey = $('#set-serper').value.trim();
+    settings.braveKey = $('#set-brave').value.trim();
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
     toast('Settings saved');
