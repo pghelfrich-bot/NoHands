@@ -1456,7 +1456,8 @@ function renderSlide(slide, deck, opts = {}){
     // no colour wash — let the blurred HD photo show; text gets a legibility halo (.has-bg) instead
     const img = el('img', 'lf-bg');
     img.src = bg.src; img.alt = '';
-    img.style.filter = `blur(${bg.blur || 0}px)`;
+    const blurPx = (deck.bgSharpFirst && opts.index === 0) ? 0 : (bg.blur || 0);
+    img.style.filter = `blur(${blurPx}px)`;
     root.appendChild(img);
   }
 
@@ -3957,6 +3958,7 @@ function showBgCurrent(){
   $('#bg-blur').value = blur;
   $('#bg-blur-val').textContent = blur + 'px';
   $('#bg-frame').checked = !!(state.deck && state.deck.frame);
+  $('#bg-sharp-first').checked = !!(state.deck && state.deck.bgSharpFirst);
   $('#bg-motion').checked = !!(state.deck && state.deck.motion);
   $('#bg-arrows').value = (state.deck && state.deck.arrows) || 'none';
   const textScaleVal = (state.deck && state.deck.textScale) || 1;
@@ -4545,15 +4547,18 @@ async function exportPPTX(){
   const bg = deck.background;
   const bgData = (bg && bg.src && bg.src.startsWith('data:'))
     ? await blurImageDataURL(bg.src, bg.blur || 0) : null;
+  // sharp (unblurred) variant for the first slide, when that option is set
+  const bgDataSharp = (deck.bgSharpFirst && bg && bg.src && bg.src.startsWith('data:')) ? bg.src : null;
   // no colour wash — let the photo show; text colour follows the photo brightness
   // with a contrasting drop shadow for legibility
   const bgTextLight = !!(bgData && bg.dark);
   const txtShadow = bgData
     ? { type: 'outer', color: bgTextLight ? '000000' : 'FFFFFF', blur: 4, offset: 2, angle: 90, opacity: 0.6 }
     : undefined;
-  const addBackground = (sl) => {
-    if (!bgData) return;
-    sl.addImage({ data: bgData, x: 0, y: 0, w: 13.333, h: 7.5, sizing: { type: 'cover', w: 13.333, h: 7.5 } });
+  const addBackground = (sl, idx) => {
+    const data = (deck.bgSharpFirst && idx === 0) ? bgDataSharp : bgData;
+    if (!data) return;
+    sl.addImage({ data, x: 0, y: 0, w: 13.333, h: 7.5, sizing: { type: 'cover', w: 13.333, h: 7.5 } });
   };
   const addFrame = (sl, dark) => {
     if (!deck.frame) return;
@@ -4586,7 +4591,7 @@ async function exportPPTX(){
     const maxAnns = revealAnns ? revStep : Infinity;
     const sl = p.addSlide();
     sl.background = { color: C(dark ? pal.darkSolid : pal.lightSolid) };
-    addBackground(sl, dark);
+    addBackground(sl, idx);
     let ink = dark ? 'EDF3F9' : '17252F';
     if (bgData) ink = bgTextLight ? 'F4F8FB' : '16222C';
     const acc = C(dark ? pal.accent : pal.accentInk);
@@ -4888,7 +4893,7 @@ async function exportPPTX(){
   if (attrs.length){
     const sl = p.addSlide();
     sl.background = { color: C(pal.darkSolid) };
-    addBackground(sl, true);
+    addBackground(sl, -1);
     sl.addShape('rect', { x: I(96), y: I(74), w: I(54), h: I(5), fill: { color: C(pal.accent) } });
     sl.addText('Image credits', { x: I(96), y: I(88), w: I(800), h: I(70), fontFace: SERIF, fontSize: 28, bold: true, color: 'EDF3F9' });
     sl.addText(attrs.map(a => `Slide ${a.slide} — ${a.author} · ${a.sourceName} · ${a.license}${a.pageUrl ? ' · ' + a.pageUrl : ''}`).join('\n'),
@@ -5936,6 +5941,12 @@ function wireUI(){
     if (!guardDeck()) return;
     checkpoint();
     state.deck.frame = $('#bg-frame').checked;
+    refreshAll();
+  });
+  $('#bg-sharp-first').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.bgSharpFirst = $('#bg-sharp-first').checked;
     refreshAll();
   });
   $('#bg-motion').addEventListener('change', () => {
