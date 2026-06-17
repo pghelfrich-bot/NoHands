@@ -120,6 +120,7 @@ const SLIDE_CSS = `
 .slide .lf-img.photo img{object-fit:cover;border-radius:10px;box-shadow:0 16px 36px rgba(6,14,24,.35)}
 .slide .lf-img.bleed img{object-fit:cover;border-radius:0;box-shadow:none}
 .slide .lf-img.cut img{object-fit:contain;filter:drop-shadow(0 16px 24px rgba(6,14,24,.38))}
+.slide .lf-img.bordered img{border:7px solid #fff;box-sizing:border-box;background:#fff}
 .slide .lf-cinescrim{position:absolute;inset:0;z-index:3;pointer-events:none;
   background:linear-gradient(to top, rgba(6,12,20,.86) 0%, rgba(6,12,20,.55) 24%, rgba(6,12,20,.12) 46%, rgba(6,12,20,0) 64%)}
 .slide.cine{color:#fff}
@@ -1977,7 +1978,7 @@ function renderImages(root, slide, opts){
   slide.images.forEach((im, i) => {
     const bleed = fullBleed && i === 0;
     const z = bleed ? 1 : (im.z != null ? im.z : 10 + i);
-    const node = el('div', 'lf-img ' + (bleed ? 'bleed ' : '') + (im.cutout ? 'cut' : 'photo'),
+    const node = el('div', 'lf-img ' + (bleed ? 'bleed ' : '') + (im.cutout ? 'cut' : 'photo') + (im.border && !bleed ? ' bordered' : ''),
       `left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px;z-index:${z};`);
     node.dataset.id = im.id;
     node.dataset.sel = 'img:' + im.id;
@@ -4013,6 +4014,7 @@ async function insertImageFromResult(r, at){
   toast('Inserting image…', 6000);
   const im = await placeResultOnSlide(s, r, at);
   if (!im){ toast('That image failed to load — skipped'); return; }
+  im.border = $('#ip-border').checked;
   refreshAll();
   toast('Image inserted' + (im.attr.author ? ` — ${im.attr.author} / ${im.attr.sourceName}` : ''));
   if ($('#ip-cutout').checked) await applyCutout(im);
@@ -4856,8 +4858,18 @@ async function exportPPTX(){
       if (im === cineFirst) continue;   // already drawn full-bleed beneath the text
       const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
       if (!data.startsWith('data:')) continue;
-      sl.addImage({ data, x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h),
-        sizing: { type: im.cutout ? 'contain' : 'cover', w: I(im.w), h: I(im.h) } });
+      if (im.border && !im.cutout){
+        // white frame drawn behind, photo inset by the border width (matches the editor)
+        const b = 7;
+        sl.addShape('roundRect', { x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h), rectRadius: 0.03,
+          fill: { color: 'FFFFFF' }, line: { type: 'none' },
+          shadow: { type: 'outer', color: '060E18', blur: 9, offset: 3, angle: 90, opacity: 0.34 } });
+        sl.addImage({ data, x: I(im.x + b), y: I(im.y + b), w: I(im.w - 2 * b), h: I(im.h - 2 * b),
+          sizing: { type: 'cover', w: I(im.w - 2 * b), h: I(im.h - 2 * b) } });
+      } else {
+        sl.addImage({ data, x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h),
+          sizing: { type: im.cutout ? 'contain' : 'cover', w: I(im.w), h: I(im.h) } });
+      }
     }
 
     // figure-grid captions, drawn on top of their own photo
