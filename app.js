@@ -620,6 +620,7 @@ let viewScale = 1;
 let userZoom = 1;   // multiplicative zoom on top of fit-to-window scale
 let panelSeedFor = null;
 let textScale = 1;   // deck.textScale, applied to default (non-overridden) font sizes while rendering
+let truncateMode = false;  // editor-only: chip labels render as clickable words for click-to-cut truncation
 
 function blankSlide(type = 'content'){
   return { id: uid(), type, headline:'', callout:'', figure:'', notes:'',
@@ -878,7 +879,7 @@ function parseOutline(text){
   for (const sl of deck.slides){
     sl.annotations = (sl.points || []).map(pt => {
       const short = shortenPoint(pt);
-      return { id: uid(), text: short, full: pt, x: null, y: null };
+      return { id: uid(), text: short, full: pt, orig: pt, x: null, y: null };
     });
     const detail = sl.annotations.filter(a => a.full.trim() !== a.text.trim());
     if (detail.length && sl.type === 'content'){
@@ -1774,6 +1775,12 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   node.dataset.id = a.id;
   node.dataset.sel = 'ann:' + a.id;
   if (cardNum) node.appendChild(el('div', 'lf-ann-num', '', String(cardNum)));
+  // truncate mode: render the chip label as clickable words for click-to-cut
+  if (opts && opts.editor && truncateMode && useFull && isAutoChip){
+    node.appendChild(buildCutWords(a));
+    root.appendChild(node);
+    return;
+  }
   const hasFull = a.full && a.full.trim() && a.full.trim() !== a.text.trim();
   const mainText = (useFull && hasFull) ? a.full : a.text;
   const mainKey = (useFull && hasFull) ? 'annfull:' + a.id : 'ann:' + a.id;
@@ -1781,6 +1788,42 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
   if (showDetail && hasFull)
     node.appendChild(editable(elMath('div', 'lf-ann-full', '', a.full), 'annfull:' + a.id, opts));
   root.appendChild(node);
+}
+
+/* the pristine, recoverable original for a label — falls back to the current
+   full text for decks created before truncation existed */
+function annTruncSource(a){
+  return (a.orig && a.orig.trim()) ? a.orig : (a.full || a.text || '');
+}
+/* how many leading words of the original are currently shown (the cut point) */
+function annKeptCount(a, words){
+  const curT = (a.full || '').trim();
+  for (let k = 1; k <= words.length; k++) if (words.slice(0, k).join(' ') === curT) return k;
+  return words.length;
+}
+function buildCutWords(a){
+  const words = annTruncSource(a).split(/\s+/).filter(Boolean);
+  const kept = annKeptCount(a, words);
+  const wrap = el('div', 'lf-ann-text lf-cut-wrap');
+  words.forEach((w, wi) => {
+    const sp = el('span', 'lf-cut-word' + (wi < kept ? '' : ' cut'), '', w);
+    sp.dataset.cut = wi;
+    wrap.appendChild(sp);
+    if (wi < words.length - 1) wrap.appendChild(document.createTextNode(' '));
+  });
+  return wrap;
+}
+/* keep words 1..k of the original as the visible label; the original is
+   snapshotted to a.orig the first time so the cut is always reversible */
+function truncateAnnTo(slide, a, k){
+  const words = annTruncSource(a).split(/\s+/).filter(Boolean);
+  if (!words.length) return;
+  if (!a.orig) a.orig = annTruncSource(a);
+  k = clamp(k, 1, words.length);
+  checkpoint();
+  a.full = words.slice(0, k).join(' ');
+  save();
+  renderEditor();
 }
 
 function renderTimeline(root, slide, pal, dark, g, opts){
@@ -2188,6 +2231,11 @@ function applySelection(root){
   $('#sel-chip').disabled = !isChippable;
   $('#sel-chip').classList.toggle('active', isChippable && info.obj.chip === 'light');
 
+  // truncate: available when a single annotation on a label-style layout is selected
+  const isTrunc = !group && info && info.type === 'ann' && L2 && L2.annStyle === 'label';
+  $('#sel-truncate').disabled = !isTrunc;
+  $('#sel-truncate').classList.toggle('active', truncateMode);
+
   updateAnchorHandle(root, cur());
 }
 
@@ -2286,6 +2334,7 @@ function updateAnchorHandle(root, slide){
 }
 
 function setSel(sel){
+  if (!sel && truncateMode){ truncateMode = false; state.sel = null; state.selMulti = []; renderEditor(); return; }
   state.sel = sel;
   state.selMulti = [];
   const root = $('#canvas .slide');
@@ -2297,6 +2346,17 @@ function wireSlideEditing(root, slide){
   const accLine = isDark(slide) ? pal.accent : pal.accentInk;
 
   root.addEventListener('pointerdown', e => {
+    // truncate mode: clicking a word cuts the label to end there
+    if (truncateMode){
+      const cw = e.target.closest('.lf-cut-word');
+      if (cw){
+        e.preventDefault(); e.stopPropagation();
+        const annNode = cw.closest('[data-sel^="ann:"]');
+        const a = annNode && slide.annotations.find(x => ('ann:' + x.id) === annNode.dataset.sel);
+        if (a) truncateAnnTo(slide, a, +cw.dataset.cut + 1);
+        return;
+      }
+    }
     const handle = e.target.closest('.lf-h');
     if (handle){
       const groupBox = handle.closest('.lf-group-box');
@@ -2798,6 +2858,7 @@ function selectSlide(i){
   state.cur = clamp(i, 0, state.deck.slides.length - 1);
   state.sel = null;
   state.selMulti = [];
+  truncateMode = false;
   renderEditor();
   $$('#rail-list .rail-item').forEach((li, k) => li.classList.toggle('current', k === state.cur));
   updateToolbar();
@@ -5561,6 +5622,12 @@ function wireUI(){
     commitChange();
     refreshAll();
   });
+  $('#sel-truncate').addEventListener('click', () => {
+    if ($('#sel-truncate').disabled) return;
+    truncateMode = !truncateMode;
+    renderEditor();
+    if (truncateMode) toast('Truncate: click a word to cut each label there. Click a later word to extend, Esc when done.', 4200);
+  });
   $('#sel-cutout').addEventListener('click', async () => {
     const s = cur();
     if (!s || !state.sel || !state.sel.startsWith('img:')) return;
@@ -5860,7 +5927,7 @@ function wireUI(){
     if (e.key === 'ArrowDown' || e.key === 'PageDown'){ e.preventDefault(); selectSlide(state.cur + 1); }
     else if (e.key === 'ArrowUp' || e.key === 'PageUp'){ e.preventDefault(); selectSlide(state.cur - 1); }
     else if (e.key === 'Delete' || e.key === 'Backspace'){ if (state.sel || state.selMulti.length >= 2){ e.preventDefault(); checkpoint(); deleteSelected(); } }
-    else if (e.key === 'Escape'){ if (state.sel || state.selMulti.length){ e.preventDefault(); setSel(null); } }
+    else if (e.key === 'Escape'){ if (state.sel || state.selMulti.length || truncateMode){ e.preventDefault(); setSel(null); } }
   });
   $('#present-overlay').addEventListener('click', e => {
     if (e.target.closest('#present-notes') || e.target.closest('#present-exit')) return;

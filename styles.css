@@ -193,6 +193,10 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 }
 #canvas-toolbar .sep{width:1px;height:20px;background:var(--line)}
 #sel-tools{display:inline-flex;align-items:center;gap:4px}
+/* click-to-cut truncation: chip words become clickable; everything past the cut dims */
+.lf-cut-wrap .lf-cut-word{cursor:pointer;border-radius:3px;padding:0 1px;transition:background .08s,opacity .08s}
+.lf-cut-wrap .lf-cut-word:hover{background:rgba(56,189,248,.85);color:#06222f;box-shadow:3px 0 0 rgba(56,189,248,.85)}
+.lf-cut-wrap .lf-cut-word.cut{opacity:.32;text-decoration:line-through}
 .sel-scope{height:26px;border-radius:6px;border:1px solid var(--line);background:var(--card,#fff);
   color:inherit;font-size:12px;padding:0 4px;cursor:pointer}
 .sel-color-group{display:inline-flex;align-items:center;gap:2px}
