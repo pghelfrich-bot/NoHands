@@ -1299,6 +1299,47 @@ function toggleStar(id){
   toast(e.starred ? 'Starred — this deck now shapes your taste profile' : 'Unstarred');
 }
 
+/* ---- smart, taste-aware label trimming (the friction-killer) ---- */
+const SMART_TRIM_SYS = `You shorten lecture-slide annotation labels. Each label currently holds the full source point, but the slide only needs a short on-screen label because the full text is preserved in the speaker notes — so be confident and concise, never pad. For each label, return a short on-slide version that keeps the single most important idea (the key term, name, number, or claim) and drops filler, examples, and explanation. Keep the author's own wording where you can; do not invent facts or add words that change the meaning. Aim short — a few words to a brief phrase. Return ONLY JSON in the form {"labels":[{"id":"<id>","short":"<short label>"}]} and nothing else.`;
+
+/* shorten every label on a slide in one call, matched to the learned taste.
+   a.orig keeps the full original, so this is non-destructive and restorable. */
+async function smartTrimSlide(slide){
+  if (!slide || slide.type !== 'content'){ toast('Open a content slide to trim its labels'); return; }
+  const anns = (slide.annotations || []).filter(a => (a.orig || a.full || a.text || '').trim());
+  if (!anns.length){ toast('No labels to trim on this slide'); return; }
+  if (!settings.anthropicKey){ toast('Add your Anthropic API key in Settings to use Trim labels'); return; }
+  const taste = loadTaste();
+  const labels = anns.map(a => ({ id: a.id, text: (a.orig || a.full || a.text).trim() }));
+  let sys = SMART_TRIM_SYS;
+  if (taste && taste.profile)
+    sys += "\n\nThe author's established label style (match it closely, especially the typical label length):\n" + taste.profile;
+  const user = `Slide heading: ${slide.headline || '(none)'}\nCentral figure: ${slide.figure || '(none)'}\n\n`
+    + `Shorten each of these labels, keeping its id:\n` + JSON.stringify(labels);
+  toast('Trimming labels in your style…', 12000);
+  try {
+    const raw = await anthropicMessage({ system: sys, user, maxTokens: 800 });
+    const m = raw.match(/\{[\s\S]*\}/);
+    const data = JSON.parse(m ? m[0] : raw);
+    const byId = {};
+    (data.labels || []).forEach(x => { if (x && x.id) byId[x.id] = String(x.short || '').trim(); });
+    checkpoint();
+    let n = 0;
+    for (const a of anns){
+      const short = byId[a.id];
+      if (!short || short === (a.full || '').trim()) continue;
+      if (!a.orig) a.orig = (a.full || a.text || '').trim();   // snapshot the full original once
+      a.full = short;
+      n++;
+    }
+    save(); renderEditor();
+    toast(n ? `Trimmed ${n} label${n === 1 ? '' : 's'} — full text kept in notes; undo or re-cut anytime`
+            : 'Labels already look tight — no changes');
+  } catch (e){
+    toast('Smart trim failed — ' + (e.message || 'try again'));
+  }
+}
+
 /* ================= layout geometry (shared by DOM renderer & PPTX export) ================= */
 
 // text-length estimators below use the plain-text rendering of any $...$ /
@@ -5815,6 +5856,7 @@ function wireUI(){
     refreshAll();
     toast('Layout reset');
   });
+  $('#btn-smart-trim').addEventListener('click', () => { const s = cur(); if (s) smartTrimSlide(s); });
   $('#btn-add-label').addEventListener('click', () => {
     const s = cur(); if (!s) return;
     checkpoint();
