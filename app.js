@@ -5216,10 +5216,23 @@ function showScreen(which){
 /* ================= home screen (decks + folders) ================= */
 
 let homeFolder = 'all';   // 'all' | folder id
+const homeSelected = new Set();   // deck ids checked for bulk actions on the home screen
+
+function updateBulkBar(){
+  const btn = $('#btn-bulk-delete');
+  if (!btn) return;
+  // drop any ids that no longer exist
+  const live = new Set(deckIndex().map(e => e.id));
+  for (const id of [...homeSelected]) if (!live.has(id)) homeSelected.delete(id);
+  const n = homeSelected.size;
+  btn.hidden = n === 0;
+  btn.textContent = `🗑 Delete selected (${n})`;
+}
 
 function renderHome(){
   renderFolderList();
   renderDeckGrid();
+  updateBulkBar();
 }
 
 function renderFolderList(){
@@ -5311,6 +5324,21 @@ function deckCard(entry){
     : 'Star this finished deck to teach your evolving taste profile';
   star.addEventListener('click', ev => { ev.stopPropagation(); toggleStar(entry.id); });
   thumb.appendChild(star);
+  // selection checkbox for bulk delete
+  const selWrap = el('label', 'dc-select');
+  selWrap.title = 'Select for bulk delete';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = homeSelected.has(entry.id);
+  if (cb.checked) card.classList.add('selected');
+  selWrap.addEventListener('click', ev => ev.stopPropagation());
+  cb.addEventListener('change', () => {
+    if (cb.checked) homeSelected.add(entry.id); else homeSelected.delete(entry.id);
+    card.classList.toggle('selected', cb.checked);
+    updateBulkBar();
+  });
+  selWrap.appendChild(cb);
+  thumb.appendChild(selWrap);
   card.appendChild(thumb);
   const body = el('div', 'dc-body');
   body.appendChild(el('div', 'dc-title', '', entry.title || 'Untitled deck'));
@@ -5747,6 +5775,18 @@ function wireUI(){
   $('#btn-drive').addEventListener('click', openDriveModal);
   $('#btn-taste').addEventListener('click', openTasteModal);
   $('#taste-refresh').addEventListener('click', refreshTaste);
+  $('#btn-bulk-delete').addEventListener('click', async () => {
+    const ids = [...homeSelected];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} deck${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    for (const id of ids){
+      await deleteDeck(id);
+      if (state.deck && state.deck.id === id) state.deck = null;
+    }
+    homeSelected.clear();
+    renderHome();
+    toast(`Deleted ${ids.length} deck${ids.length === 1 ? '' : 's'}`);
+  });
   $('#btn-import-deck').addEventListener('click', () => $('#file-import').click());
   $('#file-import').addEventListener('change', e => {
     const f = e.target.files[0]; if (f) importDeckFile(f); e.target.value = '';
