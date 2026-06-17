@@ -108,6 +108,7 @@ Design: free-text notes
     <div id="home-head">
       <h1 id="home-title">All decks</h1>
       <span class="spacer"></span>
+      <button id="btn-taste" class="btn ghost" title="Analyze the decks you've starred to learn your lecture-design taste">✨ Taste</button>
       <button id="btn-drive" class="btn ghost" title="Browse and open decks from Google Drive">☁ Drive</button>
       <button id="btn-import-deck" class="btn ghost">Import deck</button>
       <button id="btn-batch-outline" class="btn ghost" title="Build a separate deck from each outline .txt file you pick">Batch from outlines</button>
@@ -401,6 +402,23 @@ Design: free-text notes
     <p class="modal-sub">Your LectureFlow decks backed up to Drive — open from any device.</p>
     <ul id="drive-list" style="list-style:none;padding:0;max-height:380px;overflow-y:auto;margin:12px 0"></ul>
     <div class="modal-actions">
+      <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="taste-modal" class="modal" style="width:min(620px,94vw)">
+  <form method="dialog">
+    <h2>Your lecture taste ✨</h2>
+    <p class="modal-sub">Learned from the decks you've starred — focused on how you reshape a starting
+    outline and how you arrange labels. Star more finished decks and refresh to keep it evolving.</p>
+    <div id="taste-meta" class="muted" style="font-size:12.5px;margin:6px 0"></div>
+    <div id="taste-profile" style="white-space:pre-wrap;line-height:1.5;font-size:13.5px;color:var(--ink);
+      max-height:46vh;overflow-y:auto;background:#0c1117;border:1px solid var(--line);
+      border-radius:10px;padding:14px;margin:10px 0"></div>
+    <div id="taste-status" class="status" hidden></div>
+    <div class="modal-actions">
+      <button id="taste-refresh" type="button" class="btn">Analyze / refresh</button>
       <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>

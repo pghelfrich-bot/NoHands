@@ -141,6 +141,12 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 }
 .deck-card:hover{border-color:var(--accent);transform:translateY(-2px)}
 .deck-card .dc-thumb{width:100%;aspect-ratio:16/9;background:#000;overflow:hidden;position:relative}
+.deck-card.starred{border-color:var(--accent)}
+.dc-star{position:absolute;top:7px;right:7px;z-index:5;width:30px;height:30px;border-radius:50%;
+  border:none;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;
+  background:rgba(8,16,26,.55);color:#fff;backdrop-filter:blur(2px);transition:transform .1s,background .1s}
+.dc-star:hover{transform:scale(1.12);background:rgba(8,16,26,.78)}
+.dc-star.on{color:#ffd45e}
 .deck-card .dc-body{padding:12px 14px}
 .deck-card .dc-title{font-weight:650;font-size:15px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .deck-card .dc-meta{font-size:11.5px;color:var(--ink-dim)}

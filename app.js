@@ -19,6 +19,7 @@ const LS = {
   folders:  'lectureflow.folders',
   templates: 'lectureflow.templates',
   deck:   id => 'lectureflow.deck.' + id,
+  taste:  'lectureflow.taste',
 };
 
 /* IndexedDB for deck content — no 5MB cap, survives large image decks */
@@ -688,7 +689,8 @@ async function saveDeckNow(){
     const prev = all.find(e => e.id === d.id);
     const idx = all.filter(e => e.id !== d.id);
     idx.unshift({ id: d.id, title: d.title || 'Untitled deck', updated: Date.now(),
-                  count: d.slides.length, folder: prev ? (prev.folder || null) : null });
+                  count: d.slides.length, folder: prev ? (prev.folder || null) : null,
+                  starred: prev ? !!prev.starred : false });
     saveIndex(idx);
     localStorage.setItem(LS.current, d.id);
     saveStatus = 'ok';
@@ -1154,6 +1156,147 @@ async function proseToOutlineAI(text, { key, model } = {}){
   const j = await res.json();
   const out = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
   return out.replace(/^```[\w]*\n?|\n?```$/g, '');
+}
+
+/* ================= lecture "taste" (Phase 1) =================
+   Two signals capture the user's taste: (1) how they reshape a generated
+   outline into the final deck structure, and (2) how they arrange labels.
+   Fingerprints are computed locally (no images sent); Claude only synthesizes. */
+
+function wordsOf(s){ return (s || '').trim().split(/\s+/).filter(Boolean); }
+
+/* structural shape of a deck — used both as the at-creation baseline and the
+   final-state measurement, so the two can be diffed */
+function structureFingerprint(deck){
+  const t = { title:0, roadmap:0, section:0, content:0, takeaway:0 };
+  const layouts = {};
+  let sections = 0;
+  for (const s of deck.slides){
+    t[s.type] = (t[s.type] || 0) + 1;
+    if (s.type === 'section') sections++;
+    if (s.type === 'content'){
+      const lay = effContentLayout(s) || 'annotated';
+      layouts[lay] = (layouts[lay] || 0) + 1;
+    }
+  }
+  return {
+    slides: deck.slides.length, byType: t, sections,
+    contentPerSection: sections ? +(t.content / sections).toFixed(2) : t.content,
+    layouts, hasRoadmap: t.roadmap > 0,
+    endsTakeaway: deck.slides.length > 0 && deck.slides[deck.slides.length - 1].type === 'takeaway',
+  };
+}
+
+/* how labels are worded and arranged — the second taste pillar. Works on any
+   deck (the baseline is trivially "all full text, auto-placed"). */
+function labelFingerprint(deck){
+  const content = deck.slides.filter(s => s.type === 'content');
+  let slidesWithLabels = 0, totLabels = 0, truncated = 0, split = 0, manualPos = 0;
+  const wordCounts = [], truncRatios = [], widths = [];
+  const pos = { left:0, center:0, right:0 };
+  for (const s of content){
+    const anns = s.annotations || [];
+    if (anns.length) slidesWithLabels++;
+    for (const a of anns){
+      totLabels++;
+      const fullW = wordsOf(a.full || a.text || '').length;
+      const origW = wordsOf(a.orig || a.full || a.text || '').length;
+      wordCounts.push(fullW);
+      if (origW > 0){ truncRatios.push(fullW / origW); if (fullW < origW) truncated++; }
+      if (a.splitOf) split++;
+      if (a.x != null || a.y != null) manualPos++;
+      if (a.w != null) widths.push(a.w);
+      if (a.x != null) pos[a.x < SLIDE_W * 0.38 ? 'left' : a.x > SLIDE_W * 0.62 ? 'right' : 'center']++;
+    }
+  }
+  const avg = arr => arr.length ? +(arr.reduce((x, y) => x + y, 0) / arr.length).toFixed(2) : null;
+  const pct = n => totLabels ? +(100 * n / totLabels).toFixed(0) : 0;
+  return {
+    contentSlides: content.length, slidesWithLabels, totalLabels: totLabels,
+    avgLabelsPerLabeledSlide: slidesWithLabels ? +(totLabels / slidesWithLabels).toFixed(2) : 0,
+    labelWordCount: { avg: avg(wordCounts), min: wordCounts.length ? Math.min(...wordCounts) : null,
+                      max: wordCounts.length ? Math.max(...wordCounts) : null },
+    avgTruncationRatio: avg(truncRatios),   // 1 = untouched, lower = trimmed harder
+    pctTruncated: pct(truncated), pctSplit: pct(split), pctManualPositioned: pct(manualPos),
+    positionBias: pos, avgChipWidth: avg(widths),
+  };
+}
+
+/* the outline→deck structural delta, when a baseline was captured at creation */
+function deckDelta(deck){
+  if (!deck.origin || !deck.origin.fp) return null;
+  const base = deck.origin.fp, cur = structureFingerprint(deck);
+  const layoutChanges = {};
+  new Set([...Object.keys(base.layouts || {}), ...Object.keys(cur.layouts || {})]).forEach(k => {
+    const d = (cur.layouts[k] || 0) - (base.layouts[k] || 0); if (d) layoutChanges[k] = d;
+  });
+  return {
+    baselineSlides: base.slides, finalSlides: cur.slides, slidesAdded: cur.slides - base.slides,
+    contentPerSection: { from: base.contentPerSection, to: cur.contentPerSection },
+    layoutChanges,
+  };
+}
+
+function deckTasteSample(deck){
+  return {
+    title: deck.title || 'Untitled', accent: deck.accent,
+    background: !!(deck.background && deck.background.src), motion: !!deck.motion,
+    structure: structureFingerprint(deck),
+    outlineToDeck: deckDelta(deck),     // null = no baseline recorded for this deck
+    labels: labelFingerprint(deck),
+  };
+}
+
+function loadTaste(){ try { return JSON.parse(localStorage.getItem(LS.taste) || 'null'); } catch (e){ return null; } }
+
+/* thin wrapper over the Anthropic Messages API (same browser-direct pattern as
+   proseToOutlineAI), used for taste synthesis */
+async function anthropicMessage({ system, user, maxTokens = 1500, model }){
+  const key = settings.anthropicKey;
+  if (!key) throw new Error('Add your Anthropic API key in Settings');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': key,
+      'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({ model: model || 'claude-sonnet-4-6', max_tokens: maxTokens,
+      system, messages: [{ role: 'user', content: user }] }),
+  });
+  if (!res.ok) throw new Error('API ' + res.status + (res.status === 401 ? ' — check your key' : ''));
+  const j = await res.json();
+  return (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+}
+
+const TASTE_SYS = `You are building an evolving "lecture-design taste profile" for one teacher who builds image-first slide decks in an app called LectureFlow.
+
+You receive compact JSON fingerprints of the decks they consider their best work. Two signals matter most:
+1. outlineToDeck — how they transform a generated starting outline into the final deck structure (how many slides they add, how they split headings across slides, which content layouts they switch to). null means no baseline was recorded for that deck — rely on its final "structure" instead.
+2. labels — how they word and arrange the annotation labels around figures: how many per slide, how hard they trim them (avgTruncationRatio: 1.0 = untouched, lower = trimmed harder; labelWordCount in words), how often they split a label into a follow-up, how often they hand-place them, and where they sit (positionBias).
+
+Write a concise, concrete, REUSABLE taste profile the app can later use to make implementable suggestions. Prefer specific numbers and rules ("splits most headings into 2 slides", "trims labels to ~45% of source, ~4 words", "keeps 3–4 labels per slide, hand-placed left and right of the figure") over vague praise. Note consistent patterns AND flag where the decks disagree (low-confidence areas). If a PREVIOUS PROFILE is supplied, refine and update it rather than starting over. Output plain text with a few short bullet sections, under ~350 words.`;
+
+async function analyzeTaste(){
+  const starred = deckIndex().filter(e => e.starred);
+  if (starred.length < 2){ toast('Star at least 2 finished decks first'); return null; }
+  const samples = [];
+  for (const e of starred){ const d = await loadDeck(e.id); if (d) samples.push(deckTasteSample(d)); }
+  if (!samples.length){ toast('Could not load the starred decks'); return null; }
+  const prev = loadTaste();
+  const user = (prev && prev.profile ? 'PREVIOUS PROFILE (refine this):\n' + prev.profile + '\n\n' : '')
+    + 'STARRED DECK FINGERPRINTS:\n' + JSON.stringify(samples, null, 1);
+  const profile = await anthropicMessage({ system: TASTE_SYS, user, maxTokens: 1200 });
+  const rec = { profile, decks: starred.map(e => e.id), at: Date.now(), count: samples.length };
+  localStorage.setItem(LS.taste, JSON.stringify(rec));
+  return rec;
+}
+
+function toggleStar(id){
+  const idx = deckIndex();
+  const e = idx.find(x => x.id === id);
+  if (!e) return;
+  e.starred = !e.starred;
+  saveIndex(idx);
+  renderHome();
+  toast(e.starred ? 'Starred — this deck now shapes your taste profile' : 'Unstarred');
 }
 
 /* ================= layout geometry (shared by DOM renderer & PPTX export) ================= */
@@ -5111,6 +5254,7 @@ function deckCard(entry){
     ev.dataTransfer.setData('text/lf-deck', entry.id);
     ev.dataTransfer.effectAllowed = 'move';
   });
+  if (entry.starred) card.classList.add('starred');
   const thumb = el('div', 'dc-thumb');
   loadDeck(entry.id).then(d => {
     if (d && d.slides && d.slides.length){
@@ -5119,6 +5263,13 @@ function deckCard(entry){
       thumb.appendChild(scaleWrap);
     }
   });
+  const star = el('button', 'dc-star' + (entry.starred ? ' on' : ''), '', entry.starred ? '★' : '☆');
+  star.type = 'button';
+  star.title = entry.starred
+    ? 'Starred — this deck feeds your taste profile. Click to unstar.'
+    : 'Star this finished deck to teach your evolving taste profile';
+  star.addEventListener('click', ev => { ev.stopPropagation(); toggleStar(entry.id); });
+  thumb.appendChild(star);
   card.appendChild(thumb);
   const body = el('div', 'dc-body');
   body.appendChild(el('div', 'dc-title', '', entry.title || 'Untitled deck'));
@@ -5479,6 +5630,8 @@ function wireUI(){
     if (!text.trim()){ toast('Paste an outline first (or “Load sample”)'); return; }
     const deck = parseOutline(text);
     if (!deck.slides.length){ toast('No slides found — check the format guide on the right'); return; }
+    // snapshot the as-generated structure so we can later learn from how it's edited
+    deck.origin = { outline: text, fp: structureFingerprint(deck), at: Date.now() };
     openDeck(deck);
     toast(`Parsed ${deck.slides.length} slides — drop in images from the panel on the right`);
   });
@@ -5551,6 +5704,8 @@ function wireUI(){
   $('#btn-new-deck').addEventListener('click', () => showScreen('outline'));
   $('#btn-new-folder').addEventListener('click', newFolder);
   $('#btn-drive').addEventListener('click', openDriveModal);
+  $('#btn-taste').addEventListener('click', openTasteModal);
+  $('#taste-refresh').addEventListener('click', refreshTaste);
   $('#btn-import-deck').addEventListener('click', () => $('#file-import').click());
   $('#file-import').addEventListener('change', e => {
     const f = e.target.files[0]; if (f) importDeckFile(f); e.target.value = '';
@@ -6253,6 +6408,47 @@ async function driveOpenDeck(fileId){
   } catch(e){
     console.error('Drive open:', e);
     toast('Could not open deck from Drive — ' + e.message);
+  }
+}
+
+function renderTasteModal(){
+  const starred = deckIndex().filter(e => e.starred);
+  const rec = loadTaste();
+  const meta = $('#taste-meta');
+  const body = $('#taste-profile');
+  meta.textContent = `${starred.length} deck${starred.length === 1 ? '' : 's'} starred`
+    + (rec ? ` · profile last built ${new Date(rec.at).toLocaleDateString()} from ${rec.count} deck${rec.count === 1 ? '' : 's'}` : ' · no profile yet');
+  if (rec && rec.profile){
+    body.textContent = rec.profile;
+  } else if (starred.length < 2){
+    body.textContent = 'Star at least 2 finished decks (the ★ on each deck card), then click "Analyze / refresh" to learn your taste. The more you star, the sharper it gets.';
+  } else {
+    body.textContent = 'Click "Analyze / refresh" to build your taste profile from the decks you\'ve starred.';
+  }
+}
+
+function openTasteModal(){
+  renderTasteModal();
+  $('#taste-status').hidden = true;
+  $('#taste-modal').showModal();
+}
+
+async function refreshTaste(){
+  if (!settings.anthropicKey){
+    toast('Add your Anthropic API key in Settings to analyze your taste');
+    return;
+  }
+  const st = $('#taste-status');
+  st.hidden = false; st.classList.remove('err'); st.textContent = 'Analyzing your starred decks…';
+  $('#taste-refresh').disabled = true;
+  try {
+    const rec = await analyzeTaste();
+    if (rec){ renderTasteModal(); st.hidden = true; }
+    else { st.textContent = 'Star at least 2 finished decks first.'; }
+  } catch (e){
+    st.classList.add('err'); st.textContent = "Couldn't analyze: " + e.message;
+  } finally {
+    $('#taste-refresh').disabled = false;
   }
 }
 
