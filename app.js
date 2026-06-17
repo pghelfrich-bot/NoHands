@@ -1795,35 +1795,140 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
 function annTruncSource(a){
   return (a.orig && a.orig.trim()) ? a.orig : (a.full || a.text || '');
 }
-/* how many leading words of the original are currently shown (the cut point) */
-function annKeptCount(a, words){
-  const curT = (a.full || '').trim();
-  for (let k = 1; k <= words.length; k++) if (words.slice(0, k).join(' ') === curT) return k;
-  return words.length;
+/* which word indices of the original are currently shown — derived from a.full,
+   where a gap (cut-out middle) is marked by an ellipsis between kept runs */
+function annKeptSet(a, words){
+  const full = (a.full || '').trim();
+  const kept = new Set();
+  if (!full) return kept;
+  const segs = full.split(/\s*(?:…|\.\.\.)\s*/).map(s => s.trim()).filter(Boolean);
+  let pos = 0;
+  for (const seg of segs){
+    const sw = seg.split(/\s+/).filter(Boolean);
+    let found = -1;
+    for (let i = pos; i + sw.length <= words.length; i++){
+      let ok = true;
+      for (let j = 0; j < sw.length; j++) if (words[i + j] !== sw[j]){ ok = false; break; }
+      if (ok){ found = i; break; }
+    }
+    if (found < 0) continue;            // manual edit that no longer matches — skip
+    for (let j = 0; j < sw.length; j++) kept.add(found + j);
+    pos = found + sw.length;
+  }
+  if (!kept.size) for (let i = 0; i < words.length; i++) kept.add(i);  // unmatched → treat all as kept
+  return kept;
+}
+/* rebuild the visible label from a set of kept word indices, marking each
+   cut-out gap with an ellipsis */
+function keptToFull(words, kept){
+  const runs = [];
+  let cur = null;
+  for (let i = 0; i < words.length; i++){
+    if (kept.has(i)){ if (!cur){ cur = []; runs.push(cur); } cur.push(words[i]); }
+    else cur = null;
+  }
+  return runs.map(r => r.join(' ')).join(' … ');
 }
 function buildCutWords(a){
   const words = annTruncSource(a).split(/\s+/).filter(Boolean);
-  const kept = annKeptCount(a, words);
+  const kept = annKeptSet(a, words);
   const wrap = el('div', 'lf-ann-text lf-cut-wrap');
   words.forEach((w, wi) => {
-    const sp = el('span', 'lf-cut-word' + (wi < kept ? '' : ' cut'), '', w);
+    const sp = el('span', 'lf-cut-word' + (kept.has(wi) ? '' : ' cut'), '', w);
     sp.dataset.cut = wi;
     wrap.appendChild(sp);
     if (wi < words.length - 1) wrap.appendChild(document.createTextNode(' '));
   });
   return wrap;
 }
-/* keep words 1..k of the original as the visible label; the original is
-   snapshotted to a.orig the first time so the cut is always reversible */
-function truncateAnnTo(slide, a, k){
+/* commit a new kept-word set as the visible label; the original is snapshotted
+   to a.orig the first time so every cut stays reversible */
+function applyAnnKept(slide, a, kept){
   const words = annTruncSource(a).split(/\s+/).filter(Boolean);
   if (!words.length) return;
+  if (!kept.size) kept = new Set([0]);     // never let a label become empty
   if (!a.orig) a.orig = annTruncSource(a);
-  k = clamp(k, 1, words.length);
   checkpoint();
-  a.full = words.slice(0, k).join(' ');
+  a.full = keptToFull(words, kept);
   save();
   renderEditor();
+}
+/* click a word = clean prefix to there (or restore a cut word); drag across a
+   span = cut it out (or restore it if already cut) */
+function startWordDrag(e, slide, a, annNode, startIdx){
+  const words = annTruncSource(a).split(/\s+/).filter(Boolean);
+  const wordEls = Array.from(annNode.querySelectorAll('.lf-cut-word'));
+  let curIdx = startIdx, dragged = false;
+  const sx = e.clientX, sy = e.clientY;
+  const idxAt = (x, y) => {
+    const t = document.elementFromPoint(x, y);
+    const w = t && t.closest && t.closest('.lf-cut-word');
+    if (w && w.closest('[data-sel^="ann:"]') === annNode) return +w.dataset.cut;
+    return curIdx;
+  };
+  const paint = () => {
+    const lo = Math.min(startIdx, curIdx), hi = Math.max(startIdx, curIdx);
+    wordEls.forEach((w, i) => w.classList.toggle('pending', i >= lo && i <= hi));
+  };
+  const move = ev => {
+    if (!dragged && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
+    dragged = true;
+    curIdx = idxAt(ev.clientX, ev.clientY);
+    paint();
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    const kept = annKeptSet(a, words);
+    if (!dragged){
+      if (kept.has(startIdx)){                       // click kept word → clean prefix
+        const k2 = new Set(); for (let i = 0; i <= startIdx; i++) k2.add(i);
+        applyAnnKept(slide, a, k2);
+      } else {                                        // click cut word → restore it
+        kept.add(startIdx); applyAnnKept(slide, a, kept);
+      }
+    } else {
+      const lo = Math.min(startIdx, curIdx), hi = Math.max(startIdx, curIdx);
+      let allKept = true;
+      for (let i = lo; i <= hi; i++) if (!kept.has(i)){ allKept = false; break; }
+      for (let i = lo; i <= hi; i++){ if (allKept) kept.delete(i); else kept.add(i); }
+      applyAnnKept(slide, a, kept);
+    }
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+/* promote the truncated-off tail into a new follow-up label, inserted right
+   after this one so it reveals on the next click in present mode */
+function splitAnnTail(slide, a){
+  const words = annTruncSource(a).split(/\s+/).filter(Boolean);
+  const kept = annKeptSet(a, words);
+  let last = -1; kept.forEach(i => { if (i > last) last = i; });
+  const tail = words.slice(last + 1);
+  if (!tail.length) return;
+  const tailText = tail.join(' ');
+  const node = $(`#canvas [data-sel="ann:${a.id}"]`);
+  checkpoint();
+  const child = {
+    id: uid(), text: shortenPoint(tailText), full: tailText, orig: tailText,
+    x: a.x, y: a.y, w: a.w, fs: a.fs, align: a.align, color: a.color, bg: a.bg,
+    chip: a.chip, splitOf: a.id,
+  };
+  if (node){
+    // pin the parent where it currently sits so adding the child can't reflow it
+    if (a.x == null) a.x = Math.round(node.offsetLeft);
+    if (a.y == null) a.y = Math.round(node.offsetTop);
+    child.x = Math.round(node.offsetLeft);
+    child.y = Math.min(Math.round(node.offsetTop + node.offsetHeight + 10), SLIDE_H - 40);
+  }
+  a.orig = a.full;     // parent is now "complete" at its kept text
+  const idx = slide.annotations.findIndex(x => x.id === a.id);
+  slide.annotations.splice(idx + 1, 0, child);
+  save();
+  truncateMode = false;
+  state.sel = 'ann:' + child.id;
+  renderEditor();
+  toast('Split into a follow-up label — it reveals right after this one in present mode');
 }
 
 function renderTimeline(root, slide, pal, dark, g, opts){
@@ -2236,6 +2341,16 @@ function applySelection(root){
   $('#sel-truncate').disabled = !isTrunc;
   $('#sel-truncate').classList.toggle('active', truncateMode);
 
+  // split: available when a truncated label still has a hidden tail to promote
+  let canSplit = false;
+  if (isTrunc){
+    const w = annTruncSource(info.obj).split(/\s+/).filter(Boolean);
+    const k = annKeptSet(info.obj, w);
+    let last = -1; k.forEach(i => { if (i > last) last = i; });
+    canSplit = last < w.length - 1;
+  }
+  $('#sel-split').disabled = !canSplit;
+
   updateAnchorHandle(root, cur());
 }
 
@@ -2346,14 +2461,14 @@ function wireSlideEditing(root, slide){
   const accLine = isDark(slide) ? pal.accent : pal.accentInk;
 
   root.addEventListener('pointerdown', e => {
-    // truncate mode: clicking a word cuts the label to end there
+    // truncate mode: click a word = truncate tail there; drag across words = cut/restore that span
     if (truncateMode){
       const cw = e.target.closest('.lf-cut-word');
       if (cw){
         e.preventDefault(); e.stopPropagation();
         const annNode = cw.closest('[data-sel^="ann:"]');
         const a = annNode && slide.annotations.find(x => ('ann:' + x.id) === annNode.dataset.sel);
-        if (a) truncateAnnTo(slide, a, +cw.dataset.cut + 1);
+        if (a) startWordDrag(e, slide, a, annNode, +cw.dataset.cut);
         return;
       }
     }
@@ -5626,7 +5741,12 @@ function wireUI(){
     if ($('#sel-truncate').disabled) return;
     truncateMode = !truncateMode;
     renderEditor();
-    if (truncateMode) toast('Truncate: click a word to cut each label there. Click a later word to extend, Esc when done.', 4200);
+    if (truncateMode) toast('Truncate: click a word to cut the tail there; drag across words to cut a middle piece; click a struck word to restore. Esc when done.', 5200);
+  });
+  $('#sel-split').addEventListener('click', () => {
+    if ($('#sel-split').disabled) return;
+    const s = cur(); const info = selInfo(s, state.sel);
+    if (info && info.type === 'ann') splitAnnTail(s, info.obj);
   });
   $('#sel-cutout').addEventListener('click', async () => {
     const s = cur();
