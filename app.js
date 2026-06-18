@@ -4467,12 +4467,19 @@ function blurImageDataURL(src, blurPx, refW = 1280){
 
 /* ================= cutout (background removal) ================= */
 
-async function applyCutout(im){
+async function applyCutout(im, opts = {}){
   if (im.cutout){ im.cutout = false; return; }
   if (im.cutSrc){ im.cutout = true; return; }
-  toast('Removing background…', 10000);
+  // HD pass requested but no usable paid key → fall back to free local, and say so
+  if (opts.hd && !bestPaidCutout()){
+    opts = { ...opts, hd: false };
+    toast(settings.photoroomKey && isSandboxKey(settings.photoroomKey)
+      ? 'That PhotoRoom key is a sandbox key — it watermarks every result, so it\'s skipped. Using the free local remover.'
+      : 'No HD background-removal key set — using the free local remover.', 6000);
+  }
+  toast(opts.hd ? 'Removing background (HD)…' : 'Removing background…', 12000);
   try {
-    const raw = await cutoutBestAvailable(im);
+    const raw = await cutoutBestAvailable(im, opts);
     try { im.cutSrc = await shrinkImage(raw, 1200, 0.88); } catch (e) { im.cutSrc = raw; }
     im.cutout = true;
     toast('Background removed');
@@ -4480,18 +4487,31 @@ async function applyCutout(im){
     const crossOrigin = !im.src.startsWith('data:');
     toast(crossOrigin
       ? 'Could not remove the background (image is cross-origin — insert it onto the slide first to embed it)'
-      : 'The built-in remover works best for solid/white backgrounds — add a remove.bg or PhotoRoom API key for photos');
+      : 'Background removal failed — please try again');
   }
 }
 
-/* try each configured background-removal service in order, falling back to
-   the next if one fails (e.g. monthly limit hit), then to the free in-browser ML model */
-async function cutoutBestAvailable(im){
-  if (settings.removebgKey){
-    try { return await cutoutRemoveBg(im); } catch (e) { /* try next */ }
-  }
-  if (settings.photoroomKey){
-    try { return await cutoutPhotoRoom(im); } catch (e) { /* try next */ }
+/* sandbox PhotoRoom keys (prefixed "sandbox_") always stamp a watermark, so we
+   never use one for real output — it's the usual source of watermarked cut-outs */
+function isSandboxKey(k){ return /^sandbox_/i.test((k || '').trim()); }
+
+/* the best paid HD remover the user has a *usable* key for, or null.
+   Sandbox PhotoRoom keys are deliberately excluded (they watermark). */
+function bestPaidCutout(){
+  if (settings.removebgKey) return cutoutRemoveBg;
+  if (settings.photoroomKey && !isSandboxKey(settings.photoroomKey)) return cutoutPhotoRoom;
+  return null;
+}
+
+/* Default to the free, unlimited, watermark-free in-browser ML model.
+   Only reach for a paid API when the caller explicitly opts in to an HD pass
+   AND a usable (non-sandbox) key exists; fall back to local if it fails. */
+async function cutoutBestAvailable(im, opts = {}){
+  if (opts.hd){
+    const paid = bestPaidCutout();
+    if (paid){
+      try { return await paid(im); } catch (e) { /* fall back to free local */ }
+    }
   }
   return await cutoutImgly(im);
 }
@@ -6062,13 +6082,13 @@ function wireUI(){
     const s = cur(); const info = selInfo(s, state.sel);
     if (info && info.type === 'ann') splitAnnTail(s, info.obj);
   });
-  $('#sel-cutout').addEventListener('click', async () => {
+  $('#sel-cutout').addEventListener('click', async (e) => {
     const s = cur();
     if (!s || !state.sel || !state.sel.startsWith('img:')) return;
     const im = s.images.find(x => ('img:' + x.id) === state.sel);
     if (!im) return;
     checkpoint();
-    await applyCutout(im);
+    await applyCutout(im, { hd: e.altKey });
     refreshAll();
   });
   const addTextBtn = $('#btn-add-text');
