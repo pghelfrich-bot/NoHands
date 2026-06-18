@@ -184,7 +184,7 @@ Design: free-text notes
         <button id="sel-split" class="btn small" title="Split off the truncated tail into a follow-up label. Or: double-click a label, click where to cut, and press Enter twice to split there.">↪</button>
         <button id="sel-front" class="btn small" title="Bring forward">▲</button>
         <button id="sel-back"  class="btn small" title="Send backward">▼</button>
-        <button id="sel-cutout" class="btn small" title="Toggle background cut-out">✂</button>
+        <button id="sel-cutout" class="btn small" title="Toggle background cut-out (free, in-browser). Alt-click for an HD pass via your remove.bg / PhotoRoom key.">✂</button>
         <button id="sel-delete" class="btn small danger" title="Delete element">✕</button>
       </span>
       <span class="spacer"></span>
@@ -352,13 +352,13 @@ Design: free-text notes
     <label class="field">Pixabay API key <span class="muted">(free, instant — photos, illustrations &amp; vectors, great for diagrams)</span>
       <input id="set-pixabay" type="password" autocomplete="off" placeholder="from pixabay.com/api/docs">
     </label>
-    <label class="field">remove.bg API key <span class="muted">(background removal — 50 free/month)</span>
+    <label class="field">remove.bg API key <span class="muted">(optional HD background removal — 50 free/month)</span>
       <input id="set-removebg" type="password" autocomplete="off" placeholder="from remove.bg/api">
     </label>
-    <label class="field">PhotoRoom API key <span class="muted">(background removal — 100 free/month; used if remove.bg fails or isn't set)</span>
+    <label class="field">PhotoRoom API key <span class="muted">(optional HD background removal)</span>
       <input id="set-photoroom" type="password" autocomplete="off" placeholder="from app.photoroom.com/api">
     </label>
-    <p class="modal-sub">No API keys set? Background removal falls back to a free in-browser ML model (downloads ~5 MB of model weights on first use, then cached).</p>
+    <p class="modal-sub">Background removal uses a free, unlimited in-browser ML model by default (downloads ~5 MB of weights on first use, then cached) — no key needed and no watermarks. The keys above are only used for an optional HD pass when you <strong>Alt-click</strong> the cut-out (✂) button. Note: a PhotoRoom <em>sandbox</em> key (prefixed <code>sandbox_</code>) watermarks every result, so it's skipped — use a live key for HD.</p>
     <label class="field">Google API key <span class="muted">(optional — for Google Images search)</span>
       <input id="set-google-key" type="password" autocomplete="off" placeholder="from Google Cloud Console">
     </label>
