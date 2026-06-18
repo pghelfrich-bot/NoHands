@@ -6117,6 +6117,7 @@ function wireUI(){
     copy.id = uid();
     copy.annotations.forEach(a => a.id = uid());
     copy.images.forEach(im => im.id = uid());
+    (copy.texts || []).forEach(t => t.id = uid());
     state.deck.slides.splice(state.cur + 1, 0, copy);
     state.cur++;
     renderRail();
