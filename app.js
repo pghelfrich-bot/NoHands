@@ -3394,6 +3394,22 @@ function applyLayout(key){
 
 const LIC_FMT = l => (l === 'cc0' ? 'CC0' : 'CC ' + l.toUpperCase());
 
+/* PhyloPic is a hypermedia API keyed on a daily "build" number; cache it for
+   the session and refetch if a request later reveals it's stale. */
+let _phylopicBuild = 0;
+async function phylopicBuild(force){
+  if (_phylopicBuild && !force) return _phylopicBuild;
+  const j = await getJSON('https://api.phylopic.org/', { headers: { Accept: 'application/vnd.phylopic.v2+json' } });
+  _phylopicBuild = j.build;
+  return _phylopicBuild;
+}
+function phylopicLicName(href){
+  href = href || '';
+  if (/publicdomain\/(mark|zero)|\/cc0\//i.test(href)) return 'Public Domain';
+  const m = href.match(/licenses\/(by(?:-[a-z]+)*)/i);
+  return m ? 'CC ' + m[1].toUpperCase() : 'Open license';
+}
+
 const PROVIDERS = {
   openverse: {
     label: 'Openverse',
@@ -3440,6 +3456,59 @@ const PROVIDERS = {
           licenseUrl: (md.LicenseUrl && md.LicenseUrl.value) || '', sourceName:'Wikimedia',
         };
       }).filter(Boolean);
+    },
+  },
+  phylopic: {
+    label: 'PhyloPic (silhouettes)',
+    ready: () => true,
+    async search(q){
+      // PhyloPic is taxonomic & prefix-matched, so resolve the free-text query
+      // into real organism names via autocomplete first. Fetch the top few
+      // matches (not just the first — "hummingbird" autocompletes to a moth
+      // before the bird) so the right silhouette shows up in the gallery.
+      const H = { headers: { Accept: 'application/vnd.phylopic.v2+json' } };
+      let build;
+      try { build = await phylopicBuild(); } catch (e){ return []; }
+      const ac = async term => {
+        try {
+          const j = await getJSON(`https://api.phylopic.org/autocomplete?build=${build}&query=${encodeURIComponent(term.toLowerCase())}`, H);
+          return j.matches || [];
+        } catch (e){ return []; }
+      };
+      let names = await ac(q);
+      if (!names.length){
+        const words = q.trim().split(/\s+/);
+        if (words.length > 1) names = await ac(words[words.length - 1]);  // "arctic tern" → "tern" → "terns"
+      }
+      names = [...new Set(names)].slice(0, 4);
+      if (!names.length) return [];
+      const lists = await Promise.all(names.map(async name => {
+        try {
+          const j = await getJSON(`https://api.phylopic.org/nodes?build=${build}&filter_name=${encodeURIComponent(name)}&page=0&embed_primaryImage=true&embed_items=true`, H);
+          const items = (j._embedded && j._embedded.items) || [];
+          return items.map(it => {
+            const pi = it._embedded && it._embedded.primaryImage;
+            const L = pi && pi._links;
+            if (!L || !L.rasterFiles || !L.rasterFiles.length) return null;
+            const full = L.rasterFiles[0].href;            // largest raster first
+            const thumb = (L.thumbnailFiles && L.thumbnailFiles[0] && L.thumbnailFiles[0].href) || full;
+            const uuid = (full.match(/\/images\/([0-9a-f-]+)\//) || [])[1] || '';
+            const node = (L.nodes && L.nodes[0]) || {};
+            const licHref = (L.license && L.license.href) || '';
+            return {
+              provider: 'phylopic', id: 'pp-' + (uuid || full.slice(-40)),
+              thumb, full,
+              title: node.title || name,
+              author: (L.contributor && L.contributor.title) || 'PhyloPic contributor',
+              authorUrl: '',
+              pageUrl: uuid ? 'https://www.phylopic.org/images/' + uuid : 'https://www.phylopic.org',
+              license: phylopicLicName(licHref), licenseUrl: licHref,
+              sourceName: 'PhyloPic',
+            };
+          }).filter(Boolean);
+        } catch (e){ return []; }
+      }));
+      return interleave(lists);
     },
   },
   unsplash: {
@@ -4503,17 +4572,65 @@ function bestPaidCutout(){
   return null;
 }
 
-/* Default to the free, unlimited, watermark-free in-browser ML model.
+/* Default to the free, unlimited, watermark-free removers.
    Only reach for a paid API when the caller explicitly opts in to an HD pass
-   AND a usable (non-sandbox) key exists; fall back to local if it fails. */
+   AND a usable (non-sandbox) key exists; fall back to free if it fails.
+
+   On the free path, route by background: a flat white/solid background gets the
+   fast per-pixel remover (instant, crisp edges — ideal for diagrams and studio
+   shots), while complex/photographic backgrounds get the in-browser ML model. */
 async function cutoutBestAvailable(im, opts = {}){
   if (opts.hd){
     const paid = bestPaidCutout();
     if (paid){
-      try { return await paid(im); } catch (e) { /* fall back to free local */ }
+      try { return await paid(im); } catch (e) { /* fall back to free */ }
     }
   }
+  let bg = null;
+  try { bg = await analyzeBackground(im.src); } catch (e){ /* unknown → ML */ }
+  if (bg && bg.white){
+    try { return await cutoutWhiteBg(im.src); } catch (e){ /* fall through to ML */ }
+  } else if (bg && bg.uniform){
+    try { return await cutoutLocal(im); } catch (e){ /* fill leaked → ML */ }
+  }
   return await cutoutImgly(im);
+}
+
+/* Sample the image's border ring to decide how it should be cut out:
+   `uniform` = the border is a single flat colour; `white` = that flat colour is
+   near-white. Returns null when the pixels can't be read (cross-origin taint). */
+function analyzeBackground(src){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const S = 64, band = 6;
+        const cv = document.createElement('canvas');
+        cv.width = S; cv.height = S;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, S, S);
+        const d = ctx.getImageData(0, 0, S, S).data;
+        const cols = [];
+        let sr = 0, sg = 0, sb = 0;
+        for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
+          if (x >= band && x < S - band && y >= band && y < S - band) continue;  // border ring only
+          const k = (y * S + x) * 4;
+          cols.push([d[k], d[k + 1], d[k + 2]]);
+          sr += d[k]; sg += d[k + 1]; sb += d[k + 2];
+        }
+        const n = cols.length, mr = sr / n, mg = sg / n, mb = sb / n;
+        let varSum = 0;
+        for (const c of cols){ const dr = c[0] - mr, dg = c[1] - mg, db = c[2] - mb; varSum += dr * dr + dg * dg + db * db; }
+        const variance = varSum / n;
+        const minMean = Math.min(mr, mg, mb), sat = Math.max(mr, mg, mb) - minMean;
+        const uniform = variance < 400;
+        resolve({ uniform, white: uniform && minMean > 225 && sat < 18 });
+      } catch (e){ resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
 }
 
 async function cutoutRemoveBg(im){
