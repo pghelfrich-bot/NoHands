@@ -2737,10 +2737,70 @@ function wireSlideEditing(root, slide){
     save();
   });
   root.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && e.target.isContentEditable){
-      e.preventDefault(); e.target.blur();
+    if (e.key !== 'Enter' || e.shiftKey || !e.target.isContentEditable) return;
+    const ed = e.target;
+    const key = ed.dataset.edit || '';
+    const isAnn = key.startsWith('ann:') || key.startsWith('annfull:');
+    if (!isAnn){ e.preventDefault(); ed.blur(); return; }   // other fields: Enter commits, as before
+    // annotation labels: single Enter commits; a quick second Enter splits at the caret
+    e.preventDefault();
+    const now = Date.now();
+    if (ed._lastEnter && now - ed._lastEnter < 450){
+      ed._lastEnter = 0;
+      clearTimeout(ed._enterTimer);
+      splitAnnAtCaret(slide, ed, root);
+      return;
     }
+    ed._lastEnter = now;
+    clearTimeout(ed._enterTimer);
+    ed._enterTimer = setTimeout(() => { ed._lastEnter = 0; if (ed.isContentEditable) ed.blur(); }, 450);
   });
+}
+
+/* character offset of the caret within an editable element */
+function caretOffset(el){
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.endContainer, range.endOffset);
+  return pre.toString().length;
+}
+
+/* split a label at the caret: text before stays, text after becomes a new
+   follow-up label revealed right after this one in present mode */
+function splitAnnAtCaret(slide, ed, root){
+  const key = ed.dataset.edit;
+  const id = key.split(':')[1];
+  const a = slide.annotations.find(x => x.id === id);
+  const full = ed.textContent;
+  const off = caretOffset(ed);
+  const before = off == null ? full.trim() : full.slice(0, off).trim();
+  const after  = off == null ? '' : full.slice(off).trim();
+  ed.contentEditable = 'false';   // stop the focusout handler from re-applying the old text
+  if (!a || !before || !after){ if (a) applyEdit(slide, key, before || full.trim()); renderEditor(); return; }
+  checkpoint();
+  const node = ed.closest('[data-sel^="ann:"]');
+  applyEdit(slide, key, before);
+  a.orig = before;                // the kept part is now this label's complete text
+  const child = {
+    id: uid(), text: shortenPoint(after), full: after, orig: after,
+    x: a.x, y: a.y, w: a.w, fs: a.fs, align: a.align, color: a.color, bg: a.bg,
+    chip: a.chip, splitOf: a.id,
+  };
+  if (node){
+    if (a.x == null) a.x = Math.round(node.offsetLeft);
+    if (a.y == null) a.y = Math.round(node.offsetTop);
+    child.x = Math.round(node.offsetLeft);
+    child.y = Math.min(Math.round(node.offsetTop + node.offsetHeight + 10), SLIDE_H - 40);
+  }
+  const idx = slide.annotations.findIndex(x => x.id === a.id);
+  slide.annotations.splice(idx + 1, 0, child);
+  save();
+  state.sel = 'ann:' + child.id;
+  renderEditor();
+  toast('Split into a follow-up label — it reveals right after this one in present mode');
 }
 
 function startMove(e, node, slide, info, root, accLine){
