@@ -107,6 +107,13 @@ Design: free-text notes
   <section id="home-main">
     <div id="home-head">
       <h1 id="home-title">All decks</h1>
+      <label id="home-sort-wrap" title="Order the decks">
+        <select id="home-sort">
+          <option value="recent">Recent</option>
+          <option value="number">By number (#)</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </label>
       <span class="spacer"></span>
       <button id="btn-bulk-delete" class="btn ghost danger" hidden title="Delete the decks you've checked">🗑 Delete selected (0)</button>
       <button id="btn-taste" class="btn ghost" title="Analyze the decks you've starred to learn your lecture-design taste">✨ Taste</button>

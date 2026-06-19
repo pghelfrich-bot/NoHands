@@ -5413,7 +5413,32 @@ function showScreen(which){
 /* ================= home screen (decks + folders) ================= */
 
 let homeFolder = 'all';   // 'all' | folder id
+let homeSort = settings.homeSort || 'recent';   // 'recent' | 'number' | 'name'
 const homeSelected = new Set();   // deck ids checked for bulk actions on the home screen
+
+/* pull a lecture number out of a title — e.g. "#11_flightless birds" or
+   "11. Flightless birds" → 11. Prefers a number at the very start (after an
+   optional #), else the first number anywhere; untitled/unnumbered sort last. */
+function deckNum(title){
+  const t = String(title || '');
+  const m = t.match(/^\s*#?\s*(\d+)/) || t.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : Infinity;
+}
+
+function sortDecks(arr){
+  const a = arr.slice();   // never mutate the stored index
+  if (homeSort === 'number'){
+    a.sort((x, y) => {
+      const nx = deckNum(x.title), ny = deckNum(y.title);
+      if (nx !== ny) return nx - ny;
+      return String(x.title || '').localeCompare(String(y.title || ''), undefined, { numeric: true });
+    });
+  } else if (homeSort === 'name'){
+    a.sort((x, y) => String(x.title || '').localeCompare(String(y.title || ''), undefined, { numeric: true }));
+  }
+  // 'recent' → leave as stored (the index is already most-recently-updated first)
+  return a;
+}
 
 function updateBulkBar(){
   const btn = $('#btn-bulk-delete');
@@ -5489,6 +5514,7 @@ function renderDeckGrid(){
   $('#home-title').textContent = homeFolder === 'all' ? 'All decks' : (folderName(homeFolder) || 'Folder');
   let idx = deckIndex();
   if (homeFolder !== 'all') idx = idx.filter(e => e.folder === homeFolder);
+  idx = sortDecks(idx);
   if (!idx.length){
     grid.appendChild(el('div', 'home-empty', '',
       homeFolder === 'all' ? 'No decks yet. Click “＋ New deck” to paste an outline.'
@@ -5968,6 +5994,16 @@ function wireUI(){
 
   // home screen
   $('#btn-new-deck').addEventListener('click', () => showScreen('outline'));
+  const sortSel = $('#home-sort');
+  if (sortSel){
+    sortSel.value = homeSort;
+    sortSel.addEventListener('change', () => {
+      homeSort = sortSel.value;
+      settings.homeSort = homeSort;
+      localStorage.setItem(LS.settings, JSON.stringify(settings));
+      renderDeckGrid();
+    });
+  }
   $('#btn-new-folder').addEventListener('click', newFolder);
   $('#btn-drive').addEventListener('click', openDriveModal);
   $('#btn-taste').addEventListener('click', openTasteModal);

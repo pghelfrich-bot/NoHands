@@ -197,10 +197,11 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   border-bottom:1px solid var(--line);background:var(--bg2);flex-wrap:wrap;
 }
 #canvas-toolbar label{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-dim)}
-#canvas-toolbar select{
+#canvas-toolbar select,#home-head select{
   background:var(--panel2);color:var(--ink);border:1px solid var(--line);
   border-radius:7px;padding:4px 7px;font:inherit;font-size:12.5px;
 }
+#home-sort-wrap{display:inline-flex;align-items:center}
 #canvas-toolbar .sep{width:1px;height:20px;background:var(--line)}
 #sel-tools{display:inline-flex;align-items:center;gap:4px}
 /* click-to-cut truncation: chip words become clickable; everything past the cut dims */
