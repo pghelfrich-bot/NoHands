@@ -788,7 +788,25 @@ function shortenPoint(t){
   return s;
 }
 
+/* Replace em dashes (and spaced en dashes / " -- ") with commas so labels read
+   as flowing clauses. Number ranges like "1979–1980" are left intact, and the
+   result is tidied so we don't leave doubled or dangling punctuation. */
+function deEmDash(s){
+  if (s == null) return s;
+  return String(s)
+    .replace(/\s*—\s*/g, ', ')   // — em dash
+    .replace(/\s+–\s+/g, ', ')   // – en dash, only when spaced (keeps numeric ranges)
+    .replace(/ +-{2,} +/g, ', ')      // spaced "--" used as a dash
+    .replace(/ +,/g, ',')             // stray space before a comma
+    .replace(/,\s*,/g, ', ')          // collapse doubled commas
+    .replace(/([.!?;:]),/g, '$1')     // ".," → "."
+    .replace(/[ ,]+$/g, '')           // trailing comma/space
+    .trim();
+}
+
 function parseOutline(text){
+  const dedash = settings.dedashOutline !== false;   // on by default
+  const fix = dedash ? deEmDash : (x => x);
   const deck = newDeck();
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   let s = null;            // current slide
@@ -880,7 +898,12 @@ function parseOutline(text){
   deck.title = deck.title || 'Untitled deck';
   deck.accent = accentFromNotes(deck.designNotes + ' ' + deck.title);
   for (const sl of deck.slides){
-    sl.annotations = (sl.points || []).map(pt => {
+    if (sl.headline) sl.headline = fix(sl.headline);
+    if (sl.callout)  sl.callout  = fix(sl.callout);
+    if (sl.figure)   sl.figure   = fix(sl.figure);
+    if (sl.notes)    sl.notes    = fix(sl.notes);
+    sl.annotations = (sl.points || []).map(raw => {
+      const pt = fix(raw);
       const short = shortenPoint(pt);
       return { id: uid(), text: short, full: pt, orig: pt, x: null, y: null };
     });
@@ -5917,6 +5940,14 @@ function wireUI(){
     if (f) $('#outline-text').value = await f.text();
     e.target.value = '';
   });
+  const dedashBox = $('#outline-dedash');
+  if (dedashBox){
+    dedashBox.checked = settings.dedashOutline !== false;
+    dedashBox.addEventListener('change', () => {
+      settings.dedashOutline = dedashBox.checked;
+      localStorage.setItem(LS.settings, JSON.stringify(settings));
+    });
+  }
   $('#btn-outline-build').addEventListener('click', () => {
     const text = $('#outline-text').value;
     if (!text.trim()){ toast('Paste an outline first (or “Load sample”)'); return; }
