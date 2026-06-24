@@ -1539,6 +1539,10 @@ function contentLayout(slide){
     // wide banner across the bottom instead of competing with the other chips.
     out.annStyle = 'label'; out.connectors = true; out.annDetail = false;
     out.headline = { x: 80, y: 64, w: 620, fs: fitHeadlineFS(head, 620, 38, 24) };
+    // Wider chip columns flanking a slimmer, centered figure, so each label's
+    // full text falls on ~2 lines instead of a tall narrow stack.
+    const chipW = 370;
+    out.figZones = [{ x: 470, y: 175, w: 340, h: 435 }];
     const pts = slide.annotations;
     const bannerIdx = (!slide.callout && pts.length > 1) ? pts.length - 1 : -1;
     const chipPts = pts.filter((a, i) => i !== bannerIdx);
@@ -1549,16 +1553,16 @@ function contentLayout(slide){
       const colY = [colTop, colTop];
       for (const a of chipPts){
         const col = colY[0] <= colY[1] ? 0 : 1;
-        colY[col] += chipBoxH(annDisplayText(a), ANN_W, fs, 12) + gap;
+        colY[col] += chipBoxH(annDisplayText(a), chipW, fs, 12) + gap;
       }
       if (Math.max(colY[0], colY[1]) - gap <= colBottom) break;
     }
-    const colY = [colTop, colTop], colX = [64, 928];
+    const colY = [colTop, colTop], colX = [64, 846];
     out.anns = pts.map((a, i) => {
       if (i === bannerIdx) return { x: 80, y: 596, w: 1120, fs: 24, banner: true };
       const col = colY[0] <= colY[1] ? 0 : 1;
-      const pos = { x: colX[col], y: colY[col], w: ANN_W, fs };
-      colY[col] += chipBoxH(annDisplayText(a), ANN_W, fs, 12) + gap;
+      const pos = { x: colX[col], y: colY[col], w: chipW, fs };
+      colY[col] += chipBoxH(annDisplayText(a), chipW, fs, 12) + gap;
       return pos;
     });
     if (slide.callout) out.callout = { x: 80, y: 596, w: 1120, fs: 24, banner: true };
@@ -1969,9 +1973,12 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
     if (a.w != null){
       widthStyle = `width:${a.w}px;max-width:none;`;
     } else {
-      // Aim for ~2 lines: set width to ~half the estimated single-line text width
+      // Aim for ~2 lines: set width to ~half the estimated single-line text
+      // width, but allow it to grow up to the column width the layout allotted
+      // so long labels wrap to ~2 lines rather than clamping narrow and tall.
       const dispLen = annDisplayText(a).length || 4;
-      const autoW = Math.max(80, Math.min(300, Math.round(dispLen * fs * 0.28 + 16)));
+      const cap = Math.max(300, def.w || 0);
+      const autoW = Math.max(80, Math.min(cap, Math.round(dispLen * fs * 0.28 + 16)));
       widthStyle = `width:${autoW}px;`;
     }
   } else {
