@@ -198,13 +198,18 @@ const SLIDE_CSS = `
 .slide.framed .lf-credit{bottom:29px}
 .slide.framed .lf-flow{bottom:34px}
 /* with an HD background showing through (no wash), pick text colour to match the
-   photo's brightness and add a legibility halo so it reads on any photo */
+   photo's brightness and add a legibility halo so it reads on any photo. Labels
+   that carry their own background box (chips, cards, figure captions) are
+   excluded — they manage their own contrast and must keep their own text colour. */
 .slide.has-bg.bg-light:not(.cine),
-.slide.has-bg.bg-light:not(.cine) .lf-box,.slide.has-bg.bg-light:not(.cine) .serif,.slide.has-bg.bg-light:not(.cine) .lf-ann{
+.slide.has-bg.bg-light:not(.cine) .lf-box:not(.lf-chip):not(.lf-anncard):not(.lf-figcap),.slide.has-bg.bg-light:not(.cine) .serif,.slide.has-bg.bg-light:not(.cine) .lf-ann:not(.lf-chip):not(.lf-anncard):not(.lf-figcap){
   color:#16222c;text-shadow:0 1px 2px rgba(255,255,255,.92),0 0 18px rgba(255,255,255,.7)}
 .slide.has-bg.bg-dark:not(.cine),
-.slide.has-bg.bg-dark:not(.cine) .lf-box,.slide.has-bg.bg-dark:not(.cine) .serif,.slide.has-bg.bg-dark:not(.cine) .lf-ann{
+.slide.has-bg.bg-dark:not(.cine) .lf-box:not(.lf-chip):not(.lf-anncard):not(.lf-figcap),.slide.has-bg.bg-dark:not(.cine) .serif,.slide.has-bg.bg-dark:not(.cine) .lf-ann:not(.lf-chip):not(.lf-anncard):not(.lf-figcap){
   color:#f4f8fb;text-shadow:0 1px 4px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.65)}
+/* over a photo, firm up the dark chip fill so white text always reads against a
+   busy background (the translucent .72 default lets too much photo through) */
+.slide.has-bg .lf-ann.lf-chip:not(.lf-chip-light){background:rgba(9,15,23,.92)}
 /* inline / display math (KaTeX), typeset from $...$ and $$...$$ in slide text */
 .lf-math{color:inherit}
 .lf-math-display{display:block;margin:.35em 0;text-align:center;overflow-x:auto}
@@ -1657,7 +1662,11 @@ function renderSlide(slide, deck, opts = {}){
   const dark = isDark(slide);
   const accLine = dark ? pal.accent : pal.accentInk;
   const bg = deck.background;
-  const bgCls = (bg && bg.src) ? ' has-bg ' + (bg.dark ? 'bg-dark' : 'bg-light') : '';
+  // an explicit Dark/Light theme choice overrides the photo's auto-detected
+  // brightness, so the Theme dropdown visibly controls text treatment over a
+  // background (and lets you correct a mis-classified photo)
+  const bgIsDark = slide.theme === 'dark' ? true : slide.theme === 'light' ? false : (bg && bg.dark);
+  const bgCls = (bg && bg.src) ? ' has-bg ' + (bgIsDark ? 'bg-dark' : 'bg-light') : '';
   const cine = slide.type === 'content' && slide.images.length && effContentLayout(slide) === 'cinematic';
   const root = el('div', 'slide ' + (dark ? 'dark' : 'light') + bgCls + (cine ? ' cine' : '') + (deck.frame ? ' framed' : ''));
   root.dataset.type = slide.type;
@@ -5195,8 +5204,11 @@ async function exportPPTX(){
               const padY = def.banner ? 18 : 12;
               const dispText = annDisplayText(a);
               const boxH = chipBoxH(dispText, w, fs, padY);
+              // over a background photo, make the dark chip nearly opaque so
+              // white text stays legible (matches the .has-bg CSS rule)
+              const chipTransp = isLight ? 0 : (deck.background && deck.background.src ? 8 : 28);
               sl.addShape('roundRect', { x: I(x), y: I(y), w: I(w), h: I(boxH), rectRadius: 0.05,
-                fill: { color: a.bg ? C(a.bg) : (isLight ? 'F6EFE2' : '0A121C'), transparency: a.bg ? 0 : (isLight ? 0 : 28) },
+                fill: { color: a.bg ? C(a.bg) : (isLight ? 'F6EFE2' : '0A121C'), transparency: a.bg ? 0 : chipTransp },
                 line: { type: 'none' } });
               sl.addShape('rect', { x: I(x), y: I(y), w: I(def.banner ? 6 : 4), h: I(boxH), fill: { color: accBar } });
               T(dispText, { x: I(x + 14), y: I(y), w: I(w - 22), h: I(boxH), fontSize: pt(fs), bold: true,
