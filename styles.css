@@ -148,7 +148,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 /* height:0 + padding-bottom:56.25% gives a reliable 16:9 box in any layout
    context (aspect-ratio was collapsing inside the flex card); the scaled-down
    slide is absolutely positioned inside it */
-.deck-card .dc-thumb{width:100%;flex:none;height:0;padding-bottom:56.25%;background:#000;overflow:hidden;position:relative}
+.deck-card .dc-thumb{width:100%;flex:none;box-sizing:content-box;height:0;padding-bottom:56.25%;background:#000;overflow:hidden;position:relative}
 .deck-card.starred{border-color:var(--accent)}
 .dc-star{position:absolute;top:7px;right:7px;z-index:5;width:30px;height:30px;border-radius:50%;
   border:none;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;
