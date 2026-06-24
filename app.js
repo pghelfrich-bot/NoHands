@@ -5578,7 +5578,11 @@ function deckCard(entry){
   const thumb = el('div', 'dc-thumb');
   loadDeck(entry.id).then(d => {
     if (d && d.slides && d.slides.length){
-      const scaleWrap = el('div', '', `transform:scale(${260 / SLIDE_W});transform-origin:top left;width:${SLIDE_W}px;height:${SLIDE_H}px;pointer-events:none;`);
+      // scale the full slide down to the thumb's real width; position it
+      // absolutely so its 1280x720 layout box doesn't inflate the card height
+      const tw = thumb.clientWidth || 260;
+      const scale = tw / SLIDE_W;
+      const scaleWrap = el('div', '', `position:absolute;top:0;left:0;transform:scale(${scale});transform-origin:top left;width:${SLIDE_W}px;height:${SLIDE_H}px;pointer-events:none;`);
       scaleWrap.appendChild(renderSlide(d.slides[0], d, { index: 0, total: d.slides.length }));
       thumb.appendChild(scaleWrap);
     }
