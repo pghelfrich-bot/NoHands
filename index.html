@@ -258,7 +258,13 @@ Design: free-text notes
         <span>📁 Drag images from your computer here, or <button id="ip-upload-btn" class="link-btn" type="button">browse</button></span>
         <input id="ip-upload" type="file" accept="image/*" multiple hidden>
       </div>
-      <div id="ip-local-results" hidden></div>
+      <div id="ip-local" hidden>
+        <div id="ip-local-head">
+          <span id="ip-local-count">Your uploads</span>
+          <button id="ip-local-clear" class="link-btn" type="button" title="Remove all uploaded images from the panel">Clear all</button>
+        </div>
+        <div id="ip-local-results"></div>
+      </div>
       <div id="ip-status" class="status" hidden></div>
       <div id="ip-results"></div>
     </div>
