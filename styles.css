@@ -132,7 +132,8 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 #home-head{display:flex;align-items:center;gap:10px;padding:18px 26px;border-bottom:1px solid var(--line)}
 #home-head h1{margin:0;font-size:22px}
 #home-grid{
-  flex:1;min-height:0;overflow-y:auto;padding:22px 26px;display:grid;gap:18px;align-content:start;
+  flex:1;min-height:0;overflow-y:auto;padding:22px 26px;display:grid;gap:18px;
+  align-content:start;grid-auto-rows:max-content;
   grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
   scrollbar-width:thin;scrollbar-color:var(--line) transparent;
 }
@@ -144,7 +145,10 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
   display:flex;flex-direction:column;cursor:pointer;transition:border-color .12s,transform .12s;
 }
 .deck-card:hover{border-color:var(--accent);transform:translateY(-2px)}
-.deck-card .dc-thumb{width:100%;flex:none;aspect-ratio:16/9;background:#000;overflow:hidden;position:relative}
+/* height:0 + padding-bottom:56.25% gives a reliable 16:9 box in any layout
+   context (aspect-ratio was collapsing inside the flex card); the scaled-down
+   slide is absolutely positioned inside it */
+.deck-card .dc-thumb{width:100%;flex:none;height:0;padding-bottom:56.25%;background:#000;overflow:hidden;position:relative}
 .deck-card.starred{border-color:var(--accent)}
 .dc-star{position:absolute;top:7px;right:7px;z-index:5;width:30px;height:30px;border-radius:50%;
   border:none;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;
