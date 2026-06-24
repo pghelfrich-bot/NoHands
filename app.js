@@ -3876,11 +3876,19 @@ function removeLocalImage(id){
   renderLocalImages();
 }
 
+function clearLocalImages(){
+  localImages = [];
+  renderLocalImages();
+}
+
 function renderLocalImages(){
   const grid = $('#ip-local-results');
   if (!grid) return;
+  const wrap = $('#ip-local');
+  if (wrap) wrap.hidden = !localImages.length;
+  const count = $('#ip-local-count');
+  if (count) count.textContent = `Your uploads (${localImages.length})`;
   grid.innerHTML = '';
-  grid.hidden = !localImages.length;
   localImages.forEach(r => grid.appendChild(localResultCell(r)));
 }
 
@@ -3893,6 +3901,11 @@ function localResultCell(r){
   const wrap = el('div', 'ip-imgwrap');
   wrap.appendChild(imEl);
   cell.appendChild(wrap);
+  const x = el('button', 'ip-cell-x', '', '✕');
+  x.type = 'button';
+  x.title = 'Remove this upload from the panel';
+  x.addEventListener('click', e => { e.stopPropagation(); removeLocalImage(r.id); });
+  cell.appendChild(x);
   cell.appendChild(el('span', 'ip-src', '', 'Your image'));
   cell.appendChild(el('span', 'ip-add', '', '＋ Insert'));
   const meta = el('div', 'ip-meta');
@@ -6360,6 +6373,8 @@ function wireUI(){
     addLocalFiles(e.target.files);
     e.target.value = '';
   });
+  const clearBtn = $('#ip-local-clear');
+  if (clearBtn) clearBtn.addEventListener('click', clearLocalImages);
   dz.addEventListener('dragover', e => {
     if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
