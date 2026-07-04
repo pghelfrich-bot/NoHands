@@ -5444,6 +5444,111 @@ function applyPresentReveal(){
     drawConnectors(presentNode, state.deck.slides[presentIdx], arrowColor(state.deck));
 }
 
+/* ================= deck check (readability + structure) ================= */
+
+/* Scan the whole deck for things that read badly in front of a class — the
+   same class of problems we otherwise catch by eye. Returns findings ordered
+   later for display; each has a level ('warn' | 'info') and an optional slide
+   index so the UI can offer a jump link. */
+function deckCheck(deck){
+  const out = [];
+  const slides = deck.slides || [];
+
+  if (slides.length && slides[0].type !== 'title')
+    out.push({ level: 'info', slide: 0, title: 'No title slide up front',
+      detail: `The deck opens on a ${slides[0].type} slide — a title slide sets the scene.` });
+
+  // sections should lead into at least two content slides (per the outline guide)
+  for (let i = 0; i < slides.length; i++){
+    if (slides[i].type !== 'section') continue;
+    let c = 0;
+    for (let j = i + 1; j < slides.length && slides[j].type !== 'section'; j++)
+      if (slides[j].type === 'content') c++;
+    const name = slides[i].headline || 'this section';
+    if (c === 0)
+      out.push({ level: 'warn', slide: i, title: 'Section with nothing after it',
+        detail: `“${name}” is a divider with no content slides before the next section.` });
+    else if (c === 1)
+      out.push({ level: 'info', slide: i, title: 'Section has only one slide',
+        detail: `Consider splitting “${name}” into 2+ slides so it breathes.` });
+  }
+
+  slides.forEach((s, idx) => {
+    if (s.type !== 'content') return;
+    const lay = effContentLayout(s);
+    const L = contentLayout(s);
+    const anns = s.annotations || [];
+
+    // no picture placed (skip layouts that are meant to be text-only)
+    if (!s.images.length && !['statement', 'quote', 'panels'].includes(lay))
+      out.push({ level: 'warn', slide: idx, title: 'No image on the slide',
+        detail: s.figure
+          ? 'FIGURE is set but no picture is placed — open the Images panel and drop one in.'
+          : 'This slide is text-only; a figure would make it land.' });
+
+    if (anns.length > 6)
+      out.push({ level: 'info', slide: idx, title: `${anns.length} labels is a lot`,
+        detail: 'Crowded slides are hard to follow — consider splitting into two.' });
+
+    // longest label, estimated in lines at the annotated chip width
+    const cpl = Math.max(8, Math.floor(370 / (18 * 0.56)));
+    let longest = 0;
+    for (const a of anns){
+      const t = (a.full && a.full.trim()) ? a.full : (a.text || '');
+      longest = Math.max(longest, Math.ceil(t.length / cpl));
+    }
+    if (longest >= 4)
+      out.push({ level: 'warn', slide: idx, title: `A label runs ~${longest} lines`,
+        detail: 'Long labels crowd the figure — use ✨ Trim or the ✂ cut tool to get to ~2 lines.' });
+
+    // headline that won't fit its box on one line
+    if (L.headline && s.headline){
+      const maxChars = L.headline.w / (L.headline.fs * 0.5);
+      if (s.headline.length > maxChars * 1.08)
+        out.push({ level: 'info', slide: idx, title: 'Headline may wrap',
+          detail: `“${s.headline}” is long for its space — a tighter headline reads better.` });
+    }
+
+    if (!(s.notes && s.notes.trim()))
+      out.push({ level: 'info', slide: idx, title: 'No speaker notes',
+        detail: 'Add the sentence you’ll say — notes also carry into exports.' });
+  });
+
+  return out;
+}
+
+function openDeckCheck(){
+  if (!guardDeck()) return;
+  const findings = deckCheck(state.deck);
+  const list = $('#check-list');
+  const sum = $('#check-summary');
+  list.innerHTML = '';
+  if (!findings.length){
+    sum.textContent = '✓ Looks clean — nothing flagged. Ready to present.';
+    sum.className = 'check-summary ok';
+  } else {
+    const warns = findings.filter(f => f.level === 'warn').length;
+    sum.textContent = `${findings.length} thing${findings.length === 1 ? '' : 's'} to look at`
+      + (warns ? ` · ${warns} worth fixing` : '');
+    sum.className = 'check-summary';
+    findings.sort((a, b) =>
+      a.level === b.level ? ((a.slide ?? -1) - (b.slide ?? -1)) : (a.level === 'warn' ? -1 : 1));
+    for (const f of findings){
+      const row = el('button', 'check-row ' + f.level);
+      row.type = 'button';
+      row.appendChild(el('span', 'check-badge', '', f.slide != null ? String(f.slide + 1) : '•'));
+      const txt = el('div', 'check-txt');
+      txt.appendChild(el('div', 'check-row-title', '', f.title));
+      txt.appendChild(el('div', 'check-row-detail', '', f.detail));
+      row.appendChild(txt);
+      if (f.slide != null)
+        row.addEventListener('click', () => { selectSlide(f.slide); $('#check-modal').close(); });
+      list.appendChild(row);
+    }
+  }
+  $('#check-modal').showModal();
+}
+
 /* ================= screens & UI wiring ================= */
 
 function showScreen(which){
@@ -6180,6 +6285,7 @@ function wireUI(){
     s.theme = e.target.value || null;
     refreshAll();
   });
+  $('#btn-check').addEventListener('click', openDeckCheck);
   $('#btn-relayout').addEventListener('click', () => {
     const s = cur(); if (!s) return;
     checkpoint();
