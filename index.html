@@ -160,6 +160,7 @@ Design: free-text notes
           <option value="light">Light</option>
         </select>
       </label>
+      <button id="btn-check" class="btn small" title="Scan the whole deck for readability and structure issues before you present">✓ Check</button>
       <button id="btn-relayout" class="btn small" title="Reset image and label positions to the automatic layout">✦ Re-layout</button>
       <button id="btn-smart-trim" class="btn small" title="Shorten this slide's labels in your learned style — the full text stays in speaker notes and is restorable">✨ Trim labels</button>
       <button id="btn-add-label" class="btn small" title="Add an annotation label">＋ Label</button>
@@ -418,6 +419,18 @@ Design: free-text notes
     <h2>Google Drive</h2>
     <p class="modal-sub">Your LectureFlow decks backed up to Drive — open from any device.</p>
     <ul id="drive-list" style="list-style:none;padding:0;max-height:380px;overflow-y:auto;margin:12px 0"></ul>
+    <div class="modal-actions">
+      <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="check-modal" class="modal" style="width:min(640px,94vw)">
+  <form method="dialog">
+    <h2>Deck check ✓</h2>
+    <p class="modal-sub">A quick scan for things that read badly in front of a class — click any item to jump to that slide.</p>
+    <div id="check-summary" class="check-summary"></div>
+    <div id="check-list" class="check-list"></div>
     <div class="modal-actions">
       <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>

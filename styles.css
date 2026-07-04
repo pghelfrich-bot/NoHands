@@ -421,6 +421,21 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .field input:focus{outline:none;border-color:var(--accent)}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 
+/* deck check modal */
+.check-summary{font-size:13.5px;color:var(--ink-dim);margin:8px 0 10px}
+.check-summary.ok{color:var(--accent2);font-weight:600}
+.check-list{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow-y:auto}
+.check-row{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;
+  background:#0c1117;border:1px solid var(--line);border-left-width:3px;border-radius:9px;
+  padding:10px 12px;cursor:pointer;color:var(--ink);font:inherit;transition:border-color .12s}
+.check-row:hover{border-color:var(--accent)}
+.check-row.warn{border-left-color:#f5a524}
+.check-row.info{border-left-color:var(--accent)}
+.check-badge{flex:none;min-width:24px;height:24px;padding:0 6px;border-radius:6px;background:var(--panel2);
+  color:var(--ink-dim);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.check-row-title{font-weight:600;font-size:13.5px;margin-bottom:2px}
+.check-row-detail{font-size:12px;color:var(--ink-dim);line-height:1.4}
+
 #decks-list,#templates-list{list-style:none;margin:10px 0;padding:0;max-height:320px;overflow-y:auto}
 .drive-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:7px}
 .drive-item-info{flex:1;min-width:0}
