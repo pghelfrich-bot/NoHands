@@ -198,6 +198,15 @@ const SLIDE_CSS = `
 .slide.has-bg.bg-dark .lf-trow.alt{background:rgba(20,28,38,.86)}
 .slide.has-bg.bg-dark .lf-td{color:#eef4f9}
 .slide.has-bg.bg-dark .lf-th{color:#dbe9f5}
+/* editor-only add/delete controls for the table layout */
+.slide .lf-tctl{position:absolute;z-index:41;border:none;cursor:pointer;font-family:ui-sans-serif,system-ui,sans-serif;
+  display:flex;align-items:center;justify-content:center;background:rgba(10,18,28,.82);color:#fff;
+  opacity:.5;transition:opacity .12s,background .12s,color .12s}
+.slide .lf-tctl:hover{opacity:1}
+.slide .lf-tctl-x{width:22px;height:22px;font-size:17px;line-height:1;border-radius:50%}
+.slide .lf-tctl-x:hover{background:#c0392b}
+.slide .lf-tctl-add{height:24px;padding:0 11px;font-size:13px;font-weight:600;border-radius:12px}
+.slide .lf-tctl-add:hover{background:var(--lf-accent);color:#06222f}
 .slide .lf-callout{position:absolute;z-index:35;border-left:4px solid var(--lf-accent);padding:10px 16px;
   font-size:18px;line-height:1.45;font-style:italic;border-radius:0 10px 10px 0}
 .slide.light .lf-callout{background:rgba(255,255,255,.88);color:#22323e;box-shadow:0 6px 16px rgba(15,30,45,.07)}
@@ -2193,9 +2202,9 @@ function splitAnnTail(slide, a){
   toast('Split into a follow-up label — it reveals right after this one in present mode');
 }
 
-/* split each annotation into a table row: a bold "term" cell (the short label)
-   and a "detail" cell (the full text, with a leading "term:" duplicate stripped
-   so it isn't repeated). Shared by the DOM renderer and the PPTX exporter. */
+/* split each annotation into a table row: a "term" cell (the short label) and a
+   "detail" cell (the full text, with a leading "term:" duplicate stripped so it
+   isn't repeated). Used to seed a table from an outline's POINTS. */
 function tableRows(slide){
   return (slide.annotations || []).map(a => {
     const term = (a.text || '').trim();
@@ -2205,40 +2214,123 @@ function tableRows(slide){
       body = body.replace(re, '').trim();
     }
     if (body === term) body = '';
-    return { a, term, body };
+    return [term, body];
   });
 }
 
+/* The table's cell grid (rows × columns). Once a table has been edited it lives
+   on slide.table; before that it's derived on the fly from the annotations so a
+   freshly-parsed outline renders without mutating the slide. */
+function tableGrid(slide){
+  const hasTable = Array.isArray(slide.table) && slide.table.length;
+  const src = hasTable ? slide.table : tableRows(slide);
+  if (!src.length) return [['', '']];
+  // respect a real table's column count (min 1); a derived one is always 2-wide
+  const cols = hasTable ? Math.max(1, ...src.map(r => r.length)) : Math.max(2, ...src.map(r => r.length));
+  return src.map(r => { const c = r.map(x => (x == null ? '' : String(x))); while (c.length < cols) c.push(''); return c; });
+}
+/* materialise slide.table (mutating) so add/delete/edit ops have a home */
+function ensureTable(slide){ slide.table = tableGrid(slide); return slide.table; }
+/* keep annotations a coherent projection of the table so other layouts, the
+   outline export and Deck Check still see the content (col 0 = label, the rest
+   joined into the detail). Reuses existing ids where it can. */
+function syncAnnsFromTable(slide){
+  const prev = slide.annotations || [];
+  slide.annotations = (slide.table || []).map((row, i) => {
+    const term = (row[0] || '').trim();
+    const rest = row.slice(1).map(c => (c || '').trim()).filter(Boolean).join(' — ');
+    const a = prev[i] || { id: uid(), x: null, y: null };
+    a.text = term || (rest ? shortenPoint(rest) : 'Row');
+    a.full = rest ? (term ? term + ': ' + rest : rest) : term;
+    a.orig = a.full;
+    return a;
+  });
+}
+function tableAddRow(slide, at){
+  checkpoint();
+  const t = ensureTable(slide), cols = (t[0] || ['', '']).length;
+  t.splice(at == null ? t.length : at + 1, 0, Array(cols).fill(''));
+  syncAnnsFromTable(slide); refreshAll();
+}
+function tableDelRow(slide, i){
+  const t = ensureTable(slide);
+  if (t.length <= 1){ toast('A table needs at least one row'); return; }
+  checkpoint(); t.splice(i, 1); syncAnnsFromTable(slide); refreshAll();
+}
+function tableAddCol(slide, at){
+  checkpoint();
+  const t = ensureTable(slide), cols = (t[0] || ['']).length;
+  const idx = at == null ? cols : at + 1;
+  t.forEach(r => r.splice(idx, 0, ''));
+  syncAnnsFromTable(slide); refreshAll();
+}
+function tableDelCol(slide, j){
+  const t = ensureTable(slide), cols = (t[0] || ['']).length;
+  if (cols <= 1){ toast('A table needs at least one column'); return; }
+  checkpoint(); t.forEach(r => r.splice(j, 1)); syncAnnsFromTable(slide); refreshAll();
+}
+/* column widths: a fixed-ish first (label) column, the rest split evenly */
+function tableColWidths(nCols, width){
+  if (nCols <= 1) return [width];
+  const first = Math.min(250, Math.round(width * 0.26));
+  const rest = (width - first) / (nCols - 1);
+  return [first, ...Array(nCols - 1).fill(rest)];
+}
+
 function renderTable(root, slide, pal, dark, opts){
-  const rows = tableRows(slide);
-  if (!rows.length) return;
+  const grid = tableGrid(slide);
+  if (!grid.length) return;
   const x0 = 80, top = 166, width = 1120;
-  const bottom = slide.callout ? 590 : 646;
-  const budget = bottom - top;
-  const headW = 250, padX = 16, padY = 10, bodyW = width - headW;
+  const budget = (slide.callout ? 590 : 646) - top;
+  const nCols = grid[0].length;
+  const colW = tableColWidths(nCols, width);
+  const padX = 16, padY = 10;
   const linesAt = (text, w, f) => {
     const cpl = Math.max(6, Math.floor((w - padX * 2) / (f * 0.52)));
     return Math.max(1, Math.ceil(((mathToPlainText(text) || ' ').length) / cpl));
   };
-  // largest font size whose stacked rows fit the available height
   let fs = 20, rowHs = [];
   for (; fs >= 12; fs--){
     const lh = fs * 1.34;
-    rowHs = rows.map(r => Math.max(linesAt(r.term, headW, fs), linesAt(r.body || ' ', bodyW, fs)) * lh + padY * 2);
+    rowHs = grid.map(row => Math.max(1, ...row.map((c, j) => linesAt(c || ' ', colW[j], fs))) * lh + padY * 2);
     if (rowHs.reduce((s, h) => s + h, 0) <= budget) break;
   }
   const table = el('div', 'lf-table', `left:${x0}px;top:${top}px;width:${width}px;`);
-  rows.forEach((r, i) => {
-    const row = el('div', 'lf-trow' + (i % 2 ? ' alt' : ''), `min-height:${Math.round(rowHs[i])}px;`);
-    const th = el('div', 'lf-th', `flex:0 0 ${headW}px;font-size:${fs}px;`);
-    th.appendChild(editable(elMath('div', '', '', r.term), 'ann:' + r.a.id, opts));
-    const td = el('div', 'lf-td', `font-size:${fs}px;`);
-    td.appendChild(editable(elMath('div', '', '', r.body), 'annfull:' + r.a.id, opts));
-    row.appendChild(th);
-    row.appendChild(td);
-    table.appendChild(row);
+  grid.forEach((row, i) => {
+    const tr = el('div', 'lf-trow' + (i % 2 ? ' alt' : ''), `min-height:${Math.round(rowHs[i])}px;`);
+    row.forEach((cell, j) => {
+      const c = el('div', j === 0 ? 'lf-th' : 'lf-td', `flex:0 0 ${Math.round(colW[j])}px;font-size:${fs}px;`);
+      c.appendChild(editable(elMath('div', '', '', cell), `tcell:${i}:${j}`, opts));
+      tr.appendChild(c);
+    });
+    table.appendChild(tr);
   });
   root.appendChild(table);
+
+  if (!opts.editor) return;
+  // editor-only add/delete controls floating in the slide margins
+  const ctl = (cls, label, title, fn, css) => {
+    const b = el('button', 'lf-tctl ' + cls, css, label);
+    b.type = 'button'; b.title = title;
+    b.addEventListener('pointerdown', e => e.stopPropagation());
+    b.addEventListener('click', e => { e.stopPropagation(); fn(); });
+    root.appendChild(b);
+  };
+  let cy = top;
+  grid.forEach((row, i) => {
+    ctl('lf-tctl-x', '×', 'Delete this row', () => tableDelRow(slide, i),
+      `left:${x0 - 26}px;top:${cy + rowHs[i] / 2 - 11}px;`);
+    cy += rowHs[i];
+  });
+  ctl('lf-tctl-add', '＋ Row', 'Add a row', () => tableAddRow(slide), `left:${x0}px;top:${cy + 8}px;`);
+  let cx = x0;
+  colW.forEach((w, j) => {
+    if (nCols > 1)
+      ctl('lf-tctl-x', '×', 'Delete this column', () => tableDelCol(slide, j),
+        `left:${cx + w / 2 - 11}px;top:${top - 26}px;`);
+    cx += w;
+  });
+  ctl('lf-tctl-add', '＋ Col', 'Add a column', () => tableAddCol(slide), `left:${cx + 8}px;top:${top - 4}px;`);
 }
 
 function renderTimeline(root, slide, pal, dark, g, opts){
@@ -3159,6 +3251,10 @@ function applyEdit(slide, key, val){
   } else if (key.startsWith('annfull:')){
     const a = slide.annotations.find(x => x.id === key.slice(8));
     if (a) a.full = val;
+  } else if (key.startsWith('tcell:')){
+    const [, i, j] = key.split(':');
+    const t = ensureTable(slide);
+    if (t[+i] && j < t[+i].length){ t[+i][+j] = val; syncAnnsFromTable(slide); }
   }
 }
 
@@ -5254,21 +5350,24 @@ async function exportPPTX(){
             }
           });
         } else if (L.annStyle === 'table'){
-          const rows = tableRows(s).slice(0, maxAnns);
-          const headW = 250, tblW = 1120, tblY = 166;
+          const grid = tableGrid(s).slice(0, maxAnns);
+          const tblW = 1120, tblY = 166;
           const tblH = (s.callout ? 590 : 646) - tblY;
-          const tfs = pt((rows.length > 6 ? 13 : rows.length > 4 ? 15 : 17) * TS);
+          const nCols = grid.length ? grid[0].length : 2;
+          const colW = tableColWidths(nCols, tblW);
+          const tfs = pt((grid.length > 6 ? 13 : grid.length > 4 ? 15 : 17) * TS);
           const rowFill = dark ? '18222E' : 'FFFFFF';
           const altFill = dark ? '1E2A38' : 'F2F6FA';
           const bodyCol = dark ? 'E4ECF3' : '24313D';
           const lineCol = dark ? '3A4A5C' : 'DBE4EC';
-          const trows = rows.map((r, i) => ([
-            { text: r.term, options: { bold: true, color: acc, fill: { color: i % 2 ? altFill : rowFill }, valign: 'middle', align: 'left' } },
-            { text: r.body, options: { color: bodyCol, fill: { color: i % 2 ? altFill : rowFill }, valign: 'middle', align: 'left' } },
-          ]));
+          const trows = grid.map((row, i) => row.map((cell, j) => ({
+            text: cell,
+            options: { bold: j === 0, color: j === 0 ? acc : bodyCol,
+              fill: { color: i % 2 ? altFill : rowFill }, valign: 'middle', align: 'left' },
+          })));
           if (trows.length)
             sl.addTable(trows, { x: I(80), y: I(tblY), w: I(tblW), h: I(tblH),
-              colW: [I(headW), I(tblW - headW)], fontFace: SANS, fontSize: tfs, valign: 'middle',
+              colW: colW.map(w => I(w)), fontFace: SANS, fontSize: tfs, valign: 'middle',
               border: { type: 'solid', color: lineCol, pt: 0.5 }, margin: [3, 8, 3, 8], autoPage: false });
         } else {
           s.annotations.forEach((a, i) => {
@@ -5589,26 +5688,30 @@ function deckCheck(deck){
     const anns = s.annotations || [];
 
     // no picture placed (skip layouts that are meant to be text-only)
-    if (!s.images.length && !['statement', 'quote', 'panels'].includes(lay))
+    if (!s.images.length && !['statement', 'quote', 'panels', 'table'].includes(lay))
       out.push({ level: 'warn', slide: idx, title: 'No image on the slide',
         detail: s.figure
           ? 'FIGURE is set but no picture is placed — open the Images panel and drop one in.'
           : 'This slide is text-only; a figure would make it land.' });
 
-    if (anns.length > 6)
-      out.push({ level: 'info', slide: idx, title: `${anns.length} labels is a lot`,
-        detail: 'Crowded slides are hard to follow — consider splitting into two.' });
+    // tables legitimately hold longer, denser text — skip the label-density
+    // checks, but still run the headline / notes checks below
+    if (lay !== 'table'){
+      if (anns.length > 6)
+        out.push({ level: 'info', slide: idx, title: `${anns.length} labels is a lot`,
+          detail: 'Crowded slides are hard to follow — consider splitting into two.' });
 
-    // longest label, estimated in lines at the annotated chip width
-    const cpl = Math.max(8, Math.floor(370 / (18 * 0.56)));
-    let longest = 0;
-    for (const a of anns){
-      const t = (a.full && a.full.trim()) ? a.full : (a.text || '');
-      longest = Math.max(longest, Math.ceil(t.length / cpl));
+      // longest label, estimated in lines at the annotated chip width
+      const cpl = Math.max(8, Math.floor(370 / (18 * 0.56)));
+      let longest = 0;
+      for (const a of anns){
+        const t = (a.full && a.full.trim()) ? a.full : (a.text || '');
+        longest = Math.max(longest, Math.ceil(t.length / cpl));
+      }
+      if (longest >= 4)
+        out.push({ level: 'warn', slide: idx, title: `A label runs ~${longest} lines`,
+          detail: 'Long labels crowd the figure — use ✨ Trim or the ✂ cut tool to get to ~2 lines.' });
     }
-    if (longest >= 4)
-      out.push({ level: 'warn', slide: idx, title: `A label runs ~${longest} lines`,
-        detail: 'Long labels crowd the figure — use ✨ Trim or the ✂ cut tool to get to ~2 lines.' });
 
     // headline that won't fit its box on one line
     if (L.headline && s.headline){
