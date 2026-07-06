@@ -1328,7 +1328,7 @@ function toggleStar(id){
 }
 
 /* ---- smart, taste-aware label trimming (the friction-killer) ---- */
-const SMART_TRIM_SYS = `You shorten lecture-slide annotation labels. Each label currently holds the full source point, but the slide only needs a short on-screen label because the full text is preserved in the speaker notes — so be confident and concise, never pad. For each label, return a short on-slide version that keeps the single most important idea (the key term, name, number, or claim) and drops filler, examples, and explanation. Keep the author's own wording where you can; do not invent facts or add words that change the meaning. Aim short — a few words to a brief phrase. Return ONLY JSON in the form {"labels":[{"id":"<id>","short":"<short label>"}]} and nothing else.`;
+const SMART_TRIM_SYS = `You tighten lecture-slide annotation labels. Each label holds the full source point; the full text is preserved in the speaker notes, so the on-slide version can be trimmed — but gently. The goal is a label of roughly 8–14 words (about two lines on the slide) that still reads as a complete, self-contained thought a student could learn from, not a terse fragment. Keep the substance: the key term, name, number, or claim AND its essential context. Cut only genuine filler (hedges, redundancy, parenthetical asides, trailing examples). You may lightly rephrase for flow and economy, but do not invent facts or change the meaning. If a label is already 14 words or fewer, return it unchanged. Return ONLY JSON in the form {"labels":[{"id":"<id>","short":"<short label>"}]} and nothing else.`;
 
 /* shorten every label on a slide in one call, matched to the learned taste.
    a.orig keeps the full original, so this is non-destructive and restorable. */
@@ -1341,7 +1341,7 @@ async function smartTrimSlide(slide){
   const labels = anns.map(a => ({ id: a.id, text: (a.orig || a.full || a.text).trim() }));
   let sys = SMART_TRIM_SYS;
   if (taste && taste.profile)
-    sys += "\n\nThe author's established label style (match it closely, especially the typical label length):\n" + taste.profile;
+    sys += "\n\nThe author's established label style — match its voice and phrasing, but keep the 8–14 word length target above:\n" + taste.profile;
   const user = `Slide heading: ${slide.headline || '(none)'}\nCentral figure: ${slide.figure || '(none)'}\n\n`
     + `Shorten each of these labels, keeping its id:\n` + JSON.stringify(labels);
   toast('Trimming labels in your style…', 12000);
