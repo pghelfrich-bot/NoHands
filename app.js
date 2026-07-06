@@ -172,6 +172,32 @@ const SLIDE_CSS = `
 .slide .lf-panel{position:absolute;z-index:5;border-radius:14px;padding:18px 20px;overflow:hidden}
 .slide.light .lf-panel{background:#ffffff;border:1px solid #e2e9ef;box-shadow:0 6px 18px rgba(15,30,45,.06)}
 .slide.dark .lf-panel{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}
+/* rows-and-columns table (Table layout): bold term cell + detail cell per row */
+.slide .lf-table{position:absolute;z-index:5;display:flex;flex-direction:column;border-radius:10px;overflow:hidden}
+.slide .lf-trow{display:flex;align-items:stretch}
+.slide .lf-th,.slide .lf-td{padding:9px 16px;line-height:1.3;display:flex;align-items:center;min-width:0}
+.slide .lf-th{font-weight:700;letter-spacing:.1px;color:var(--lf-accent)}
+.slide .lf-td{font-weight:500}
+.slide.light .lf-table{border:1px solid #dbe4ec;box-shadow:0 8px 22px rgba(15,30,45,.08)}
+.slide.light .lf-trow{background:#ffffff}
+.slide.light .lf-trow.alt{background:#f2f6fa}
+.slide.light .lf-trow + .lf-trow{border-top:1px solid #e4ebf1}
+.slide.light .lf-th{border-right:1px solid #e4ebf1}
+.slide.light .lf-td{color:#24313d}
+.slide.dark .lf-table{border:1px solid rgba(255,255,255,.14)}
+.slide.dark .lf-trow{background:rgba(255,255,255,.05)}
+.slide.dark .lf-trow.alt{background:rgba(255,255,255,.09)}
+.slide.dark .lf-trow + .lf-trow{border-top:1px solid rgba(255,255,255,.1)}
+.slide.dark .lf-th{border-right:1px solid rgba(255,255,255,.14)}
+.slide.dark .lf-td{color:#e4ecf3}
+/* over a photo, make the rows opaque enough to read on a busy background */
+.slide.has-bg.bg-light .lf-trow{background:rgba(255,255,255,.94)}
+.slide.has-bg.bg-light .lf-trow.alt{background:rgba(238,244,249,.94)}
+.slide.has-bg.bg-light .lf-td{color:#1c2731}
+.slide.has-bg.bg-dark .lf-trow{background:rgba(12,18,26,.86)}
+.slide.has-bg.bg-dark .lf-trow.alt{background:rgba(20,28,38,.86)}
+.slide.has-bg.bg-dark .lf-td{color:#eef4f9}
+.slide.has-bg.bg-dark .lf-th{color:#dbe9f5}
 .slide .lf-callout{position:absolute;z-index:35;border-left:4px solid var(--lf-accent);padding:10px 16px;
   font-size:18px;line-height:1.45;font-style:italic;border-radius:0 10px 10px 0}
 .slide.light .lf-callout{background:rgba(255,255,255,.88);color:#22323e;box-shadow:0 6px 16px rgba(15,30,45,.07)}
@@ -749,6 +775,7 @@ function normType(s){
    in which case effContentLayout() picks the default) */
 function normLayoutName(s){
   s = (s || '').toLowerCase().trim();
+  if (/\btable\b|chalk table|matrix|rows and columns/.test(s)) return 'table';
   if (/compar|versus|vs\b|two col|contrast/.test(s)) return 'comparison';
   if (/time|step|process|sequence|chronolog|stages?/.test(s)) return 'timeline';
   if (/quote|pull|epigraph/.test(s)) return 'quote';
@@ -935,7 +962,7 @@ function parseOutline(text){
 const LAYOUT_TO_OUTLINE = {
   cinematic: 'cinematic', cards: 'cards', figureLeft: 'figure left', figureRight: 'figure right',
   spotlight: 'spotlight', bandTop: 'band', panels: 'panels', comparison: 'comparison',
-  timeline: 'timeline', statement: 'statement', quote: 'quote', gallery: 'gallery', figureGrid: 'figure grid',
+  table: 'table', timeline: 'timeline', statement: 'statement', quote: 'quote', gallery: 'gallery', figureGrid: 'figure grid',
 };
 
 // drop the auto-generated "Point details:" block — it's regenerated from
@@ -995,7 +1022,7 @@ Design: free-text mood/colour notes (optional)
 
 N. TYPE: title | roadmap | section | content | takeaway
    HEADLINE: the slide heading
-   LAYOUT: (optional) annotated | comparison | timeline | quote | statement | gallery | cinematic
+   LAYOUT: (optional) annotated | comparison | table | timeline | quote | statement | gallery | cinematic
    POINTS:
    - one idea per bullet (long ones are auto-compressed; detail moves to notes)
    CALLOUT: a single highlighted stat or quote (optional)
@@ -1006,7 +1033,9 @@ Guidance: most content slides should be image-first — give them a vivid FIGURE
 and 3–5 short POINTS (default annotated layout, so omit LAYOUT). Open with a
 TYPE: title slide; add a TYPE: roadmap after it when there are 4+ themes; use
 TYPE: section dividers between major parts; end with a TYPE: takeaway. Reach for
-LAYOUT: comparison when contrasting two things, LAYOUT: timeline for a sequence
+LAYOUT: comparison when contrasting two things, LAYOUT: table for labeled rows
+(each POINT becomes a row: the term before its first colon is the row label and
+the rest is the detail), LAYOUT: timeline for a sequence
 or chronology, LAYOUT: quote for a single strong quotation, LAYOUT: statement
 for one punchy claim. Math: write equations as LaTeX, inline with $...$ or on
 their own as $$...$$ (e.g. "Population growth follows $\\frac{dN}{dt} = rN(1-N/K)$"
@@ -1477,6 +1506,7 @@ const LAYOUTS = {
     { key: 'bandTop',    label: 'Image band' },
     { key: 'panels',     label: 'Numbered panels' },
     { key: 'comparison', label: 'Two columns' },
+    { key: 'table',      label: 'Table' },
     { key: 'timeline',   label: 'Timeline' },
     { key: 'statement',  label: 'Statement' },
     { key: 'quote',      label: 'Quote' },
@@ -1611,6 +1641,12 @@ function contentLayout(slide){
       return { x: 80 + col * (w + gap), y: 168 + row * (h + 14), w, h };
     });
     if (slide.callout) out.callout = { x: 80, y: 650, w: 1120, fs: 16 };
+  } else if (lay === 'table'){
+    // a rows-and-columns table: each point becomes a row with a bold term cell
+    // (the short label) and a detail cell (the full text)
+    out.wantFigure = false; out.annStyle = 'table';
+    out.headline = { x: 80, y: 60, w: 1120, fs: fitHeadlineFS(head, 1120, 33, 20) };
+    if (slide.callout) out.callout = { x: 80, y: 648, w: 1120, fs: 16 };
   } else if (lay === 'timeline'){
     out.wantFigure = false; out.annStyle = 'step';
     out.headline = { x: 80, y: 60, w: 1120, fs: fitHeadlineFS(head, 1120, 33, 20) };
@@ -1912,8 +1948,8 @@ function renderContent(root, slide, deck, pal, dark, opts){
       if (a.full && a.full.trim() !== a.text.trim())
         p.appendChild(editable(elMath('div', '', 'font-size:13.5px;opacity:.72;margin-top:6px;line-height:1.4;', a.full), 'annfull:' + a.id, opts));
       root.appendChild(p);
-    } else if (L.annStyle === 'step'){
-      // timeline rendered separately below
+    } else if (L.annStyle === 'step' || L.annStyle === 'table'){
+      // timeline / table rendered separately below
     } else if (L.annStyle === 'card'){
       renderAnnBox(root, slide, a, i, def, opts, true, i + 1);
     } else if (L.annStyle === 'caption'){
@@ -1933,6 +1969,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
   });
 
   if (L.annStyle === 'step' && L.timelineGeom) renderTimeline(root, slide, pal, dark, L.timelineGeom, opts);
+  if (L.annStyle === 'table') renderTable(root, slide, pal, dark, opts);
 
   // callout
   if (slide.callout && L.callout){
@@ -2154,6 +2191,54 @@ function splitAnnTail(slide, a){
   state.sel = 'ann:' + child.id;
   renderEditor();
   toast('Split into a follow-up label — it reveals right after this one in present mode');
+}
+
+/* split each annotation into a table row: a bold "term" cell (the short label)
+   and a "detail" cell (the full text, with a leading "term:" duplicate stripped
+   so it isn't repeated). Shared by the DOM renderer and the PPTX exporter. */
+function tableRows(slide){
+  return (slide.annotations || []).map(a => {
+    const term = (a.text || '').trim();
+    let body = (a.full || '').trim();
+    if (term){
+      const re = new RegExp('^' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:.\\-–—]+\\s*', 'i');
+      body = body.replace(re, '').trim();
+    }
+    if (body === term) body = '';
+    return { a, term, body };
+  });
+}
+
+function renderTable(root, slide, pal, dark, opts){
+  const rows = tableRows(slide);
+  if (!rows.length) return;
+  const x0 = 80, top = 166, width = 1120;
+  const bottom = slide.callout ? 590 : 646;
+  const budget = bottom - top;
+  const headW = 250, padX = 16, padY = 10, bodyW = width - headW;
+  const linesAt = (text, w, f) => {
+    const cpl = Math.max(6, Math.floor((w - padX * 2) / (f * 0.52)));
+    return Math.max(1, Math.ceil(((mathToPlainText(text) || ' ').length) / cpl));
+  };
+  // largest font size whose stacked rows fit the available height
+  let fs = 20, rowHs = [];
+  for (; fs >= 12; fs--){
+    const lh = fs * 1.34;
+    rowHs = rows.map(r => Math.max(linesAt(r.term, headW, fs), linesAt(r.body || ' ', bodyW, fs)) * lh + padY * 2);
+    if (rowHs.reduce((s, h) => s + h, 0) <= budget) break;
+  }
+  const table = el('div', 'lf-table', `left:${x0}px;top:${top}px;width:${width}px;`);
+  rows.forEach((r, i) => {
+    const row = el('div', 'lf-trow' + (i % 2 ? ' alt' : ''), `min-height:${Math.round(rowHs[i])}px;`);
+    const th = el('div', 'lf-th', `flex:0 0 ${headW}px;font-size:${fs}px;`);
+    th.appendChild(editable(elMath('div', '', '', r.term), 'ann:' + r.a.id, opts));
+    const td = el('div', 'lf-td', `font-size:${fs}px;`);
+    td.appendChild(editable(elMath('div', '', '', r.body), 'annfull:' + r.a.id, opts));
+    row.appendChild(th);
+    row.appendChild(td);
+    table.appendChild(row);
+  });
+  root.appendChild(table);
 }
 
 function renderTimeline(root, slide, pal, dark, g, opts){
@@ -3366,6 +3451,13 @@ function layoutIcon(key){
     case 'bandTop': return svg(head(8, 8, 50) + img(8, 18, 104, 22) + panel(8, 46, 30, 16) + panel(45, 46, 30, 16) + panel(82, 46, 30, 16));
     case 'panels': return svg(head(8, 8, 50) + panel(8, 20, 50, 18) + panel(62, 20, 50, 18) + panel(8, 42, 50, 18) + panel(62, 42, 50, 18));
     case 'comparison': return svg(head(8, 8, 50) + panel(8, 20, 50, 40) + panel(62, 20, 50, 40) + tline(14, 28, 38) + tline(68, 28, 38));
+    case 'table': return svg(head(8, 8, 50)
+      + panel(8, 20, 104, 40)
+      + bar(30, 20, 1, 40, IMG)
+      + `<line x1="8" y1="33" x2="112" y2="33" stroke="${T}" stroke-width="0.7"/><line x1="8" y1="46" x2="112" y2="46" stroke="${T}" stroke-width="0.7"/>`
+      + bar(12, 24, 14, 4, A) + tline(34, 24, 72)
+      + bar(12, 37, 14, 4, A) + tline(34, 37, 66)
+      + bar(12, 50, 14, 4, A) + tline(34, 50, 74));
     case 'timeline': return svg(head(8, 8, 50) + dot(20, 38) + dot(50, 38) + dot(80, 38) + dot(110, 38)
       + `<line x1="24" y1="38" x2="46" y2="38" stroke="${A}" stroke-width="1.2"/><line x1="54" y1="38" x2="76" y2="38" stroke="${A}" stroke-width="1.2"/><line x1="84" y1="38" x2="106" y2="38" stroke="${A}" stroke-width="1.2"/>`);
     case 'statement': return svg(bar(10, 18, 70, 9, A) + bar(10, 30, 50, 9, A) + tline(10, 48, 40) + tline(10, 55, 34));
@@ -5161,6 +5253,23 @@ async function exportPPTX(){
               else addLine(sl, st.cx, st.cy + 32, st.cx, b.cy - 36, { arrow: true, color: pal.accent });
             }
           });
+        } else if (L.annStyle === 'table'){
+          const rows = tableRows(s).slice(0, maxAnns);
+          const headW = 250, tblW = 1120, tblY = 166;
+          const tblH = (s.callout ? 590 : 646) - tblY;
+          const tfs = pt((rows.length > 6 ? 13 : rows.length > 4 ? 15 : 17) * TS);
+          const rowFill = dark ? '18222E' : 'FFFFFF';
+          const altFill = dark ? '1E2A38' : 'F2F6FA';
+          const bodyCol = dark ? 'E4ECF3' : '24313D';
+          const lineCol = dark ? '3A4A5C' : 'DBE4EC';
+          const trows = rows.map((r, i) => ([
+            { text: r.term, options: { bold: true, color: acc, fill: { color: i % 2 ? altFill : rowFill }, valign: 'middle', align: 'left' } },
+            { text: r.body, options: { color: bodyCol, fill: { color: i % 2 ? altFill : rowFill }, valign: 'middle', align: 'left' } },
+          ]));
+          if (trows.length)
+            sl.addTable(trows, { x: I(80), y: I(tblY), w: I(tblW), h: I(tblH),
+              colW: [I(headW), I(tblW - headW)], fontFace: SANS, fontSize: tfs, valign: 'middle',
+              border: { type: 'solid', color: lineCol, pt: 0.5 }, margin: [3, 8, 3, 8], autoPage: false });
         } else {
           s.annotations.forEach((a, i) => {
             if (i >= maxAnns) return;
