@@ -1224,6 +1224,94 @@ async function proseToOutlineAI(text, { key, model } = {}){
   return out.replace(/^```[\w]*\n?|\n?```$/g, '');
 }
 
+/* ---------- reading PDF → outline ----------
+   Pull the text out of a reading PDF (reusing the pdf.js already loaded for
+   figure extraction) and convert it to a LectureFlow outline in one step. */
+async function pdfToText(file){
+  await ensurePdfJs();
+  const buf = await file.arrayBuffer();
+  const doc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  const pages = [];
+  for (let i = 1; i <= doc.numPages; i++){
+    const page = await doc.getPage(i);
+    const tc = await page.getTextContent();
+    pages.push(tc.items.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim());
+  }
+  return pages.filter(Boolean).join('\n\n');
+}
+
+/* Conversion rules distilled from docs/notebooklm-outline-conversion-plan.md,
+   so a reading prompt PDF maps onto LectureFlow's own grammar and house style
+   instead of carrying another tool's boilerplate across. */
+const READING_TO_OUTLINE_SYS = OUTLINE_FORMAT_SPEC + `
+
+You are converting a class reading into an outline for THIS teacher's ornithology course.
+
+First decide which kind of source you were given:
+
+(A) A slide-generator PROMPT document (it contains standing instructions for
+another tool — exact colours/fonts, "max 5 bullets", "no AI images", photo
+sourcing rules — followed by a slide-by-slide outline). DISCARD the standing
+instructions entirely; LectureFlow has its own design system and its image panel
+is already licensed-sources-only. Convert only the slide-by-slide content, using
+this mapping:
+- TITLE SLIDE -> TYPE: title. If it opens with a quotation, add LAYOUT: quote and put the quote in CALLOUT.
+- ROADMAP / numbered agenda -> TYPE: roadmap. Drop any circled numbers (roadmap auto-numbers). No FIGURE or CALLOUT needed.
+- SECTION HEADER -> TYPE: section. Keep it minimal: HEADLINE + FIGURE + one CALLOUT tagline; move any bullets into NOTES.
+- Ordinary content slide -> TYPE: content, no LAYOUT (the annotated-figure default). If its photo line describes a collage/mosaic or names several species, use LAYOUT: figure grid and make each POINT name its own species so every panel has a subject.
+- CHALLENGE QUESTION -> TYPE: content with LAYOUT: statement. HEADLINE is a short framing title beginning "Challenge — ". The question itself goes in CALLOUT, the given facts become POINTS, and any "what to listen for" guidance goes in NOTES.
+- Closing COMPETENCY QUIZ / BIG PICTURE -> TYPE: takeaway. Write 4-5 POINTS that recap the underlying concepts (one per quiz question). Put the closing takeaway line in CALLOUT. Move the full multiple-choice questions, with the correct answer marked, into NOTES as a teacher-facing quiz bank (NOTES is never shown to the audience).
+
+(B) Raw lecture notes or prose with no slide structure. Then build the deck
+yourself: open with TYPE: title, add TYPE: roadmap when there are 3+ themes, one
+TYPE: section per major part, and close with TYPE: takeaway. Split every heading
+across AT LEAST TWO content slides grouped by sub-idea, each with its own fresh
+headline, 2-4 short POINTS, and its own FIGURE.
+
+Field rules for both cases:
+- PHOTO:/image lines -> FIGURE:. Strip all sourcing boilerplate and keep only the subject, rewritten as a vivid, search-friendly phrase. Always name the exact species when the source names one — the image search keys off this text.
+- TAKEAWAY: -> CALLOUT:. Every content slide should get one.
+- Keep the source's own wording, facts and order. Do not invent facts.
+- POINTS are short phrases (roughly 8-14 words). Longer detail belongs in NOTES.
+- Replace robotic arrows and ALL-CAPS with plain phrasing; drop bullets that merely restate the CALLOUT.
+- Design: pick ONE mood word from ocean, forest, ember, plum or slate if the source suggests it; otherwise omit the line.
+- CRITICAL PARSER RULE: never begin any line inside NOTES with a number followed by "." ")" or ":" — that starts a new slide. Write quiz items as "Question 1 — ..." instead.
+
+Output ONLY the outline. No commentary, no code fences.`;
+
+async function pdfToOutline(file){
+  const btn = $('#btn-outline-pdf');
+  if (!settings.anthropicKey){ toast('Add your Anthropic API key in Settings (⚙) to convert a reading PDF'); return; }
+  if (btn) btn.disabled = true;
+  try {
+    toast('Reading the PDF…', 30000);
+    const text = await pdfToText(file);
+    if (!text || text.length < 40){
+      toast('No text found in that PDF — it may be scanned images rather than text');
+      return;
+    }
+    // guard against a runaway request on an unexpectedly huge document
+    const src = text.length > 120000 ? text.slice(0, 120000) : text;
+    toast('Converting to an outline — this can take up to a minute…', 90000);
+    let sys = READING_TO_OUTLINE_SYS;
+    const taste = loadTaste();
+    if (taste && taste.profile)
+      sys += "\n\nMatch this teacher's established style:\n" + taste.profile;
+    const raw = await anthropicMessage({ system: sys, user:
+      `Convert this reading into a LectureFlow outline.\n\n--- SOURCE (${file.name}) ---\n` + src,
+      maxTokens: 8000 });
+    const outline = raw.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
+    if (!outline){ toast('The conversion came back empty — try again'); return; }
+    $('#outline-text').value = outline;
+    const n = (outline.match(/^\s*\d+\.\s*TYPE:/gim) || []).length;
+    toast(`Drafted ${n || 'an'} slide${n === 1 ? '' : 's'} from ${file.name} — review it, then Build deck →`, 8000);
+  } catch (e){
+    toast('Could not convert that PDF — ' + (e.message || 'try again'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* ================= lecture "taste" (Phase 1) =================
    Two signals capture the user's taste: (1) how they reshape a generated
    outline into the final deck structure, and (2) how they arrange labels.
@@ -6287,6 +6375,12 @@ function renderTemplatesModal(){
 function wireUI(){
   // outline screen
   $('#btn-outline-sample').addEventListener('click', () => { $('#outline-text').value = SAMPLE_OUTLINE; });
+  $('#btn-outline-pdf').addEventListener('click', () => $('#file-outline-pdf').click());
+  $('#file-outline-pdf').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) await pdfToOutline(f);
+  });
   $('#btn-outline-file').addEventListener('click', () => $('#file-outline').click());
   $('#file-outline').addEventListener('change', async e => {
     const f = e.target.files[0];

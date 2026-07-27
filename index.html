@@ -62,6 +62,7 @@ Design: ocean blues, calm
         <button id="btn-outline-file"   class="btn ghost">Upload file</button>
         <button id="btn-outline-sample" class="btn ghost">Load sample</button>
         <button id="btn-outline-prose"  class="btn ghost" title="Paste prose or notes and draft a LectureFlow outline from it">✨ Draft from prose</button>
+        <button id="btn-outline-pdf"    class="btn ghost" title="Pick a reading PDF and convert it straight into a LectureFlow outline (uses your Anthropic API key)">📄 From reading PDF</button>
         <span class="spacer"></span>
         <label class="check" title="Convert em dashes (—) in your outline into commas so labels read as flowing clauses"><input type="checkbox" id="outline-dedash" checked> — → ,</label>
         <button id="btn-outline-build"  class="btn primary">Build deck →</button>
@@ -539,6 +540,7 @@ Design: free-text notes
 
 <div id="print-area" aria-hidden="true"></div>
 <input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
+<input type="file" id="file-outline-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-import" accept=".json,application/json" hidden>
 <input type="file" id="file-outline-batch" accept=".txt,.md,.markdown,.text,text/*" multiple hidden>
 <div id="toast" hidden></div>
