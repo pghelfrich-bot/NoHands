@@ -2464,6 +2464,18 @@ function addFigHint(root, slide, def){
   root.appendChild(hint);
 }
 
+/* effective alt text for an image: a hand-written description wins; a
+   decorative image gets empty alt; otherwise fall back to the slide's FIGURE
+   (for the main image) and finally the source's title. Consumed by every
+   export so screen readers and accessibility checkers get real descriptions. */
+function imgAlt(slide, im){
+  if (im.decorative) return '';
+  if (im.desc && im.desc.trim()) return im.desc.trim();
+  const primary = slide && slide.images && slide.images[0] && slide.images[0].id === im.id;
+  if (primary && slide.figure && slide.figure.trim()) return slide.figure.trim();
+  return (im.attr && im.attr.title) || '';
+}
+
 function renderImages(root, slide, opts){
   const fullBleed = slide.type === 'content' && contentLayout(slide).fullBleed;
   slide.images.forEach((im, i) => {
@@ -2475,7 +2487,7 @@ function renderImages(root, slide, opts){
     node.dataset.sel = 'img:' + im.id;
     const img = document.createElement('img');
     img.src = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
-    img.alt = (im.attr && im.attr.title) || '';
+    img.alt = imgAlt(slide, im);
     img.draggable = false;
     node.appendChild(img);
     root.appendChild(node);
@@ -2790,6 +2802,7 @@ function applySelection(root){
   const isArrow = !group && info && info.type === 'arrow';
   const isText = group ? group.every(g => g.info.isText) : !!(info && info.isText);
   $('#sel-cutout').disabled = !isImg;
+  $('#sel-alt').disabled = !isImg;
   $('#sel-front').disabled = $('#sel-back').disabled = !isImg;
   const align = (!group && isText) ? (info.obj.align || 'left') : null;
   ['left', 'center', 'right'].forEach(a => {
@@ -5595,16 +5608,17 @@ async function exportPPTX(){
       if (im === cineFirst) continue;   // already drawn full-bleed beneath the text
       const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
       if (!data.startsWith('data:')) continue;
+      const alt = imgAlt(s, im);
       if (im.border && !im.cutout){
         // white frame drawn behind, photo inset by the border width (matches the editor)
         const b = 7;
         sl.addShape('roundRect', { x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h), rectRadius: 0.03,
           fill: { color: 'FFFFFF' }, line: { type: 'none' },
           shadow: { type: 'outer', color: '060E18', blur: 9, offset: 3, angle: 90, opacity: 0.34 } });
-        sl.addImage({ data, x: I(im.x + b), y: I(im.y + b), w: I(im.w - 2 * b), h: I(im.h - 2 * b),
+        sl.addImage({ data, altText: alt, x: I(im.x + b), y: I(im.y + b), w: I(im.w - 2 * b), h: I(im.h - 2 * b),
           sizing: { type: 'cover', w: I(im.w - 2 * b), h: I(im.h - 2 * b) } });
       } else {
-        sl.addImage({ data, x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h),
+        sl.addImage({ data, altText: alt, x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h),
           sizing: { type: im.cutout ? 'contain' : 'cover', w: I(im.w), h: I(im.h) } });
       }
     }
@@ -5820,6 +5834,58 @@ function deckCheck(deck){
   });
 
   return out;
+}
+
+/* ---------- image description (alt text) editor ---------- */
+let _altImg = null, _altSlide = null;
+function openAltModal(){
+  const s = cur();
+  if (!s || !state.sel || !state.sel.startsWith('img:')) return;
+  const im = s.images.find(x => ('img:' + x.id) === state.sel);
+  if (!im) return;
+  _altImg = im; _altSlide = s;
+  const prev = $('#alt-preview');
+  prev.innerHTML = '';
+  const img = document.createElement('img');
+  img.src = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
+  prev.appendChild(img);
+  const ta = $('#alt-text');
+  // seed the box with the current effective alt so the fallback is visible & editable
+  ta.value = (im.desc && im.desc.trim()) ? im.desc : (im.decorative ? '' : imgAlt(s, im));
+  $('#alt-decorative').checked = !!im.decorative;
+  ta.disabled = !!im.decorative;
+  $('#alt-status').hidden = true;
+  $('#alt-modal').showModal();
+  if (!im.decorative) ta.focus();
+}
+const ALT_SYS = `You write concise, factual alt text for images in a university lecture deck. Return ONE sentence (max ~25 words) describing what is visibly in the image so a student using a screen reader gets the same information as one who can see it. Be specific — name the species, action, and setting when known. Do NOT begin with "image of", "photo of", "a picture of". Return only the sentence, no quotes or preamble.`;
+async function altGenerate(){
+  if (!_altImg || !_altSlide) return;
+  if (!settings.anthropicKey){ altStatus('Add your Anthropic API key in Settings to use Suggest', true); return; }
+  const s = _altSlide, im = _altImg;
+  const ctx = [
+    s.figure ? 'Intended figure: ' + s.figure : '',
+    s.headline ? 'Slide headline: ' + s.headline : '',
+    (im.attr && im.attr.title) ? 'Source title: ' + im.attr.title : '',
+    (s.annotations || []).length ? 'Slide labels: ' + s.annotations.map(a => a.text).filter(Boolean).join('; ') : '',
+  ].filter(Boolean).join('\n');
+  altStatus('Drafting a description…');
+  try {
+    const out = await anthropicMessage({ system: ALT_SYS, user: ctx || 'A lecture image.', maxTokens: 120 });
+    $('#alt-text').value = out.replace(/^["']|["']$/g, '').trim();
+    altStatus('Drafted — review and edit, then Save', false);
+  } catch (e){ altStatus('Could not draft — ' + (e.message || 'try again'), true); }
+}
+function altStatus(msg, err){ const st = $('#alt-status'); st.hidden = !msg; st.textContent = msg || ''; st.classList.toggle('err', !!err); }
+function altSave(){
+  if (!_altImg) return;
+  checkpoint();
+  _altImg.decorative = $('#alt-decorative').checked;
+  _altImg.desc = _altImg.decorative ? '' : $('#alt-text').value.trim();
+  save();
+  refreshRailThumb(state.cur);
+  $('#alt-modal').close();
+  toast(_altImg.decorative ? 'Marked decorative' : 'Description saved');
 }
 
 function openDeckCheck(){
@@ -6720,6 +6786,10 @@ function wireUI(){
     const s = cur(); const info = selInfo(s, state.sel);
     if (info && info.type === 'ann') splitAnnTail(s, info.obj);
   });
+  $('#sel-alt').addEventListener('click', openAltModal);
+  $('#alt-gen').addEventListener('click', altGenerate);
+  $('#alt-save').addEventListener('click', altSave);
+  $('#alt-decorative').addEventListener('change', () => { $('#alt-text').disabled = $('#alt-decorative').checked; });
   $('#sel-cutout').addEventListener('click', async (e) => {
     const s = cur();
     if (!s || !state.sel || !state.sel.startsWith('img:')) return;

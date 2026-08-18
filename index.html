@@ -195,6 +195,7 @@ Design: free-text notes
         <button id="sel-front" class="btn small" title="Bring forward">▲</button>
         <button id="sel-back"  class="btn small" title="Send backward">▼</button>
         <button id="sel-cutout" class="btn small" title="Toggle background cut-out (free, in-browser). Alt-click for an HD pass via your remove.bg / PhotoRoom key.">✂</button>
+        <button id="sel-alt" class="btn small" title="Edit this image's description (alt text) for accessibility">✎ Alt</button>
         <button id="sel-delete" class="btn small danger" title="Delete element">✕</button>
       </span>
       <span class="spacer"></span>
@@ -422,6 +423,23 @@ Design: free-text notes
     <ul id="drive-list" style="list-style:none;padding:0;max-height:380px;overflow-y:auto;margin:12px 0"></ul>
     <div class="modal-actions">
       <button value="cancel" class="btn primary" type="submit">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="alt-modal" class="modal" style="width:min(560px,94vw)">
+  <form method="dialog">
+    <h2>Image description</h2>
+    <p class="modal-sub">This is the alt text screen readers announce and accessibility checkers require. Describe what the image shows and why it matters — one clear sentence.</p>
+    <div id="alt-preview"></div>
+    <textarea id="alt-text" rows="3" placeholder="e.g. A ruby-throated hummingbird hovering at a red flower, wings blurred in motion."></textarea>
+    <label class="check" title="Mark purely decorative images so screen readers skip them"><input type="checkbox" id="alt-decorative"> Decorative — no description needed (skip)</label>
+    <div id="alt-status" class="status" hidden></div>
+    <div class="modal-actions">
+      <button id="alt-gen" type="button" class="btn" title="Draft a description from this slide's FIGURE and headline (uses your Anthropic API key)">✨ Suggest</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="btn ghost" type="submit">Cancel</button>
+      <button id="alt-save" type="button" class="btn primary">Save</button>
     </div>
   </form>
 </dialog>

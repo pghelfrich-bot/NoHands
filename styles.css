@@ -421,6 +421,13 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .field input:focus{outline:none;border-color:var(--accent)}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
 
+/* image description (alt text) modal */
+#alt-preview{margin:6px 0 10px;border-radius:10px;overflow:hidden;background:#0c1117;border:1px solid var(--line);max-height:220px;display:flex;justify-content:center}
+#alt-preview img{max-width:100%;max-height:220px;object-fit:contain}
+#alt-text{width:100%;resize:vertical;background:#0c1117;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:13.5px}
+#alt-text:focus{outline:none;border-color:var(--accent)}
+#alt-text:disabled{opacity:.5}
+
 /* deck check modal */
 .check-summary{font-size:13.5px;color:var(--ink-dim);margin:8px 0 10px}
 .check-summary.ok{color:var(--accent2);font-weight:600}
