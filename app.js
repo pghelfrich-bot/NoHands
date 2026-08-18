@@ -2476,6 +2476,23 @@ function imgAlt(slide, im){
   return (im.attr && im.attr.title) || '';
 }
 
+/* does an alt string look like a scraped page title / source credit rather than
+   a real description? (the provider-title fallbacks we want to replace) */
+function altLooksJunk(s){
+  s = (s || '').trim();
+  if (!s) return true;
+  if (/wikipedia|\bnews\b|\bPBS\b|\bNPR\b|getty|shutterstock|istock|stock photo|\balamy\b|\bflickr\b|123rf|dreamstime|unsplash|pexels|pixabay/i.test(s)) return true;
+  if (/ \| |https?:|www\.|\.(com|org|net|gov|io)\b/i.test(s)) return true;
+  if (/ - [A-Z][a-z]+ ?(Photography|Wildlife|News|Media|Stock)/.test(s)) return true;
+  return false;
+}
+/* an image that still needs a real description before export */
+function altNeedsWork(slide, im){
+  if (im.decorative) return false;
+  if (im.desc && im.desc.trim()) return false;     // already described by hand / AI
+  return altLooksJunk(imgAlt(slide, im));           // empty or provider-junk fallback
+}
+
 function renderImages(root, slide, opts){
   const fullBleed = slide.type === 'content' && contentLayout(slide).fullBleed;
   slide.images.forEach((im, i) => {
@@ -5308,10 +5325,44 @@ ${sections.join('\n')}
 
 async function exportHandout(){
   if (!guardDeck()) return;
-  toast('Building accessible handout…');
+  toast('Preparing accessible export…');
   await ensureEmbedded(state.deck);
-  downloadText(safeName(state.deck.title) + '-handout.html', buildHandoutHTML(state.deck));
-  toast('Accessible handout downloaded — upload the .html to Canvas, or open it and Save as PDF');
+  const deck = state.deck;
+
+  // 1) find every image whose alt is still junk/empty and give it a real one —
+  //    by actually looking at the image (vision) when a key is set, else a
+  //    deterministic fall-back that's generic but never misleading
+  const needy = [];
+  deck.slides.forEach(s => s.images.forEach(im => { if (altNeedsWork(s, im)) needy.push({ s, im }); }));
+  if (needy.length){
+    checkpoint();
+    const hasKey = !!settings.anthropicKey;
+    let filled = 0, viaAI = 0;
+    for (let i = 0; i < needy.length; i++){
+      const { s, im } = needy[i];
+      toast(`Describing images for accessibility… ${i + 1}/${needy.length}`, 60000);
+      const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
+      let desc = '';
+      if (hasKey && data.startsWith('data:')){
+        try {
+          const ctx = [s.figure && ('Figure: ' + s.figure), s.headline && ('Slide: ' + s.headline)].filter(Boolean).join(' · ');
+          desc = await anthropicVisionAlt(data, ctx);
+          if (desc) viaAI++;
+        } catch (e){ desc = ''; }
+      }
+      if (!desc)   // no key or the call failed: generic-but-safe fallback
+        desc = (s.images.length === 1 && s.figure && s.figure.trim()) ? s.figure.trim() : (s.headline || '').trim();
+      if (desc){ im.desc = desc; filled++; }
+    }
+    if (filled){ save(); refreshRailThumb(state.cur); }
+    toast(filled
+      ? `Filled ${filled} image description${filled === 1 ? '' : 's'}${viaAI ? ` (${viaAI} by looking at the image)` : ''} · building handout…`
+      : 'Building handout…', 6000);
+  }
+
+  // 2) hand over the accessible handout
+  downloadText(safeName(deck.title) + '-handout.html', buildHandoutHTML(deck));
+  toast('Accessible handout downloaded — upload the .html to Canvas, or open it and Save as PDF', 9000);
 }
 
 async function exportPDF(){
@@ -5938,6 +5989,30 @@ function openAltModal(){
   if (!im.decorative) ta.focus();
 }
 const ALT_SYS = `You write concise, factual alt text for images in a university lecture deck. Return ONE sentence (max ~25 words) describing what is visibly in the image so a student using a screen reader gets the same information as one who can see it. Be specific — name the species, action, and setting when known. Do NOT begin with "image of", "photo of", "a picture of". Return only the sentence, no quotes or preamble.`;
+
+/* accurate alt text by actually looking at the image (Claude vision). The image
+   is downscaled first so the call is fast and cheap. */
+async function anthropicVisionAlt(dataUrl, context){
+  const key = settings.anthropicKey;
+  if (!key) throw new Error('no key');
+  let small = dataUrl;
+  try { small = await shrinkImage(dataUrl, 768, 0.8); } catch (e) { /* use original */ }
+  const m = small.match(/^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/i);
+  if (!m) throw new Error('unsupported image');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': key,
+      'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 120, system: ALT_SYS,
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: m[1].toLowerCase(), data: m[2] } },
+        { type: 'text', text: 'Write alt text for this lecture image.' + (context ? '\nContext: ' + context : '') },
+      ] }] }),
+  });
+  if (!res.ok) throw new Error('API ' + res.status);
+  const j = await res.json();
+  return (j.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').replace(/^["']|["']$/g, '').trim();
+}
 async function altGenerate(){
   if (!_altImg || !_altSlide) return;
   if (!settings.anthropicKey){ altStatus('Add your Anthropic API key in Settings to use Suggest', true); return; }
