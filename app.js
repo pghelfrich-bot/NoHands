@@ -5235,6 +5235,85 @@ fit();show(0);
   toast('HTML deck downloaded');
 }
 
+/* ---------- accessible handout ----------
+   A reflowed, single-column semantic document: real headings, images with
+   descriptions shown as captions, points as lists, callouts and speaker notes
+   in logical reading order. This is the format Canvas / Ally grade best —
+   upload the .html as a page, or open it and Save-as-PDF for a clean handout. */
+function buildHandoutHTML(deck){
+  const esc = escHTML;
+  const list = anns => anns.length
+    ? '<ul>' + anns.map(a => `<li>${esc((a.full && a.full.trim()) || a.text || '')}</li>`).join('') + '</ul>' : '';
+  // Speaker notes are intentionally omitted — they're teacher-private and often
+  // hold answer keys, so they must not land in a student-facing handout.
+  const figs = s => s.images.filter(im => !im.decorative && im.src).map(im => {
+    const alt = imgAlt(s, im);
+    const src = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
+    return `<figure><img src="${esc(src)}" alt="${esc(alt)}">`
+      + (alt ? `<figcaption>${esc(alt)}</figcaption>` : '') + `</figure>`;
+  }).join('');
+
+  let seenSection = false;
+  const sections = [];
+  for (const s of deck.slides){
+    if (s.type === 'title') continue;                 // becomes the document h1
+    let body = '';
+    if (s.type === 'section'){
+      seenSection = true;
+      body += `<h2>${esc(s.headline || 'Section')}</h2>`;
+      if (s.callout) body += `<p class="callout">${esc(s.callout)}</p>`;
+      body += figs(s);
+    } else if (s.type === 'roadmap'){
+      body += `<h2>${esc(s.headline || 'Overview')}</h2>` + list(s.annotations || []);
+    } else if (s.type === 'takeaway'){
+      body += `<h2>${esc(s.headline || 'Key takeaways')}</h2>` + list(s.annotations || []);
+      if (s.callout) body += `<p class="callout">${esc(s.callout)}</p>`;
+      body += figs(s);
+    } else {                                          // content
+      const h = seenSection ? 'h3' : 'h2';
+      body += `<${h}>${esc(s.headline || 'Slide')}</${h}>`;
+      body += figs(s);
+      body += list(s.annotations || []);
+      if (s.callout) body += `<p class="callout"><strong>Key point:</strong> ${esc(s.callout)}</p>`;
+    }
+    if (body.trim()) sections.push(`<section>${body}</section>`);
+  }
+  const title = deck.title || 'Lecture';
+  const meta = [deck.presenter, deck.date].filter(Boolean).map(esc).join(' · ');
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>
+:root{color-scheme:light}
+body{max-width:820px;margin:0 auto;padding:40px 24px;font:16px/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1a1a1a;background:#fff}
+h1{font-size:30px;line-height:1.2;margin:0 0 4px}
+.lead{color:#555;margin:0 0 26px}
+h2{font-size:23px;margin:32px 0 10px;padding-top:14px;border-top:2px solid #e6e6e6}
+h3{font-size:19px;margin:24px 0 8px}
+h4{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#666;margin:14px 0 4px}
+figure{margin:14px 0}
+figure img{max-width:100%;height:auto;border-radius:8px;border:1px solid #ddd}
+figcaption{font-size:14px;color:#555;margin-top:6px;font-style:italic}
+ul{margin:8px 0;padding-left:22px} li{margin:4px 0}
+.callout{background:#f3f6fa;border-left:4px solid #2f7fd6;padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+.notes{background:#fafafa;border:1px solid #eee;border-radius:8px;padding:8px 14px;margin:12px 0;font-size:14.5px;color:#333}
+@media print{body{max-width:none;padding:0} figure,section{break-inside:avoid}}
+</style></head>
+<body>
+<h1>${esc(title)}</h1>
+${meta ? `<p class="lead">${meta}</p>` : ''}
+${sections.join('\n')}
+</body></html>`;
+}
+
+async function exportHandout(){
+  if (!guardDeck()) return;
+  toast('Building accessible handout…');
+  await ensureEmbedded(state.deck);
+  downloadText(safeName(state.deck.title) + '-handout.html', buildHandoutHTML(state.deck));
+  toast('Accessible handout downloaded — upload the .html to Canvas, or open it and Save as PDF');
+}
+
 async function exportPDF(){
   if (!guardDeck()) return;
   await ensureEmbedded(state.deck);
@@ -6607,6 +6686,7 @@ function wireUI(){
   $('#export-pptx').addEventListener('click', () => { dd.classList.remove('open'); exportPPTX(); });
   $('#export-pdf').addEventListener('click', () => { dd.classList.remove('open'); exportPDF(); });
   $('#export-html').addEventListener('click', () => { dd.classList.remove('open'); exportHTML(); });
+  $('#export-handout').addEventListener('click', () => { dd.classList.remove('open'); exportHandout(); });
   $('#export-outline').addEventListener('click', () => {
     dd.classList.remove('open');
     if (!guardDeck()) return;
