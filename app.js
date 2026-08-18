@@ -686,7 +686,7 @@ function migrateDeck(d){
   return d;
 }
 function newDeck(){
-  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:false, motion:false, arrows:'none', textScale:1 };
+  return { id: uid(), title:'', presenter:'', date:'', designNotes:'', accent:'indigo', slides:[], background:null, frame:true, motion:false, arrows:'none', textScale:1 };
 }
 function cur(){ return state.deck ? state.deck.slides[state.cur] : null; }
 function palette(deck){ return PALETTES[deck.accent] || PALETTES.indigo; }
@@ -1669,19 +1669,22 @@ function contentLayout(slide){
     // each point's full text (sized to fit, no clipping); the slide's one big
     // takeaway — the CALLOUT if there is one, else the last point — becomes a
     // wide banner across the bottom instead of competing with the other chips.
-    out.annStyle = 'label'; out.connectors = true; out.annDetail = false;
-    out.headline = { x: 80, y: 64, w: 620, fs: fitHeadlineFS(head, 620, 38, 24) };
-    // Wider chip columns flanking a slimmer, centered figure, so each label's
-    // full text falls on ~2 lines instead of a tall narrow stack.
-    const chipW = 370;
-    out.figZones = [{ x: 470, y: 175, w: 340, h: 435 }];
+    // Image-dominant: a large central figure with wide dark caption chips
+    // overlaying its left/right edges (the chips carry their own fill so they
+    // stay legible on the photo). No connector lines — labels read by proximity,
+    // matching how these decks are actually built by hand. The slide's one big
+    // takeaway (CALLOUT, else the last point) becomes the wide bottom banner.
+    out.annStyle = 'label'; out.connectors = false; out.annDetail = false;
+    out.headline = { x: 80, y: 60, w: 900, fs: fitHeadlineFS(head, 900, 36, 24) };
+    const chipW = 400;
+    out.figZones = [{ x: 290, y: 150, w: 700, h: 452 }];
     const pts = slide.annotations;
     const bannerIdx = (!slide.callout && pts.length > 1) ? pts.length - 1 : -1;
     const chipPts = pts.filter((a, i) => i !== bannerIdx);
-    const colTop = 216, colBottom = 596, gap = 20;
-    // pick the largest chip font size whose two-column stack fits above the banner
-    let fs = 22;
-    for (; fs > 14; fs -= 2){
+    const colTop = 168, colBottom = 588, gap = 16;
+    // largest chip font (down to a 20px floor) whose two-column stack fits
+    let fs = 24;
+    for (; fs >= 20; fs -= 2){
       const colY = [colTop, colTop];
       for (const a of chipPts){
         const col = colY[0] <= colY[1] ? 0 : 1;
@@ -1689,15 +1692,15 @@ function contentLayout(slide){
       }
       if (Math.max(colY[0], colY[1]) - gap <= colBottom) break;
     }
-    const colY = [colTop, colTop], colX = [64, 846];
+    const colY = [colTop, colTop], colX = [64, 1216 - chipW];
     out.anns = pts.map((a, i) => {
-      if (i === bannerIdx) return { x: 80, y: 596, w: 1120, fs: 24, banner: true };
+      if (i === bannerIdx) return { x: 80, y: 600, w: 1120, fs: 24, banner: true };
       const col = colY[0] <= colY[1] ? 0 : 1;
       const pos = { x: colX[col], y: colY[col], w: chipW, fs };
       colY[col] += chipBoxH(annDisplayText(a), chipW, fs, 12) + gap;
       return pos;
     });
-    if (slide.callout) out.callout = { x: 80, y: 596, w: 1120, fs: 24, banner: true };
+    if (slide.callout) out.callout = { x: 80, y: 600, w: 1120, fs: 24, banner: true };
   } else if (lay === 'cards'){
     // each point is its own bordered, draggable/resizable card around the figure
     out.annStyle = 'card'; out.connectors = true;
@@ -6798,6 +6801,12 @@ function wireUI(){
   $('#ip-query').addEventListener('keydown', e => { if (e.key === 'Enter') runImageSearch(); });
   $('#ip-transparent').addEventListener('change', () => {
     if ($('#ip-query').value.trim()) runImageSearch();
+  });
+  // white image border: default on, and remember the choice between inserts
+  $('#ip-border').checked = settings.imgBorder !== false;
+  $('#ip-border').addEventListener('change', () => {
+    settings.imgBorder = $('#ip-border').checked;
+    localStorage.setItem(LS.settings, JSON.stringify(settings));
   });
   $$('.ip-tab').forEach(t => t.addEventListener('click', () => showPanelTab(t.dataset.tab)));
 
