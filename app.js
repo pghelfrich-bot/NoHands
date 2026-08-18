@@ -2486,11 +2486,27 @@ function altLooksJunk(s){
   if (/ - [A-Z][a-z]+ ?(Photography|Wildlife|News|Media|Stock)/.test(s)) return true;
   return false;
 }
-/* an image that still needs a real description before export */
-function altNeedsWork(slide, im){
+/* a cheap fingerprint of the underlying photo, so we can tell when an image has
+   been swapped/fine-tuned since its description was written (and only then pay
+   to re-describe it). Uses im.src so a cut-out/border toggle doesn't count. */
+function imgFingerprint(im){
+  const s = im.src || '';
+  return s.length + ':' + s.slice(0, 24) + s.slice(-24);
+}
+/* does an image need a (fresh) description before export?
+   - hand-written descriptions are never touched
+   - an AI description is redone only if the image changed since it was written
+   - an image with a baseline whose photo changed is stale → redo
+   - otherwise only junk/empty alt needs work
+   With force:true, everything except a hand-written description is (re)described. */
+function altNeedsWork(slide, im, force){
   if (im.decorative) return false;
-  if (im.desc && im.desc.trim()) return false;     // already described by hand / AI
-  return altLooksJunk(imgAlt(slide, im));           // empty or provider-junk fallback
+  if (im.desc && im.desc.trim() && !im.descAI) return false;   // hand-written: sacred
+  if (force) return true;
+  const fp = imgFingerprint(im);
+  if (im.descAI) return im.altFor !== fp;                       // AI alt: redo only if the photo changed
+  if (im.altFor && im.altFor !== fp) return true;              // baseline alt, photo changed → stale
+  return altLooksJunk(imgAlt(slide, im));                       // else: only junk/empty
 }
 
 function renderImages(root, slide, opts){
@@ -4662,6 +4678,7 @@ async function placeResultOnSlide(slide, r, at){
     attr: { title: r.title, author: r.author, authorUrl: r.authorUrl, license: r.license,
             licenseUrl: r.licenseUrl, pageUrl: r.pageUrl, sourceName: r.sourceName },
   };
+  im.altFor = imgFingerprint(im);   // baseline the alt to this photo, so a later swap is detected
   let place;
   if (at){
     const w = Math.min(380, dim.w);
@@ -5323,17 +5340,17 @@ ${sections.join('\n')}
 </body></html>`;
 }
 
-async function exportHandout(){
+async function exportHandout(opts = {}){
   if (!guardDeck()) return;
   toast('Preparing accessible export…');
   await ensureEmbedded(state.deck);
   const deck = state.deck;
 
-  // 1) find every image whose alt is still junk/empty and give it a real one —
-  //    by actually looking at the image (vision) when a key is set, else a
-  //    deterministic fall-back that's generic but never misleading
+  // 1) give every image that needs one a real description by looking at it
+  //    (vision, Haiku) — junk/empty alts, images changed since they were last
+  //    described, and (with describeAll) every non-hand-written image
   const needy = [];
-  deck.slides.forEach(s => s.images.forEach(im => { if (altNeedsWork(s, im)) needy.push({ s, im }); }));
+  deck.slides.forEach(s => s.images.forEach(im => { if (altNeedsWork(s, im, opts.describeAll)) needy.push({ s, im }); }));
   if (needy.length){
     checkpoint();
     const hasKey = !!settings.anthropicKey;
@@ -5347,7 +5364,7 @@ async function exportHandout(){
         try {
           const ctx = [s.figure && ('Figure: ' + s.figure), s.headline && ('Slide: ' + s.headline)].filter(Boolean).join(' · ');
           desc = await anthropicVisionAlt(data, ctx);
-          if (desc) viaAI++;
+          if (desc){ im.descAI = true; im.altFor = imgFingerprint(im); viaAI++; }
         } catch (e){ desc = ''; }
       }
       if (!desc)   // no key or the call failed: generic-but-safe fallback
@@ -6003,7 +6020,7 @@ async function anthropicVisionAlt(dataUrl, context){
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': key,
       'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 120, system: ALT_SYS,
+    body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 120, system: ALT_SYS,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: m[1].toLowerCase(), data: m[2] } },
         { type: 'text', text: 'Write alt text for this lecture image.' + (context ? '\nContext: ' + context : '') },
@@ -6036,6 +6053,8 @@ function altSave(){
   checkpoint();
   _altImg.decorative = $('#alt-decorative').checked;
   _altImg.desc = _altImg.decorative ? '' : $('#alt-text').value.trim();
+  _altImg.descAI = false;                 // hand-written — protect it from auto re-describe
+  _altImg.altFor = imgFingerprint(_altImg);
   save();
   refreshRailThumb(state.cur);
   $('#alt-modal').close();
@@ -6762,6 +6781,7 @@ function wireUI(){
   $('#export-pdf').addEventListener('click', () => { dd.classList.remove('open'); exportPDF(); });
   $('#export-html').addEventListener('click', () => { dd.classList.remove('open'); exportHTML(); });
   $('#export-handout').addEventListener('click', () => { dd.classList.remove('open'); exportHandout(); });
+  $('#export-describe-all').addEventListener('click', () => { dd.classList.remove('open'); exportHandout({ describeAll: true }); });
   $('#export-outline').addEventListener('click', () => {
     dd.classList.remove('open');
     if (!guardDeck()) return;
