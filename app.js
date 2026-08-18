@@ -4783,8 +4783,10 @@ function defaultImagePlacement(slide, natW, natH){
     if (L.fullBleed && i === 0) return { x: 0, y: 0, w: 1280, h: 720 };
     const zones = L.galleryZones || L.figZones || [{ ...FIGZONE }];
     if (i < zones.length) return fitRect(natW, natH, zones[i]);
-    const w = 300, h = Math.round(w * natH / natW);
-    return { x: 460 + (i % 4) * 34, y: 190 + (i % 4) * 30, w, h };
+    // more images than the layout's zones → tile into a grid sized to the count
+    // (clean scene instead of an overlapping stagger); Re-layout re-tiles them all
+    const g = galleryZones(i + 1);
+    return fitRect(natW, natH, g[i] || g[g.length - 1]);
   }
   if (i === 0){
     if (slide.type === 'section')  return fitRect(natW, natH, { x: 770, y: 130, w: 420, h: 440 });
@@ -6600,16 +6602,17 @@ function wireUI(){
     checkpoint();
     s.annotations.forEach(a => { a.x = a.y = null; });
     const imgs = s.images;
+    // a content slide with several images gets tiled into a clean grid;
+    // otherwise fall back to the per-slide default placement
+    const tile = (s.type === 'content' && imgs.length >= 2) ? galleryZones(imgs.length) : null;
     s.images = [];
-    for (const im of imgs){
-      Object.assign(im, (() => {
-        const nat = { w: im.w, h: im.h };
-        return defaultImagePlacement(s, nat.w, nat.h);
-      })());
+    imgs.forEach((im, i) => {
+      Object.assign(im, tile ? fitRect(im.w, im.h, tile[i] || tile[tile.length - 1])
+                             : defaultImagePlacement(s, im.w, im.h));
       s.images.push(im);
-    }
+    });
     refreshAll();
-    toast('Layout reset');
+    toast(tile ? `Arranged ${imgs.length} images into a grid` : 'Layout reset');
   });
   $('#btn-smart-trim').addEventListener('click', () => { const s = cur(); if (s) smartTrimSlide(s); });
   $('#btn-add-label').addEventListener('click', () => {
