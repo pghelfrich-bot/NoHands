@@ -407,6 +407,9 @@ Design: free-text notes
       <input id="set-anthropic" type="password" autocomplete="off" placeholder="sk-ant-…">
     </label>
     <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
+    <p style="font-size:13.5px;font-weight:600;margin-bottom:4px">Exports</p>
+    <label class="check" title="Replace em dashes (—) with commas everywhere text is exported (slides, handout, PowerPoint). Number ranges like 1979–1980 are left alone."><input type="checkbox" id="set-dedash-export"> Replace em dashes (—) with commas in exports</label>
+    <hr style="border:none;border-top:1px solid var(--line);margin:20px 0">
     <p style="font-size:13.5px;font-weight:600;margin-bottom:4px">Google Drive sync</p>
     <label class="field">OAuth Client ID <span class="muted">(create a <em>Web Application</em> OAuth 2.0 credential in <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud Console</a>, enable the Drive API, and add this page's origin as an Authorized JavaScript Origin)</span>
       <input id="set-drive-client-id" type="text" autocomplete="off" placeholder="123456789-xxxx.apps.googleusercontent.com">
