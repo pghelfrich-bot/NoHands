@@ -5527,11 +5527,12 @@ async function batchAccessibleExport(ids){
     let base = safeName(title); let name = base, n = 2;
     while (used.has(name.toLowerCase())) name = base + '-' + (n++);
     used.add(name.toLowerCase());
-    const folder = zip.folder(name);
+    // flat (no per-deck sub-folders) so files drop straight into a Canvas module;
+    // each filename is already prefixed with the unique deck name
     const ex = forExport(deck);
-    folder.file(name + '.html', standaloneHTML(ex));
-    folder.file(name + ' - accessible handout.html', buildHandoutHTML(ex));
-    folder.file(name + ' - clean slides (no labels).html', standaloneHTML(cleanDeck(ex)));
+    zip.file(name + '.html', standaloneHTML(ex));
+    zip.file(name + ' - accessible handout.html', buildHandoutHTML(ex));
+    zip.file(name + ' - clean slides (no labels).html', standaloneHTML(cleanDeck(ex)));
     ok++;
   }
   if (!ok){ toast('Nothing to export'); return; }
