@@ -646,6 +646,13 @@ function downloadText(filename, text, mime = 'text/html'){
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 function safeName(s){ return (s || 'deck').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'deck'; }
+function downloadBlob(filename, blob){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+}
 
 /* ================= state & storage ================= */
 
@@ -5226,18 +5233,13 @@ async function ensureEmbedded(deck){
   if (jobs.length) await Promise.allSettled(jobs);
 }
 
-async function exportHTML(){
-  if (!guardDeck()) return;
-  toast('Building standalone HTML…');
-  await ensureEmbedded(state.deck);
-  const deck = state.deck;
-  // pre-typeset any $...$ / $$...$$ math so the export captures static KaTeX
-  // markup; the exported page just needs KaTeX's CSS (+ webfonts) to display it
-  const hasMath = deckHasMath(deck);
-  if (hasMath) await ensureKatex().catch(() => {});
-  const katexLink = hasMath
+/* the self-contained, navigable slide-deck HTML (reused by the single-deck
+   export and the batch accessible export). Assumes images are already embedded
+   and any math has been typeset. */
+function standaloneHTML(deck){
+  const katexLink = deckHasMath(deck)
     ? '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">\n' : '';
-  const doc = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <title>${escHTML(deck.title)}</title>
 ${katexLink}<style>
@@ -5265,7 +5267,17 @@ addEventListener('keydown',function(e){
 addEventListener('click',function(){show(i+1)});
 fit();show(0);
 <\/script></body></html>`;
-  downloadText(safeName(deck.title) + '.html', doc);
+}
+
+async function exportHTML(){
+  if (!guardDeck()) return;
+  toast('Building standalone HTML…');
+  await ensureEmbedded(state.deck);
+  const deck = state.deck;
+  // pre-typeset any $...$ / $$...$$ math so the export captures static KaTeX
+  // markup; the exported page just needs KaTeX's CSS (+ webfonts) to display it
+  if (deckHasMath(deck)) await ensureKatex().catch(() => {});
+  downloadText(safeName(deck.title) + '.html', standaloneHTML(deck));
   toast('HTML deck downloaded');
 }
 
@@ -5340,46 +5352,94 @@ ${sections.join('\n')}
 </body></html>`;
 }
 
+/* Give every image on `deck` that needs one a real description by looking at
+   it (vision, Haiku): junk/empty alts, images changed since last described, and
+   — with describeAll — every non-hand-written image. Mutates the deck in place
+   and returns { filled, viaAI }. `onProgress(done, total)` is called per image. */
+async function fillDeckAlts(deck, { describeAll = false, onProgress } = {}){
+  const needy = [];
+  deck.slides.forEach(s => s.images.forEach(im => { if (altNeedsWork(s, im, describeAll)) needy.push({ s, im }); }));
+  const hasKey = !!settings.anthropicKey;
+  let filled = 0, viaAI = 0;
+  for (let i = 0; i < needy.length; i++){
+    const { s, im } = needy[i];
+    if (onProgress) onProgress(i + 1, needy.length);
+    const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
+    let desc = '';
+    if (hasKey && data.startsWith('data:')){
+      try {
+        const ctx = [s.figure && ('Figure: ' + s.figure), s.headline && ('Slide: ' + s.headline)].filter(Boolean).join(' · ');
+        desc = await anthropicVisionAlt(data, ctx);
+        if (desc){ im.descAI = true; im.altFor = imgFingerprint(im); viaAI++; }
+      } catch (e){ desc = ''; }
+    }
+    if (!desc)   // no key or the call failed: generic-but-safe fallback
+      desc = (s.images.length === 1 && s.figure && s.figure.trim()) ? s.figure.trim() : (s.headline || '').trim();
+    if (desc){ im.desc = desc; filled++; }
+  }
+  return { filled, viaAI, needed: needy.length };
+}
+
 async function exportHandout(opts = {}){
   if (!guardDeck()) return;
   toast('Preparing accessible export…');
   await ensureEmbedded(state.deck);
   const deck = state.deck;
 
-  // 1) give every image that needs one a real description by looking at it
-  //    (vision, Haiku) — junk/empty alts, images changed since they were last
-  //    described, and (with describeAll) every non-hand-written image
-  const needy = [];
-  deck.slides.forEach(s => s.images.forEach(im => { if (altNeedsWork(s, im, opts.describeAll)) needy.push({ s, im }); }));
-  if (needy.length){
-    checkpoint();
-    const hasKey = !!settings.anthropicKey;
-    let filled = 0, viaAI = 0;
-    for (let i = 0; i < needy.length; i++){
-      const { s, im } = needy[i];
-      toast(`Describing images for accessibility… ${i + 1}/${needy.length}`, 60000);
-      const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
-      let desc = '';
-      if (hasKey && data.startsWith('data:')){
-        try {
-          const ctx = [s.figure && ('Figure: ' + s.figure), s.headline && ('Slide: ' + s.headline)].filter(Boolean).join(' · ');
-          desc = await anthropicVisionAlt(data, ctx);
-          if (desc){ im.descAI = true; im.altFor = imgFingerprint(im); viaAI++; }
-        } catch (e){ desc = ''; }
-      }
-      if (!desc)   // no key or the call failed: generic-but-safe fallback
-        desc = (s.images.length === 1 && s.figure && s.figure.trim()) ? s.figure.trim() : (s.headline || '').trim();
-      if (desc){ im.desc = desc; filled++; }
-    }
-    if (filled){ save(); refreshRailThumb(state.cur); }
-    toast(filled
-      ? `Filled ${filled} image description${filled === 1 ? '' : 's'}${viaAI ? ` (${viaAI} by looking at the image)` : ''} · building handout…`
-      : 'Building handout…', 6000);
+  const before = deck.slides.some(s => s.images.some(im => altNeedsWork(s, im, opts.describeAll)));
+  if (before) checkpoint();
+  const { filled, viaAI } = await fillDeckAlts(deck, { describeAll: opts.describeAll,
+    onProgress: (n, total) => toast(`Describing images for accessibility… ${n}/${total}`, 60000) });
+  if (filled){
+    save(); refreshRailThumb(state.cur);
+    toast(`Filled ${filled} image description${filled === 1 ? '' : 's'}${viaAI ? ` (${viaAI} by looking at the image)` : ''} · building handout…`, 6000);
   }
 
-  // 2) hand over the accessible handout
   downloadText(safeName(deck.title) + '-handout.html', buildHandoutHTML(deck));
   toast('Accessible handout downloaded — upload the .html to Canvas, or open it and Save as PDF', 9000);
+}
+
+/* Batch: for each selected deck, re-describe every image (vision), then bundle
+   the slide deck AND its accessible handout into one ZIP with consistent names.
+   Descriptions are persisted back to each deck so the work isn't lost. */
+async function batchAccessibleExport(ids){
+  if (!ids || !ids.length) return;
+  try { await loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'); }
+  catch (e){ toast('Could not load the ZIP library — check your network'); return; }
+  const zip = new window.JSZip();
+  const used = new Set();
+  let done = 0, ok = 0, totalImgs = 0;
+  for (const id of ids){
+    done++;
+    let deck;
+    try { deck = await loadDeck(id); } catch (e){ deck = null; }
+    if (!deck || !deck.slides || !deck.slides.length) continue;
+    const title = deck.title || 'Untitled';
+    toast(`Deck ${done}/${ids.length}: “${title}” — embedding images…`, 60000);
+    await ensureEmbedded(deck);
+    if (deckHasMath(deck)) await ensureKatex().catch(() => {});
+    // re-describe every image by looking at it
+    const { filled, viaAI } = await fillDeckAlts(deck, { describeAll: true,
+      onProgress: (n, total) => toast(`Deck ${done}/${ids.length}: “${title}” — describing images ${n}/${total}…`, 60000) });
+    totalImgs += viaAI;
+    // persist the new descriptions back to the stored deck
+    if (filled){ try { await IDB.set(LS.deck(deck.id), JSON.stringify(deck)); } catch (e){} }
+    // consistent, unique, title-based names inside a per-deck folder
+    let base = safeName(title); let name = base, n = 2;
+    while (used.has(name.toLowerCase())) name = base + '-' + (n++);
+    used.add(name.toLowerCase());
+    const folder = zip.folder(name);
+    folder.file(name + '.html', standaloneHTML(deck));
+    folder.file(name + ' - accessible handout.html', buildHandoutHTML(deck));
+    ok++;
+  }
+  if (!ok){ toast('Nothing to export'); return; }
+  toast('Zipping…', 30000);
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  downloadBlob('LectureFlow-accessible-export.zip', blob);
+  toast(`Exported ${ok} deck${ok === 1 ? '' : 's'} (slides + handout each${totalImgs ? `, ${totalImgs} images described` : ''}) — unzip and upload to Canvas`, 10000);
+  // reflect any updated home-screen metadata (unchanged here, but harmless)
+  renderHome();
 }
 
 async function exportPDF(){
@@ -6153,6 +6213,8 @@ function updateBulkBar(){
   const n = homeSelected.size;
   btn.hidden = n === 0;
   btn.textContent = `🗑 Delete selected (${n})`;
+  const acc = $('#btn-bulk-access');
+  if (acc){ acc.hidden = n === 0; acc.textContent = `♿ Accessible export (${n})`; }
 }
 
 function renderHome(){
@@ -6741,6 +6803,16 @@ function wireUI(){
     homeSelected.clear();
     renderHome();
     toast(`Deleted ${ids.length} deck${ids.length === 1 ? '' : 's'}`);
+  });
+  $('#btn-bulk-access').addEventListener('click', async () => {
+    const ids = [...homeSelected];
+    if (!ids.length) return;
+    if (!settings.anthropicKey && !confirm('No Anthropic API key is set, so images will get a generic fallback description instead of an accurate one. Continue anyway?')) return;
+    if (!confirm(`Re-describe every image in ${ids.length} deck${ids.length === 1 ? '' : 's'} and download the slides + accessible handout for each (one ZIP)?\n\nThis looks at each image with AI and can take a couple of minutes.`)) return;
+    const btn = $('#btn-bulk-access'); btn.disabled = true;
+    try { await batchAccessibleExport(ids); }
+    catch (e){ toast('Batch export failed — ' + (e.message || 'try again')); }
+    finally { btn.disabled = false; }
   });
   $('#btn-import-deck').addEventListener('click', () => $('#file-import').click());
   $('#file-import').addEventListener('change', e => {
