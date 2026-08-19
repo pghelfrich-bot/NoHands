@@ -852,6 +852,26 @@ function deEmDash(s){
     .trim();
 }
 
+/* a deep copy of the deck with every piece of visible text run through deEmDash
+   — used at export time so nobody has to see an em dash in the output */
+function deEmDashDeck(deck){
+  const d = JSON.parse(JSON.stringify(deck));
+  const fix = s => (typeof s === 'string' ? deEmDash(s) : s);
+  d.title = fix(d.title); d.designNotes = fix(d.designNotes);
+  (d.overlays || []).forEach(o => { o.text = fix(o.text); });
+  for (const s of (d.slides || [])){
+    s.headline = fix(s.headline); s.callout = fix(s.callout);
+    s.figure = fix(s.figure); s.notes = fix(s.notes);
+    (s.annotations || []).forEach(a => { a.text = fix(a.text); a.full = fix(a.full); a.orig = fix(a.orig); });
+    (s.texts || []).forEach(t => { t.text = fix(t.text); });
+    (s.images || []).forEach(im => { if (im.desc) im.desc = fix(im.desc); });
+    if (Array.isArray(s.table)) s.table = s.table.map(row => row.map(fix));
+  }
+  return d;
+}
+/* the deck as it should be exported — em-dash-screened unless turned off */
+function forExport(deck){ return settings.dedashExport !== false ? deEmDashDeck(deck) : deck; }
+
 function parseOutline(text){
   const dedash = settings.dedashOutline !== false;   // on by default
   const fix = dedash ? deEmDash : (x => x);
@@ -5277,7 +5297,7 @@ async function exportHTML(){
   // pre-typeset any $...$ / $$...$$ math so the export captures static KaTeX
   // markup; the exported page just needs KaTeX's CSS (+ webfonts) to display it
   if (deckHasMath(deck)) await ensureKatex().catch(() => {});
-  downloadText(safeName(deck.title) + '.html', standaloneHTML(deck));
+  downloadText(safeName(deck.title) + '.html', standaloneHTML(forExport(deck)));
   toast('HTML deck downloaded');
 }
 
@@ -5395,7 +5415,7 @@ async function exportHandout(opts = {}){
     toast(`Filled ${filled} image description${filled === 1 ? '' : 's'}${viaAI ? ` (${viaAI} by looking at the image)` : ''} · building handout…`, 6000);
   }
 
-  downloadText(safeName(deck.title) + '-handout.html', buildHandoutHTML(deck));
+  downloadText(safeName(deck.title) + '-handout.html', buildHandoutHTML(forExport(deck)));
   toast('Accessible handout downloaded — upload the .html to Canvas, or open it and Save as PDF', 9000);
 }
 
@@ -5429,8 +5449,9 @@ async function batchAccessibleExport(ids){
     while (used.has(name.toLowerCase())) name = base + '-' + (n++);
     used.add(name.toLowerCase());
     const folder = zip.folder(name);
-    folder.file(name + '.html', standaloneHTML(deck));
-    folder.file(name + ' - accessible handout.html', buildHandoutHTML(deck));
+    const ex = forExport(deck);
+    folder.file(name + '.html', standaloneHTML(ex));
+    folder.file(name + ' - accessible handout.html', buildHandoutHTML(ex));
     ok++;
   }
   if (!ok){ toast('Nothing to export'); return; }
@@ -5458,7 +5479,7 @@ ${katexLink}<style>${SLIDE_CSS}
 @page{size:1280px 720px;margin:0}
 html,body{margin:0;padding:0}
 .slide{page-break-after:always;break-after:page}
-</style></head><body>${slidesHTML(deck)}</body></html>`);
+</style></head><body>${slidesHTML(forExport(deck))}</body></html>`);
   w.document.close();
   setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
   toast('Use the print dialog → “Save as PDF”');
@@ -5471,7 +5492,7 @@ async function exportPPTX(){
   catch (e) { toast('Could not load the PPTX library — check your network'); return; }
   await ensureEmbedded(state.deck);
 
-  const deck = state.deck, pal = palette(deck);
+  const deck = forExport(state.deck), pal = palette(deck);
   const TS = deck.textScale || 1;
   const p = new window.PptxGenJS();
   p.defineLayout({ name: 'LF', width: 13.333, height: 7.5 });
@@ -6874,6 +6895,7 @@ function wireUI(){
     $('#set-bing').value = settings.bingKey || '';
     $('#set-brave').value = settings.braveKey || '';
     $('#set-drive-client-id').value = settings.driveClientId || '';
+    $('#set-dedash-export').checked = settings.dedashExport !== false;
     $('#settings-modal').showModal();
   });
   $('#set-save').addEventListener('click', () => {
@@ -6890,6 +6912,7 @@ function wireUI(){
     settings.braveKey = $('#set-brave').value.trim();
     const prevDriveId = settings.driveClientId;
     settings.driveClientId = $('#set-drive-client-id').value.trim();
+    settings.dedashExport = $('#set-dedash-export').checked;
     if (settings.driveClientId !== prevDriveId){ _driveToken = null; _driveTokenClient = null; _driveFolderId = null; }
     localStorage.setItem(LS.settings, JSON.stringify(settings));
     $('#settings-modal').close();
