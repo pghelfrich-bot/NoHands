@@ -5479,15 +5479,17 @@ async function fillDeckAlts(deck, { describeAll = false, onProgress } = {}){
   return { filled, viaAI, needed: needy.length };
 }
 
-async function exportHandout(opts = {}){
+async function exportHandout(){
   if (!guardDeck()) return;
   toast('Preparing accessible export…');
   await ensureEmbedded(state.deck);
   const deck = state.deck;
 
-  const before = deck.slides.some(s => s.images.some(im => altNeedsWork(s, im, opts.describeAll)));
+  // always re-describe every image fresh (Haiku is cheap) so stale provider
+  // titles never linger; only hand-written descriptions are preserved
+  const before = deck.slides.some(s => s.images.some(im => altNeedsWork(s, im, true)));
   if (before) checkpoint();
-  const { filled, viaAI } = await fillDeckAlts(deck, { describeAll: opts.describeAll,
+  const { filled, viaAI } = await fillDeckAlts(deck, { describeAll: true,
     onProgress: (n, total) => toast(`Describing images for accessibility… ${n}/${total}`, 60000) });
   if (filled){
     save(); refreshRailThumb(state.cur);
@@ -6961,7 +6963,6 @@ function wireUI(){
   $('#export-pdf').addEventListener('click', () => { dd.classList.remove('open'); exportPDF(); });
   $('#export-html').addEventListener('click', () => { dd.classList.remove('open'); exportHTML(); });
   $('#export-handout').addEventListener('click', () => { dd.classList.remove('open'); exportHandout(); });
-  $('#export-describe-all').addEventListener('click', () => { dd.classList.remove('open'); exportHandout({ describeAll: true }); });
   $('#export-outline').addEventListener('click', () => {
     dd.classList.remove('open');
     if (!guardDeck()) return;
