@@ -1254,7 +1254,7 @@ async function proseToOutlineAI(text, { key, model } = {}){
 /* ---------- reading PDF → outline ----------
    Pull the text out of a reading PDF (reusing the pdf.js already loaded for
    figure extraction) and convert it to a LectureFlow outline in one step. */
-async function pdfToText(file){
+async function pdfPagesText(file){
   await ensurePdfJs();
   const buf = await file.arrayBuffer();
   const doc = await window.pdfjsLib.getDocument({ data: buf }).promise;
@@ -1264,7 +1264,10 @@ async function pdfToText(file){
     const tc = await page.getTextContent();
     pages.push(tc.items.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim());
   }
-  return pages.filter(Boolean).join('\n\n');
+  return pages;
+}
+async function pdfToText(file){
+  return (await pdfPagesText(file)).filter(Boolean).join('\n\n');
 }
 
 /* Conversion rules distilled from docs/notebooklm-outline-conversion-plan.md,
@@ -1334,6 +1337,60 @@ async function pdfToOutline(file){
     toast(`Drafted ${n || 'an'} slide${n === 1 ? '' : 's'} from ${file.name} — review it, then Build deck →`, 8000);
   } catch (e){
     toast('Could not convert that PDF — ' + (e.message || 'try again'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ---------- import an existing slide deck (PDF) → restyled outline ----------
+   Converts someone else's lecture deck (with a real text layer) into a
+   LectureFlow outline in this teacher's image-first style, preserving the
+   content and order but splitting any overloaded slide across several. */
+const IMPORT_DECK_SYS = OUTLINE_FORMAT_SPEC + `
+
+You are converting an EXISTING lecture slide deck into an outline for THIS teacher's course, in their image-first LectureFlow style. You receive the deck's extracted text, one block per source slide, delimited by "=== SLIDE n ===".
+
+Rules:
+- Preserve the deck's content, wording, facts and order. Do not invent material or add topics that aren't there.
+- Each source slide becomes ONE OR MORE LectureFlow slides. This is the most important rule: if a source slide carries more than about 4 distinct ideas/points (a dense bulleted slide), SPLIT it into multiple content slides grouped by sub-idea, each with its own specific HEADLINE and 2-4 short POINTS. A slide that is already focused stays as one.
+- Turn full sentences into short POINTS (roughly 8-14 words); push extra detail into NOTES.
+- Give the deck a clear spine: open with TYPE: title, add TYPE: roadmap when there are 3+ major parts, a TYPE: section divider before each major part, and close with TYPE: takeaway. Infer these from the source's own structure (its title slide, section headers, summary slide).
+- Every content slide gets a FIGURE: a vivid, specific, search-friendly description of the image it should show — name the exact species/subject when the slide names one. This seeds the image search.
+- Use LAYOUT only for clear cases: comparison for contrasts, table for labeled rows, timeline for sequences/chronology, statement for a single prompt/claim, quote for a quotation.
+- Move speaker-facing detail, citations and any answer keys into NOTES (never shown to the audience). Never begin a NOTES line with a number followed by "." ")" or ":".
+- Drop slide furniture that doesn't belong (page numbers, the other deck's footer/branding, "Any questions?" slides).
+
+Output ONLY the outline. No commentary, no code fences.`;
+
+async function importPresentationPdf(file){
+  const btn = $('#btn-outline-import');
+  if (!settings.anthropicKey){ toast('Add your Anthropic API key in Settings (⚙) to import a presentation'); return; }
+  if (btn) btn.disabled = true;
+  try {
+    toast('Reading the presentation…', 30000);
+    const pages = (await pdfPagesText(file)).map(t => t.trim());
+    const nonEmpty = pages.filter(Boolean).length;
+    if (nonEmpty < 1 || pages.join('').length < 40){
+      toast('No selectable text found — this PDF looks like scanned images, which can\'t be imported yet');
+      return;
+    }
+    let src = pages.map((t, i) => `=== SLIDE ${i + 1} ===\n${t || '(no text on this slide)'}`).join('\n\n');
+    if (src.length > 120000) src = src.slice(0, 120000);
+    toast(`Restyling ${nonEmpty} slides into your outline — this can take a minute…`, 120000);
+    let sys = IMPORT_DECK_SYS;
+    const taste = loadTaste();
+    if (taste && taste.profile) sys += "\n\nMatch this teacher's established style:\n" + taste.profile;
+    const raw = await anthropicMessage({ system: sys, user:
+      `Convert this ${nonEmpty}-slide presentation into a LectureFlow outline in the teacher's style, splitting any overloaded slide.\n\n--- SOURCE (${file.name}) ---\n` + src,
+      maxTokens: 8000 });
+    const outline = raw.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
+    if (!outline){ toast('The import came back empty — try again'); return; }
+    $('#outline-text').value = outline;
+    const n = (outline.match(/^\s*\d+\.\s*TYPE:/gim) || []).length;
+    const grew = n > nonEmpty ? ` (${nonEmpty} source slides → ${n}, dense ones split)` : '';
+    toast(`Imported ${n || 'the'} slides from ${file.name}${grew} — review, then Build deck →`, 9000);
+  } catch (e){
+    toast('Could not import that presentation — ' + (e.message || 'try again'));
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -6707,6 +6764,12 @@ function wireUI(){
     const f = e.target.files[0];
     e.target.value = '';
     if (f) await pdfToOutline(f);
+  });
+  $('#btn-outline-import').addEventListener('click', () => $('#file-import-pdf').click());
+  $('#file-import-pdf').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) await importPresentationPdf(f);
   });
   $('#btn-outline-file').addEventListener('click', () => $('#file-outline').click());
   $('#file-outline').addEventListener('change', async e => {
