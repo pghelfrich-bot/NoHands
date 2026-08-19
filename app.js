@@ -872,6 +872,28 @@ function deEmDashDeck(deck){
 /* the deck as it should be exported — em-dash-screened unless turned off */
 function forExport(deck){ return settings.dedashExport !== false ? deEmDashDeck(deck) : deck; }
 
+/* a "clean" copy for a minimal, label-free version of the slides: on figure
+   slides the chip/label annotations are hidden, leaving just the headline, the
+   images, and the one key takeaway at the bottom. A deep clone — the original
+   deck is never changed. */
+function cleanDeck(deck){
+  const d = JSON.parse(JSON.stringify(deck));
+  for (const s of d.slides){
+    if (s.type !== 'content') continue;
+    const style = contentLayout(s).annStyle;
+    if (!['label', 'card', 'list'].includes(style)) continue;   // only figure-label styles; leave panels/tables/timelines
+    const anns = s.annotations || [];
+    if (!anns.length) continue;
+    // keep a takeaway line at the bottom: use the callout, else promote the last label
+    if (!(s.callout && s.callout.trim()) && style === 'label'){
+      const last = anns[anns.length - 1];
+      s.callout = (last.full || last.text || '').trim();
+    }
+    s.annotations = [];
+  }
+  return d;
+}
+
 function parseOutline(text){
   const dedash = settings.dedashOutline !== false;   // on by default
   const fix = dedash ? deEmDash : (x => x);
@@ -5509,13 +5531,14 @@ async function batchAccessibleExport(ids){
     const ex = forExport(deck);
     folder.file(name + '.html', standaloneHTML(ex));
     folder.file(name + ' - accessible handout.html', buildHandoutHTML(ex));
+    folder.file(name + ' - clean slides (no labels).html', standaloneHTML(cleanDeck(ex)));
     ok++;
   }
   if (!ok){ toast('Nothing to export'); return; }
   toast('Zipping…', 30000);
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
   downloadBlob('LectureFlow-accessible-export.zip', blob);
-  toast(`Exported ${ok} deck${ok === 1 ? '' : 's'} (slides + handout each${totalImgs ? `, ${totalImgs} images described` : ''}) — unzip and upload to Canvas`, 10000);
+  toast(`Exported ${ok} deck${ok === 1 ? '' : 's'} — slides, clean slides & accessible handout each${totalImgs ? `, ${totalImgs} images described` : ''} — unzip and upload to Canvas`, 10000);
   // reflect any updated home-screen metadata (unchanged here, but harmless)
   renderHome();
 }
