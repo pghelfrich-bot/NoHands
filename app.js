@@ -1603,8 +1603,8 @@ function pptxSlideNotes(s){
 }
 
 async function importPptx(file){
-  const btn = $('#btn-outline-pptx');
-  if (btn) btn.disabled = true;
+  const btns = [$('#btn-outline-pptx'), $('#btn-home-pptx')].filter(Boolean);
+  btns.forEach(b => b.disabled = true);
   try {
     toast('Reading the PowerPoint…', 30000);
     let extracted;
@@ -1673,7 +1673,7 @@ async function importPptx(file){
   } catch (e){
     toast('Could not import that PowerPoint — ' + (e.message || 'try again'));
   } finally {
-    if (btn) btn.disabled = false;
+    btns.forEach(b => b.disabled = false);
   }
 }
 
@@ -7153,6 +7153,7 @@ function wireUI(){
 
   // home screen
   $('#btn-new-deck').addEventListener('click', () => showScreen('outline'));
+  $('#btn-home-pptx').addEventListener('click', () => $('#file-outline-pptx').click());
   const sortSel = $('#home-sort');
   if (sortSel){
     sortSel.value = homeSort;
