@@ -1418,6 +1418,265 @@ async function importPresentationPdf(file){
   }
 }
 
+/* ---------- import a PowerPoint (.pptx) → a built deck, images preserved ----------
+   Unlike the PDF importer (which extracts text only and drafts an editable
+   outline), this reads the .pptx ZIP directly, carries every image across, keeps
+   the full source text in speaker notes, condenses each slide's text into short
+   house-style labels, and detects a one-line takeaway per slide. The result is a
+   finished LectureFlow deck in the image-dominant "annotated" style, not an
+   outline — so nothing (content or images) is lost in a round-trip through text. */
+
+const OOXML_R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+function ooxmlRelAttr(el, name){
+  return el.getAttributeNS(OOXML_R_NS, name) || el.getAttribute('r:' + name) || '';
+}
+async function ensureJSZip(){
+  if (!window.JSZip) await loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+  return window.JSZip;
+}
+// resolve a rels Target (e.g. "../media/image1.png") against a slide path into a zip key
+function resolveZipTarget(target, fromDir){
+  if (!target) return '';
+  if (target.startsWith('/')) return target.replace(/^\/+/, '');
+  const parts = (fromDir + '/' + target).split('/');
+  const out = [];
+  for (const p of parts){
+    if (p === '' || p === '.') continue;
+    if (p === '..') out.pop(); else out.push(p);
+  }
+  return out.join('/');
+}
+
+/* Pull the slide order, per-slide text (title vs. body) and images out of a
+   .pptx. Returns { title, slides:[{ headline, paras:[str], images:[dataURL] }] }.
+   Images are decoded to data URLs but NOT yet shrunk (that happens at build). */
+async function pptxExtract(file){
+  const JSZip = await ensureJSZip();
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const parser = new DOMParser();
+  const parse = async name => {
+    const f = zip.file(name); if (!f) return null;
+    return parser.parseFromString(await f.async('string'), 'application/xml');
+  };
+
+  // 1) slide order: presentation.xml <p:sldId r:id> → presentation rels Target
+  let order = [];
+  const presRels = await parse('ppt/_rels/presentation.xml.rels');
+  const pres = await parse('ppt/presentation.xml');
+  if (pres && presRels){
+    const relMap = {};
+    for (const rel of presRels.getElementsByTagName('Relationship'))
+      relMap[rel.getAttribute('Id')] = rel.getAttribute('Target');
+    for (const s of pres.getElementsByTagName('p:sldId')){
+      const tgt = relMap[ooxmlRelAttr(s, 'id')];
+      if (tgt) order.push(resolveZipTarget(tgt, 'ppt'));
+    }
+  }
+  // fallback: every slide file, numeric-sorted
+  if (!order.length){
+    order = Object.keys(zip.files)
+      .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+      .sort((a, b) => (+a.match(/(\d+)/)[1]) - (+b.match(/(\d+)/)[1]));
+  }
+
+  const slides = [];
+  for (const path of order){
+    const xml = await parse(path); if (!xml) continue;
+    const dir = path.replace(/\/[^/]+$/, '');
+
+    // text, grouped by shape; the title placeholder becomes the headline
+    let headline = '';
+    const paras = [];
+    for (const sp of xml.getElementsByTagName('p:sp')){
+      const ph = sp.getElementsByTagName('p:ph')[0];
+      const isTitle = ph && /title/i.test(ph.getAttribute('type') || '');
+      const shapeParas = [];
+      for (const p of sp.getElementsByTagName('a:p')){
+        const txt = Array.from(p.getElementsByTagName('a:t')).map(t => t.textContent).join('').trim();
+        if (txt) shapeParas.push(txt);
+      }
+      if (!shapeParas.length) continue;
+      if (isTitle && !headline) headline = shapeParas.join(' ');
+      else paras.push(...shapeParas);
+    }
+    // table text (a:tbl lives in p:graphicFrame, not p:sp) so nothing is dropped
+    for (const tbl of xml.getElementsByTagName('a:tbl')){
+      for (const row of tbl.getElementsByTagName('a:tr')){
+        const cells = Array.from(row.getElementsByTagName('a:tc')).map(tc =>
+          Array.from(tc.getElementsByTagName('a:t')).map(t => t.textContent).join('').trim()).filter(Boolean);
+        if (cells.length) paras.push(cells.join(' — '));
+      }
+    }
+    if (!headline && paras.length) headline = paras.shift();
+
+    // images: a:blip r:embed → slide rels Target → ppt/media/*
+    const rels = await parse(dir.replace(/slides$/, 'slides/_rels') + path.replace(/^.*\//, '/') + '.rels');
+    const relMap = {};
+    let notesTarget = '';
+    if (rels) for (const rel of rels.getElementsByTagName('Relationship')){
+      relMap[rel.getAttribute('Id')] = rel.getAttribute('Target');
+      if (/\/notesSlide$/.test(rel.getAttribute('Type') || '')) notesTarget = rel.getAttribute('Target');
+    }
+
+    // source speaker notes (preserved verbatim), minus the slide-number placeholder
+    let notes = '';
+    if (notesTarget){
+      const nx = await parse(resolveZipTarget(notesTarget, dir));
+      if (nx){
+        const chunks = [];
+        for (const sp of nx.getElementsByTagName('p:sp')){
+          const ph = sp.getElementsByTagName('p:ph')[0];
+          if (ph && /sldNum|dt/i.test(ph.getAttribute('type') || '')) continue;   // skip number/date furniture
+          const t = Array.from(sp.getElementsByTagName('a:t')).map(x => x.textContent).join('').trim();
+          if (t) chunks.push(t);
+        }
+        notes = chunks.join('\n').trim();
+      }
+    }
+    const images = [];
+    const seen = new Set();
+    for (const blip of xml.getElementsByTagName('a:blip')){
+      const rid = ooxmlRelAttr(blip, 'embed') || ooxmlRelAttr(blip, 'link');
+      if (!rid || seen.has(rid)) continue;
+      seen.add(rid);
+      const key = resolveZipTarget(relMap[rid], dir);
+      const mediaFile = key && zip.file(key);
+      if (!mediaFile) continue;
+      const ext = (key.match(/\.(\w+)$/) || [, 'png'])[1].toLowerCase();
+      if (['emf', 'wmf', 'svg', 'svgz'].includes(ext)) continue;   // vector formats <img> can't show
+      const b64 = await mediaFile.async('base64');
+      images.push('data:image/' + (ext === 'jpg' ? 'jpeg' : ext) + ';base64,' + b64);
+    }
+    slides.push({ headline, paras, images, notes });
+  }
+  return { title: file.name.replace(/\.pptx$/i, '').replace(/[_-]+/g, ' ').trim(), slides };
+}
+
+/* Ask Claude, in one batched call, for a takeaway + short labels per slide.
+   Content-preserving: labels/takeaways are drawn only from the slide's own text,
+   no new facts. Returns a map i → { takeaway, points:[str] }. Best-effort — on
+   any failure the caller falls back to a purely local condense. */
+const PPTX_TAKEAWAY_SYS =
+`You are helping a teacher restyle an inherited slide deck into an image-first format. For EACH source slide you are given its heading and its body text (bullets/paragraphs).
+
+For each slide return:
+- "takeaway": ONE short sentence (max ~14 words) stating the slide's single key point. Draw it ONLY from that slide's own content — never invent a fact, number, name or claim. If the slide is a pure title/section divider or has no substantive point, use "".
+- "points": 3-5 SHORT labels (each ~4-12 words) that condense the body text into museum-label phrases. Preserve exact species, names, numbers and terms. Keep the source's meaning and order. Do NOT add points that aren't supported by the text. If the slide has little text, return fewer (or []).
+
+Rules:
+- Preserve wording where you can; you are shortening, not rewriting.
+- No em dashes; use commas.
+- Never restate the takeaway as one of the points.
+
+Respond with ONLY a JSON array, one object per slide in order:
+[{"i":0,"takeaway":"...","points":["...","..."]}, ...]
+No prose, no code fences.`;
+
+async function pptxDetectTakeaways(slides){
+  if (!settings.anthropicKey) return null;
+  const payload = slides.map((s, i) => ({
+    i,
+    heading: s.headline || '',
+    body: s.paras.join('\n').slice(0, 1600)   // cap each slide so a giant deck stays in budget
+  }));
+  try {
+    const raw = await anthropicMessage({
+      system: PPTX_TAKEAWAY_SYS,
+      user: 'Slides:\n' + JSON.stringify(payload),
+      maxTokens: 7000
+    });
+    const json = raw.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
+    const arr = JSON.parse(json);
+    const map = {};
+    for (const o of arr) if (o && typeof o.i === 'number') map[o.i] = o;
+    return map;
+  } catch (e){ return null; }
+}
+
+/* Full speaker-notes text for an imported slide: the slide's own body text
+   (so the verbatim content survives even though the slide shows short labels),
+   followed by the source deck's original speaker notes when it had any. */
+function pptxSlideNotes(s){
+  const body = [s.headline, ...s.paras].filter(Boolean).join('\n');
+  if (s.notes) return (body ? body + '\n\n' : '') + '— Original speaker notes —\n' + s.notes;
+  return body;
+}
+
+async function importPptx(file){
+  const btn = $('#btn-outline-pptx');
+  if (btn) btn.disabled = true;
+  try {
+    toast('Reading the PowerPoint…', 30000);
+    let extracted;
+    try { extracted = await pptxExtract(file); }
+    catch (e){ toast('Could not read that .pptx — ' + (e.message || 'is it a valid PowerPoint file?')); return; }
+    const src = extracted.slides;
+    if (!src.length){ toast('No slides found in that file'); return; }
+    const imgCount = src.reduce((n, s) => n + s.images.length, 0);
+
+    // AI takeaway + label pass (optional; deck still imports without a key)
+    toast(`Detecting takeaways across ${src.length} slides…`, 90000);
+    const ai = await pptxDetectTakeaways(src);
+
+    // carry a source slide's images across: shrink for storage, place by the house layout
+    const attachImages = async (slide, dataUrls) => {
+      for (const dataUrl of dataUrls){
+        let srcUrl = dataUrl, dim;
+        try { srcUrl = await shrinkImage(dataUrl); } catch (e){}
+        try { dim = await loadImageDim(srcUrl); } catch (e){ continue; }   // skip an unreadable image
+        const im = { id: uid(), src: srcUrl, x: 0, y: 0, w: 0, h: 0, cutout: false, cutSrc: null, attr: {} };
+        im.altFor = imgFingerprint(im);
+        Object.assign(im, defaultImagePlacement(slide, dim.w, dim.h));
+        slide.images.push(im);
+      }
+    };
+
+    const deck = newDeck();
+    // If the source's own first slide reads like a title (a heading, at most one
+    // line of body), use it as the deck's title slide instead of a filename one.
+    const first = src[0];
+    const firstIsTitle = !!(first && first.headline && first.paras.length <= 1 && !first.images.length);
+    deck.title = (firstIsTitle ? first.headline : extracted.title) || 'Imported deck';
+    const titleSlide = blankSlide('title');
+    titleSlide.headline = deck.title;
+    if (firstIsTitle){
+      if (first.paras.length) titleSlide.callout = first.paras[0];
+      titleSlide.notes = pptxSlideNotes(first);
+    }
+    deck.slides.push(titleSlide);
+
+    toast(`Placing ${imgCount} image${imgCount === 1 ? '' : 's'}…`, 90000);
+    for (let i = firstIsTitle ? 1 : 0; i < src.length; i++){
+      const s = src[i];
+      const a = ai && ai[i];
+      const slide = blankSlide('content');
+      slide.headline = s.headline || (a && a.points && a.points.length ? '' : 'Slide ' + (i + 1));
+      // labels: AI-condensed when available, else a local condense of each paragraph
+      const points = (a && Array.isArray(a.points) && a.points.length)
+        ? a.points
+        : s.paras.slice(0, 6);
+      slide.annotations = points.slice(0, 6).map(pt => ({
+        id: uid(), text: shortenPoint(pt), full: pt, orig: pt, x: null, y: null
+      }));
+      // takeaway → the wide bottom banner (callout)
+      if (a && a.takeaway) slide.callout = a.takeaway;
+      // preserve the FULL original text verbatim in speaker notes — nothing lost
+      slide.notes = pptxSlideNotes(s);
+      await attachImages(slide, s.images);
+      // a figure hint for slides that arrived with no image, so Fill-figures works
+      if (!slide.images.length) slide.figure = s.headline || (points[0] || '');
+      deck.slides.push(slide);
+    }
+    openDeck(deck);
+    const note = ai ? '' : ' (add your Anthropic key in Settings for auto takeaways)';
+    toast(`Imported ${src.length} slides with ${imgCount} image${imgCount === 1 ? '' : 's'} — pick a theme up top to restyle${note}`, 10000);
+  } catch (e){
+    toast('Could not import that PowerPoint — ' + (e.message || 'try again'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* ================= lecture "taste" (Phase 1) =================
    Two signals capture the user's taste: (1) how they reshape a generated
    outline into the final deck structure, and (2) how they arrange labels.
@@ -6796,6 +7055,12 @@ function wireUI(){
     const f = e.target.files[0];
     e.target.value = '';
     if (f) await importPresentationPdf(f);
+  });
+  $('#btn-outline-pptx').addEventListener('click', () => $('#file-outline-pptx').click());
+  $('#file-outline-pptx').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) await importPptx(f);
   });
   $('#btn-outline-file').addEventListener('click', () => $('#file-outline').click());
   $('#file-outline').addEventListener('change', async e => {

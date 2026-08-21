@@ -65,6 +65,7 @@ Design: ocean blues, calm
         <button id="btn-outline-prose"  class="btn ghost" title="Paste prose or notes and draft a LectureFlow outline from it">✨ Draft from prose</button>
         <button id="btn-outline-pdf"    class="btn ghost" title="Pick a reading PDF and convert it straight into a LectureFlow outline (uses your Anthropic API key)">📄 From reading PDF</button>
         <button id="btn-outline-import" class="btn ghost" title="Import an existing slide deck (PDF with selectable text) and restyle it into your outline — dense slides are split automatically (uses your Anthropic API key)">📊 Import a presentation</button>
+        <button id="btn-outline-pptx"   class="btn ghost" title="Import a PowerPoint (.pptx) directly into a built deck — keeps every image, moves the full text into speaker notes, adds a takeaway to each slide, then pick a theme to restyle (takeaways use your Anthropic API key)">📥 PowerPoint (keeps images)</button>
         <span class="spacer"></span>
         <label class="check" title="Convert em dashes (—) in your outline into commas so labels read as flowing clauses"><input type="checkbox" id="outline-dedash" checked> — → ,</label>
         <button id="btn-outline-build"  class="btn primary">Build deck →</button>
@@ -566,6 +567,7 @@ Design: free-text notes
 <input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
 <input type="file" id="file-outline-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-import-pdf" accept=".pdf,application/pdf" hidden>
+<input type="file" id="file-outline-pptx" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
 <input type="file" id="file-import" accept=".json,application/json" hidden>
 <input type="file" id="file-outline-batch" accept=".txt,.md,.markdown,.text,text/*" multiple hidden>
 <div id="toast" hidden></div>
