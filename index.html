@@ -127,6 +127,7 @@ Design: free-text notes
       <button id="btn-import-deck" class="btn ghost">Import deck</button>
       <button id="btn-batch-outline" class="btn ghost" title="Build a separate deck from each outline .txt file you pick">Batch from outlines</button>
       <button id="btn-from-template" class="btn ghost" title="Start a new deck from a saved skeleton">From template</button>
+      <button id="btn-figlib" class="btn ghost" title="Add your course textbook (PDF) once — its figures and captions are saved so Auto-fill checks the textbook before the web">📚 Textbook figures</button>
       <button id="btn-home-pptx" class="btn ghost" title="Import a PowerPoint (.pptx) directly into a built deck — keeps every image, moves the full text into speaker notes, adds a takeaway to each slide, then pick a theme to restyle (takeaways use your Anthropic API key)">📥 Import PowerPoint</button>
       <button id="btn-new-deck" class="btn primary">＋ New deck</button>
     </div>
@@ -506,13 +507,29 @@ Design: free-text notes
   </form>
 </dialog>
 
+<!-- ===================== TEXTBOOK FIGURE LIBRARY ===================== -->
+<dialog id="figlib-modal" class="modal figlib-modal">
+  <h2>📚 Textbook figures</h2>
+  <p class="modal-sub">Add your course textbook (PDF) once. LectureFlow pulls out every figure with its printed caption and keeps them, so Auto-fill checks your textbook before searching the web. Figures stay in this browser only.</p>
+  <ul id="figlib-books"></ul>
+  <div id="figlib-status" class="status" hidden></div>
+  <div class="fill-actions">
+    <span>
+      <button id="figlib-add" class="btn primary" type="button">＋ Add a textbook PDF</button>
+      <button id="figlib-stop" class="btn ghost" type="button" hidden>Stop (keep what's found)</button>
+    </span>
+    <button id="figlib-close" class="btn ghost" type="button">Close</button>
+  </div>
+</dialog>
+
 <!-- ===================== FILL FIGURES ===================== -->
 <dialog id="fill-modal" class="modal fill-modal">
   <div class="fill-head">
     <h2>Fill figures</h2>
     <span id="fill-progress" class="muted"></span>
     <span class="spacer"></span>
-    <button id="fill-auto" class="btn ghost" title="Auto-insert the top result on every remaining slide">⚡ Rough draft (auto-fill all)</button>
+    <button id="fill-lib" class="btn ghost small" title="Manage the textbook figures Auto-fill searches first">📚 Add textbook</button>
+    <button id="fill-auto" class="btn primary" title="For every remaining slide: gather textbook figures + web results, have AI check which one actually fits, and place it — slides with no good match are left for you">⚡ Auto-fill all (AI-checked)</button>
     <button id="fill-close" class="btn ghost">Done</button>
   </div>
   <div id="fill-slidehead" class="fill-slidehead"></div>
@@ -568,6 +585,7 @@ Design: free-text notes
 <input type="file" id="file-outline" accept=".txt,.md,.markdown,.text,text/*" hidden>
 <input type="file" id="file-outline-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-import-pdf" accept=".pdf,application/pdf" hidden>
+<input type="file" id="file-figlib" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-outline-pptx" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
 <input type="file" id="file-import" accept=".json,application/json" hidden>
 <input type="file" id="file-outline-batch" accept=".txt,.md,.markdown,.text,text/*" multiple hidden>
