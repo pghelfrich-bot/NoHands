@@ -5096,6 +5096,7 @@ function openFillFigures(){
   if (!fillList.length){ toast('Every slide already has an image'); return; }
   fillPos = 0;
   $('#fill-modal').showModal();
+  loadFigLib().then(updateFigLibBadge);
   fillShow();
 }
 
@@ -5116,7 +5117,12 @@ async function fillSearch(alts = []){
   const token = ++fillToken;
   const q = $('#fill-query').value.trim();
   if (!q){ fillStatus('Type a search term, or Skip this slide.'); return; }
-  const { results, failed } = await fetchImages(q, { limit: 9, alts });
+  // textbook figures whose captions match come first, then the web
+  const cur = fillList[fillPos] && fillList[fillPos].s;
+  let lib = [];
+  try { lib = (await Promise.all((await figLibMatchText(q + ' ' + ((cur && cur.headline) || ''), 3)).map(figLibResult))).filter(Boolean); } catch (e){}
+  const web = await fetchImages(q, { limit: 9, alts });
+  const results = [...lib, ...web.results], failed = web.failed;
   if (token !== fillToken) return;
   if (!results.length){
     fillStatus('No results.' + (failed.length ? ` (${failed.join(', ')} failed)` : '') + ' Try refining the search, or Skip.');
@@ -5160,31 +5166,453 @@ function closeFill(){
   refreshAll();
 }
 
-/* one-click rough draft: top working hit on every remaining slide */
+/* one-click fill: for every remaining slide, gather textbook figures (matched by
+   caption) + web results, let a vision model pick the one that actually fits,
+   and place it. A slide with no good match is left blank for a human rather
+   than given a wrong picture. Without an API key it falls back to the old
+   behaviour (first image that loads). */
 let fillCancelled = false;
 async function fillAuto(){
-  $('#fill-auto').disabled = true;
+  const btn = $('#fill-auto');
+  btn.disabled = true;
   fillCancelled = false;
   checkpoint();
-  try {
-    for (; fillPos < fillList.length; fillPos++){
-      if (fillCancelled) return;
-      const { s, i } = fillList[fillPos];
-      $('#fill-progress').textContent = `Auto-filling ${fillPos + 1} of ${fillList.length}…`;
-      const seed = slideSeed(s);
-      const { results } = await fetchImages(seed.primary, { limit: 6, alts: seed.alternates });
-      if (fillCancelled) return;
-      for (const r of results){
-        const im = await placeResultOnSlide(s, r);
-        if (im){ refreshRailThumb(i); break; }
-      }
+  const todo = fillList.slice(fillPos);
+  const smart = !!settings.anthropicKey;
+  let done = 0, placed = 0, fromBook = 0;
+  const missed = [];
+  $('#fill-progress').textContent = `Auto-filling… 0 of ${todo.length}`;
+  const one = async ({ s, i }) => {
+    if (fillCancelled) return;
+    const seed = slideSeed(s);
+    let lib = [], web = [];
+    try { lib = (await Promise.all((await figLibMatches(s, 4)).map(figLibResult))).filter(Boolean); } catch (e){}
+    try { web = (await fetchImages(seed.primary, { limit: 8, alts: seed.alternates })).results.slice(0, smart ? 5 : 6); } catch (e){}
+    if (fillCancelled) return;
+    let order = [...lib, ...web];
+    if (smart && order.length){
+      try {
+        const v = await visionPick(s, order);
+        if (v) order = v.pick ? [v.pick] : [];   // AI found nothing that fits → leave it for a human
+      } catch (e){ /* vision call failed — fall back to the first image that loads */ }
     }
+    let im = null;
+    for (const r of order){ im = await placeResultOnSlide(s, r); if (im) break; }
+    if (fillCancelled) return;
+    done++;
+    $('#fill-progress').textContent = `Auto-filling… ${done} of ${todo.length}`;
+    if (im){
+      placed++;
+      if (im.attr && /^Textbook/.test(im.attr.sourceName || '')) fromBook++;
+      refreshRailThumb(i);
+    } else missed.push(i + 1);
+  };
+  try {
+    // three slides at a time, so searches and vision checks overlap
+    const queue = todo.slice();
+    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+      while (queue.length && !fillCancelled) await one(queue.shift());
+    }));
     if (fillCancelled) return;
     save();
     closeFill();
-    toast('Rough draft filled — review and swap any you don’t like');
+    missed.sort((a, b) => a - b);
+    let msg = `Filled ${placed} of ${todo.length} slide${todo.length === 1 ? '' : 's'}`;
+    if (fromBook) msg += ` (${fromBook} from your textbook)`;
+    if (missed.length) msg += ` · no good match for slide${missed.length > 1 ? 's' : ''} ${missed.slice(0, 8).join(', ')}${missed.length > 8 ? '…' : ''}, pick those in Fill figures`;
+    if (!smart) msg += ' · add an Anthropic key in Settings so each pick is checked by AI';
+    toast(msg, 12000);
   } finally {
-    $('#fill-auto').disabled = false;
+    btn.disabled = false;
+  }
+}
+
+/* ---------- vision check: which candidate actually fits this slide? ---------- */
+const PICK_SYS = `You choose the image for one slide in a university lecture deck. You get the slide's text and several numbered candidate images, each with its source.
+
+Pick the candidate that most clearly and accurately shows what the slide is about.
+- It must depict the right subject: the exact species, organism, place, process or concept named. A different species, a generic stock photo, or an off-topic image is wrong.
+- Textbook figures come from the course's own textbook. Prefer one when it genuinely matches (its diagrams and graphs are ideal for concept slides), but not over a clearly better photo of a named species.
+- Avoid images dominated by watermarks, logos, big blocks of text, unrelated collages, or very low quality.
+- If none is a reasonable match, pick 0. A blank figure is better than a wrong one.
+
+Reply with ONLY JSON: {"pick": <candidate number, or 0>, "why": "<under 15 words>"}`;
+
+/* a small base64 thumbnail for the vision call; falls back to letting the API fetch the URL */
+async function visionImagePart(r){
+  let src = r.thumb || r.full || '';
+  try {
+    if (!src.startsWith('data:')){
+      const res = await fetch(src);
+      if (!res.ok) throw new Error('fetch');
+      src = await blobToDataURL(await res.blob());
+    }
+    const small = await shrinkImage(src, 420, 0.72);
+    const m = small.match(/^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/i);
+    if (m) return { type: 'image', source: { type: 'base64', media_type: m[1].toLowerCase(), data: m[2] } };
+  } catch (e){}
+  const url = r.thumb || r.full || '';
+  return /^https:/.test(url) ? { type: 'image', source: { type: 'url', url } } : null;
+}
+
+async function visionPick(slide, cands){
+  const key = settings.anthropicKey;
+  if (!key) return null;
+  const head = [
+    'SLIDE',
+    slide.headline ? 'Headline: ' + slide.headline : '',
+    slide.figure ? 'Intended figure: ' + slide.figure : '',
+    (slide.annotations || []).length ? 'Labels: ' + slide.annotations.map(a => a.text).filter(Boolean).join('; ') : '',
+    slide.callout ? 'Takeaway: ' + slide.callout : '',
+  ].filter(Boolean).join('\n');
+  const usable = [];
+  for (const c of cands){
+    const img = await visionImagePart(c);
+    if (img) usable.push({ c, img });
+  }
+  if (!usable.length) return null;
+  const call = async list => {
+    const content = [{ type: 'text', text: head + '\n\nCANDIDATES' }];
+    list.forEach((u, k) => {
+      const c = u.c;
+      const desc = c.provider === 'textbook'
+        ? `${c.sourceName}${c.caption ? ', caption: ' + c.caption.slice(0, 300) : ', no caption found'}`
+        : `Web image from ${c.sourceName || c.provider || 'search'}${c.title ? ', titled: ' + String(c.title).slice(0, 120) : ''}`;
+      content.push({ type: 'text', text: `Candidate ${k + 1}: ${desc}` });
+      content.push(u.img);
+    });
+    content.push({ type: 'text', text: 'Which candidate should go on this slide? JSON only.' });
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key,
+        'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150, system: PICK_SYS,
+        messages: [{ role: 'user', content }] }),
+    });
+    if (!res.ok) throw new Error('API ' + res.status);
+    const j = await res.json();
+    const txt = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    const o = JSON.parse((txt.match(/\{[\s\S]*\}/) || [txt])[0]);
+    const k = Math.round(+o.pick);
+    return { pick: k >= 1 && k <= list.length ? list[k - 1].c : null, why: o.why || '' };
+  };
+  try { return await call(usable); }
+  catch (e){
+    // a URL the API couldn't fetch fails the whole request, so retry with only the embedded thumbnails
+    const embedded = usable.filter(u => u.img.source.type === 'base64');
+    if (embedded.length && embedded.length < usable.length) return await call(embedded);
+    throw e;
+  }
+}
+
+/* ================= textbook figure library =================
+   A course textbook PDF is mined once: every embedded figure is cropped out with
+   the caption printed beside it and stored in IndexedDB (one key per image plus
+   a small index). Auto-fill and the Fill-figures grid search it by caption
+   before going to the web. Persistent across decks and sessions. */
+
+const FIGLIB_INDEX = 'figlib:index';
+const figImgKey = id => 'figlib:img:' + id;
+let figLib = null;                 // [{ id, book, page, caption, context, w, h }]
+let figLibTok = null, figLibIdf = null;
+let figLibBuilding = false, figLibCancel = false;
+
+async function loadFigLib(){
+  if (figLib) return figLib;
+  try { figLib = JSON.parse((await IDB.get(FIGLIB_INDEX)) || '[]'); } catch (e){ figLib = []; }
+  figLibTok = null;
+  return figLib;
+}
+async function saveFigLib(){
+  await IDB.set(FIGLIB_INDEX, JSON.stringify(figLib || []));
+  figLibTok = null;
+}
+
+const FIG_STOP = new Set(('the and for with from that this which into onto over under their there these those they them than then were was are has have had its not but can may also such each between within about after before during while where when what how why who more most other some many much very used using use shown show shows figure fig table page chapter section example examples see note left right top bottom panel one two three').split(' '));
+function figStem(w){ return (w.length > 4 && /s$/.test(w) && !/(ss|us|is)$/.test(w)) ? w.slice(0, -1) : w; }
+function figTerms(s){
+  const out = new Set();
+  for (const w of (s || '').toLowerCase().split(/[^a-z0-9]+/)){
+    if (w.length < 3 || FIG_STOP.has(w) || /^\d+$/.test(w)) continue;
+    out.add(figStem(w));
+  }
+  return out;
+}
+function figLibPrep(){
+  if (figLibTok) return;
+  figLibTok = new Map();
+  const df = new Map();
+  for (const f of figLib){
+    const cap = figTerms(f.caption), ctx = figTerms(f.context);
+    figLibTok.set(f.id, { cap, ctx });
+    for (const t of new Set([...cap, ...ctx])) df.set(t, (df.get(t) || 0) + 1);
+  }
+  const N = figLib.length || 1;
+  figLibIdf = new Map();
+  for (const [t, n] of df) figLibIdf.set(t, Math.log(1 + N / n));
+}
+/* rank library figures against some text: a caption hit counts 3×, page text 1× */
+async function figLibMatchText(text, n = 4){
+  await loadFigLib();
+  if (!figLib.length) return [];
+  figLibPrep();
+  const q = figTerms(text);
+  if (!q.size) return [];
+  const scored = [];
+  for (const f of figLib){
+    const tk = figLibTok.get(f.id);
+    let sc = 0, capHits = 0;
+    for (const t of q){
+      const idf = figLibIdf.get(t);
+      if (!idf) continue;
+      if (tk.cap.has(t)){ sc += 3 * idf; capHits++; }
+      else if (tk.ctx.has(t)) sc += idf;
+    }
+    if (capHits || sc >= 4) scored.push({ f, sc });
+  }
+  scored.sort((a, b) => b.sc - a.sc);
+  return scored.slice(0, n).map(x => x.f);
+}
+function figLibMatches(slide, n = 4){
+  return figLibMatchText([slide.figure, slide.headline, ...(slide.annotations || []).map(a => a.text)].join(' '), n);
+}
+async function figLibResult(f){
+  const src = await IDB.get(figImgKey(f.id));
+  if (!src) return null;
+  return { provider: 'textbook', id: f.id, thumb: src, full: src,
+    title: f.caption || `Figure from p. ${f.page}`, caption: f.caption || '',
+    author: f.book, authorUrl: '', license: 'Course textbook', licenseUrl: '', pageUrl: '',
+    sourceName: `Textbook p. ${f.page}` };
+}
+
+/* ---- extraction ---- */
+function clipBox(b, vp){
+  const x = Math.max(0, b.x), y = Math.max(0, b.y);
+  return { x, y, w: Math.min(vp.width, b.x + b.w) - x, h: Math.min(vp.height, b.y + b.h) - y };
+}
+/* figures are often painted as several touching tiles — union any that overlap */
+function mergeBoxes(boxes){
+  const pad = 6, out = boxes.map(b => ({ ...b }));
+  for (let changed = true; changed;){
+    changed = false;
+    outer: for (let i = 0; i < out.length; i++) for (let j = i + 1; j < out.length; j++){
+      const a = out[i], b = out[j];
+      if (a.x - pad < b.x + b.w && b.x - pad < a.x + a.w && a.y - pad < b.y + b.h && b.y - pad < a.y + a.h){
+        const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        out[i] = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+        out.splice(j, 1);
+        changed = true;
+        break outer;
+      }
+    }
+  }
+  return out;
+}
+function quickHash(s){
+  let h = 0;
+  for (let i = 0; i < s.length; i += 53) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h + ':' + s.length;
+}
+/* page text as positioned lines (canvas coordinates, top-down) */
+function pageLines(tc, viewport){
+  const items = [];
+  for (const it of tc.items){
+    if (!it.str || !it.str.trim()) continue;
+    const t = window.pdfjsLib.Util.transform(viewport.transform, it.transform);
+    const h = Math.hypot(t[2], t[3]) || 12;
+    items.push({ x: t[4], y: t[5], w: (it.width || 0) * viewport.scale, h, s: it.str });
+  }
+  items.sort((a, b) => a.y - b.y || a.x - b.x);
+  const lines = [];
+  for (const it of items){
+    const L = lines[lines.length - 1];
+    if (L && Math.abs(L.y - it.y) < Math.max(3, it.h * 0.5) && it.x - L.x1 < it.h * 3 && it.x >= L.x0){
+      L.s += (it.x - L.x1 > it.h * 0.15 ? ' ' : '') + it.s;
+      L.x1 = Math.max(L.x1, it.x + it.w);
+    } else lines.push({ x0: it.x, x1: it.x + it.w, y: it.y, h: it.h, s: it.s });
+  }
+  return lines;
+}
+const CAP_RE = /^\s*(fig(ure)?|plate|photo|map|box|table)\.?\s*[\dIVX]+/i;
+function captionRun(col, i, stopY){
+  let s = '', prev = null;
+  const first = col[i];
+  for (; i < col.length; i++){
+    const l = col[i];
+    if (stopY != null && l.y > stopY) break;
+    if (prev && l.y - prev.y > prev.h * 1.7) break;              // a paragraph gap ends the caption
+    if (prev && Math.abs(l.h - first.h) > first.h * 0.12) break; // so does a switch back to body-size type
+    s += (s ? ' ' : '') + l.s.trim();
+    prev = l;
+    if (s.length > 360) break;
+  }
+  return s;
+}
+/* the caption printed with a figure: a "Figure N…" line just below (or above) it,
+   else the line or two directly underneath */
+function captionFor(box, lines){
+  const col = lines.filter(l => l.x1 > box.x - 20 && l.x0 < box.x + box.w + 20);
+  const bottom = box.y + box.h;
+  let i = col.findIndex(l => l.y > bottom - 4 && l.y < bottom + 220 && CAP_RE.test(l.s));
+  if (i >= 0) return captionRun(col, i);
+  i = col.findIndex(l => l.y > box.y - 160 && l.y < box.y + 4 && CAP_RE.test(l.s));
+  if (i >= 0) return captionRun(col, i, box.y + 4);
+  i = col.findIndex(l => l.y > bottom - 4 && l.y < bottom + 60);
+  return i >= 0 ? captionRun(col, i).slice(0, 240) : '';
+}
+/* a margin caption on a single-figure page */
+function loneCaption(lines){
+  const cap = lines.find(l => CAP_RE.test(l.s));
+  if (!cap) return '';
+  const col = lines.filter(l => l.x0 < cap.x1 && l.x1 > cap.x0);
+  return captionRun(col, col.indexOf(cap));
+}
+
+async function addTextbookToLibrary(file, onStatus){
+  if (figLibBuilding) return null;
+  figLibBuilding = true;
+  figLibCancel = false;
+  try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e){}
+  await loadFigLib();
+  const book = file.name.replace(/\.pdf$/i, '').replace(/_+/g, ' ').trim() || 'Textbook';
+  await removeBookFromLibrary(book);   // re-adding a book replaces its old figures
+  let added = 0, fullPage = 0, pages = 0;
+  const seen = new Set();
+  try {
+    await ensurePdfJs();
+    const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    pages = doc.numPages;
+    for (let p = 1; p <= doc.numPages; p++){
+      if (figLibCancel) break;
+      onStatus(`Page ${p} of ${doc.numPages} · ${added} figure${added === 1 ? '' : 's'} found…`);
+      let page;
+      try { page = await doc.getPage(p); } catch (e){ continue; }
+      const viewport = page.getViewport({ scale: 2 });
+      const pageArea = viewport.width * viewport.height;
+      let boxes;
+      try {
+        boxes = mergeBoxes(findImageBoxes(await page.getOperatorList(), viewport).map(b => clipBox(b, viewport)))
+          .filter(b => b.w >= 180 && b.h >= 130);           // drop icons, bullets, rules
+      } catch (e){ continue; }
+      if (boxes.some(b => b.w * b.h > pageArea * 0.8)){
+        fullPage++;                                           // a scanned page, not a figure
+        boxes = boxes.filter(b => b.w * b.h <= pageArea * 0.8);
+      }
+      if (!boxes.length){ page.cleanup(); continue; }
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(viewport.width);
+      cv.height = Math.round(viewport.height);
+      await page.render({ canvasContext: cv.getContext('2d'), viewport }).promise;
+      let lines = [];
+      try { lines = pageLines(await page.getTextContent(), viewport); } catch (e){}
+      const pageText = lines.map(l => l.s).join(' ');
+      for (const box of boxes){
+        const fig = cropCanvasRegion(cv, box, p, 1100);
+        if (!fig) continue;
+        let src = fig.src;
+        try { src = await shrinkImage(src, 1100, 0.82); } catch (e){}
+        const h = quickHash(src);
+        if (seen.has(h)) continue;                            // repeated logo / ornament
+        seen.add(h);
+        let caption = captionFor(box, lines);
+        if (!caption && boxes.length === 1) caption = loneCaption(lines);
+        const id = 'f' + uid();
+        await IDB.set(figImgKey(id), src);
+        figLib.push({ id, book, page: p, caption: caption.slice(0, 420),
+          context: (caption ? pageText.replace(caption, '') : pageText).slice(0, 700), w: fig.w, h: fig.h });
+        added++;
+      }
+      cv.width = cv.height = 0;
+      page.cleanup();
+      if (p % 10 === 0) await saveFigLib();                  // stopping or a crash keeps what's done
+    }
+  } finally {
+    await saveFigLib();
+    figLibBuilding = false;
+  }
+  return { book, added, pages, fullPage, cancelled: figLibCancel };
+}
+
+async function removeBookFromLibrary(book){
+  await loadFigLib();
+  const gone = figLib.filter(f => f.book === book);
+  for (const f of gone){ try { await IDB.del(figImgKey(f.id)); } catch (e){} }
+  if (gone.length){
+    figLib = figLib.filter(f => f.book !== book);
+    await saveFigLib();
+  }
+  return gone.length;
+}
+
+/* ---- library dialog ---- */
+function figLibStatus(msg, err){
+  const st = $('#figlib-status');
+  st.hidden = !msg;
+  st.textContent = msg || '';
+  st.classList.toggle('err', !!err);
+}
+async function openFigLib(){
+  await loadFigLib();
+  renderFigLibBooks();
+  if (!figLibBuilding) figLibStatus('');
+  $('#figlib-modal').showModal();
+}
+function renderFigLibBooks(){
+  const ul = $('#figlib-books');
+  ul.innerHTML = '';
+  const byBook = new Map();
+  for (const f of figLib || []){
+    const b = byBook.get(f.book) || { n: 0, cap: 0 };
+    b.n++;
+    if (f.caption) b.cap++;
+    byBook.set(f.book, b);
+  }
+  if (!byBook.size){
+    ul.appendChild(el('li', '', 'border:none;color:#93a4b8;', 'No textbooks yet.'));
+  }
+  for (const [book, b] of byBook){
+    const li = el('li');
+    li.appendChild(el('span', 'dk-name', '', book));
+    li.appendChild(el('span', 'dk-meta', '', `${b.n} figure${b.n === 1 ? '' : 's'} · ${b.cap} with captions`));
+    const del = el('button', 'btn small danger', '', 'Remove');
+    del.type = 'button';
+    del.addEventListener('click', async () => {
+      if (!confirm(`Remove “${book}” and its ${b.n} figures from the library? Figures already placed on slides stay.`)) return;
+      await removeBookFromLibrary(book);
+      renderFigLibBooks();
+      updateFigLibBadge();
+    });
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
+}
+function updateFigLibBadge(){
+  const b = $('#fill-lib');
+  if (!b) return;
+  const n = figLib ? figLib.length : 0;
+  b.textContent = n ? `📚 Textbook · ${n}` : '📚 Add textbook';
+}
+async function figLibAddFile(file){
+  if (!file) return;
+  if (figLibBuilding){ figLibStatus('Already reading a textbook — wait for it to finish'); return; }
+  $('#figlib-add').disabled = true;
+  $('#figlib-stop').hidden = false;
+  try {
+    const r = await addTextbookToLibrary(file, m => figLibStatus(m));
+    if (!r) return;
+    if (!r.added && r.fullPage > r.pages * 0.5)
+      figLibStatus(`“${r.book}” looks like a scanned book (each page is one photo), so its figures can't be separated automatically. Use ✂ Crop in the image panel's Readings tab for the ones you need.`, true);
+    else if (!r.added)
+      figLibStatus(`No photo figures found in “${r.book}”. Graphs drawn as vector art aren't picked up; use ✂ Crop in the Readings tab for those.`, true);
+    else
+      figLibStatus(`${r.cancelled ? 'Stopped — kept' : 'Added'} ${r.added} figures from “${r.book}”. Auto-fill will check these first.`);
+  } catch (e){
+    figLibStatus('Could not read that PDF (' + (e.message || 'unknown error') + ')', true);
+  } finally {
+    $('#figlib-add').disabled = false;
+    $('#figlib-stop').hidden = true;
+    renderFigLibBooks();
+    updateFigLibBadge();
   }
 }
 
@@ -7435,6 +7863,17 @@ function wireUI(){
   $('#fill-skip').addEventListener('click', fillSkip);
   $('#fill-back').addEventListener('click', fillBack);
   $('#fill-auto').addEventListener('click', fillAuto);
+  // textbook figure library
+  $('#fill-lib').addEventListener('click', openFigLib);
+  $('#btn-figlib').addEventListener('click', openFigLib);
+  $('#figlib-add').addEventListener('click', () => $('#file-figlib').click());
+  $('#file-figlib').addEventListener('change', e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    figLibAddFile(f);
+  });
+  $('#figlib-stop').addEventListener('click', () => { figLibCancel = true; });
+  $('#figlib-close').addEventListener('click', () => $('#figlib-modal').close());
   $('#fill-go').addEventListener('click', () => fillSearch());
   $('#fill-query').addEventListener('keydown', e => { if (e.key === 'Enter') fillSearch(); });
   $('#sel-scope').addEventListener('change', () => {
