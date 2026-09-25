@@ -450,6 +450,15 @@ code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-size:12px}
 .drive-item-meta{font-size:11.5px;color:var(--ink-dim);margin-top:2px}
 .drive-item-btns{display:flex;gap:6px;flex-shrink:0}
 .figlib-modal{width:min(620px,94vw)}
+.backup-chip{display:block;width:100%;margin-top:16px;padding:8px 10px;border-radius:9px;border:1px solid var(--line);
+  background:transparent;color:var(--ink-dim);font:inherit;font-size:12px;text-align:left;cursor:pointer;line-height:1.35}
+.backup-chip[data-level="ok"]{color:#6ee7a8;border-color:rgba(110,231,168,.35)}
+.backup-chip[data-level="warn"]{color:#fbbf24;border-color:rgba(251,191,36,.45)}
+.backup-chip[data-level="bad"]{color:#fca5a5;border-color:rgba(252,165,165,.5);background:rgba(252,165,165,.06)}
+.backup-resume{color:#fbbf24;border-color:rgba(251,191,36,.45)}
+.backup-h{font-size:14px;margin:18px 0 4px}
+.backup-state{font-size:12.5px;margin:6px 0}
+.backup-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 4px}
 #figlib-books{list-style:none;padding:0;margin:12px 0}
 #figlib-books .dk-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #figlib-books .dk-meta{font-size:11px;color:var(--ink-dim);white-space:nowrap}
