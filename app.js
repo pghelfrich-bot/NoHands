@@ -60,7 +60,15 @@ const IDB = (() => {
       tx.onerror = () => rej(tx.error);
     });
   }
-  return { get, set, del };
+  async function keys(){
+    const db = await openDb();
+    return new Promise((res, rej) => {
+      const r = db.transaction('decks','readonly').objectStore('decks').getAllKeys();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  return { get, set, del, keys };
 })();
 
 const PALETTES = {
@@ -702,7 +710,8 @@ function isDark(slide){ return slide.theme ? slide.theme === 'dark' : slide.type
 function deckIndex(){
   try { return JSON.parse(localStorage.getItem(LS.index) || '[]'); } catch (e) { return []; }
 }
-function saveIndex(idx){ localStorage.setItem(LS.index, JSON.stringify(idx.slice(0, 100))); }
+// no cap: every deck must stay reachable (an old 100-entry cap silently hid decks)
+function saveIndex(idx){ localStorage.setItem(LS.index, JSON.stringify(idx)); }
 function folders(){
   try { return JSON.parse(localStorage.getItem(LS.folders) || '[]'); } catch (e) { return []; }
 }
@@ -731,7 +740,7 @@ async function saveDeckNow(){
   const d = state.deck;
   if (!d) return;
   try {
-    await IDB.set(LS.deck(d.id), JSON.stringify(d));
+    await putDeck(d);
     const all = deckIndex();
     const prev = all.find(e => e.id === d.id);
     const idx = all.filter(e => e.id !== d.id);
@@ -755,7 +764,7 @@ const save = debounce(saveDeckNow, 400);
    deck index — used by batch outline import, which creates several decks
    without switching the editor away from the home screen */
 async function saveNewDeck(d, folder = null){
-  await IDB.set(LS.deck(d.id), JSON.stringify(d));
+  await putDeck(d);
   const idx = deckIndex();
   idx.unshift({ id: d.id, title: d.title || 'Untitled deck', updated: Date.now(),
                 count: d.slides.length, folder });
@@ -774,6 +783,337 @@ async function deleteDeck(id){
   await IDB.del(LS.deck(id));
   localStorage.removeItem(LS.deck(id)); // remove legacy copy too
   localStorage.setItem(LS.index, JSON.stringify(deckIndex().filter(e => e.id !== id)));
+}
+
+/* ================= storage safety: recovery, persistence, backups =================
+   Decks live in this browser (IndexedDB + a localStorage index), which the
+   browser may clear. Three layers keep work safe:
+   1. recoverOrphanDecks — any deck in storage but missing from the index is
+      put back on the home screen (an old 100-deck cap used to hide them).
+   2. navigator.storage.persist — asks the browser to exempt us from cleanup.
+   3. backups — an auto-backup folder (Chrome/Edge: every save is copied there
+      as a .json file; pick a Google Drive for desktop folder and it reaches the
+      cloud too) plus a downloadable .zip, and a merge-safe restore. */
+
+// every deck write goes through here: stamps the save time, then queues a backup
+async function putDeck(d){
+  d.savedAt = Date.now();
+  await IDB.set(LS.deck(d.id), JSON.stringify(d));
+  backupQueue(d.id);
+}
+
+async function recoverOrphanDecks(){
+  const idx = deckIndex();
+  const known = new Set(idx.map(e => e.id));
+  const prefix = LS.deck('');
+  let keys = [];
+  try { keys = (await IDB.keys()).filter(k => typeof k === 'string' && k.startsWith(prefix)); } catch (e){}
+  const legacy = Object.keys(localStorage).filter(k => k.startsWith(prefix));
+  let n = 0;
+  for (const key of new Set([...keys, ...legacy])){
+    const id = key.slice(prefix.length);
+    if (!id || known.has(id)) continue;
+    if (localStorage.getItem(key) && !keys.includes(key)){
+      try { await IDB.set(key, localStorage.getItem(key)); localStorage.removeItem(key); } catch (e){}
+    }
+    const d = await loadDeck(id);
+    if (!d || !Array.isArray(d.slides)) continue;
+    idx.push({ id, title: d.title || 'Untitled deck', updated: d.savedAt || 0,
+               count: d.slides.length, folder: null, starred: false });
+    known.add(id);
+    n++;
+  }
+  if (n) saveIndex(idx);
+  return n;
+}
+
+let storagePersisted = null;
+async function ensurePersistentStorage(){
+  if (!navigator.storage || !navigator.storage.persist) return (storagePersisted = null);
+  try {
+    storagePersisted = (await navigator.storage.persisted()) || (await navigator.storage.persist());
+  } catch (e){ storagePersisted = null; }
+  return storagePersisted;
+}
+
+/* ---- auto-backup folder (File System Access API, Chrome/Edge) ---- */
+const BK_HANDLE = 'lectureflow.backupDir';     // IndexedDB: the chosen folder's handle
+const BK_META = 'lectureflow.backupMeta';      // localStorage: { lastAt, lastDownloadAt, folder }
+const BK_LIBRARY_FILE = '_library.json';
+let backupDir = null, backupPerm = 'none', backupNames = null, backupErr = '';
+const backupPending = new Set();
+function backupMeta(){ try { return JSON.parse(localStorage.getItem(BK_META) || '{}'); } catch (e){ return {}; } }
+function setBackupMeta(patch){ localStorage.setItem(BK_META, JSON.stringify({ ...backupMeta(), ...patch })); }
+function backupSupported(){ return typeof window.showDirectoryPicker === 'function'; }
+function backupReady(){ return !!backupDir && backupPerm === 'granted'; }
+
+async function backupInit(){
+  if (!backupSupported()) return updateBackupUI();
+  try { backupDir = await IDB.get(BK_HANDLE); } catch (e){ backupDir = null; }
+  if (backupDir){
+    try { backupPerm = await backupDir.queryPermission({ mode: 'readwrite' }); } catch (e){ backupPerm = 'prompt'; }
+  }
+  updateBackupUI();
+  if (backupReady()) backupCatchUp();
+}
+function backupFileName(d){ return `${safeName(d.title || 'Untitled deck')} [${d.id}].json`; }
+async function backupListing(){
+  if (backupNames) return backupNames;
+  backupNames = new Map();
+  for await (const [name, h] of backupDir.entries()){
+    const m = h.kind === 'file' && name.match(/\[([^\]]+)\]\.json$/);
+    if (m) backupNames.set(m[1], name);
+  }
+  return backupNames;
+}
+async function backupWriteFile(name, text){
+  const fh = await backupDir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(text);
+  await w.close();
+}
+function libraryPayload(){
+  let templates = [], taste = null;
+  try { templates = JSON.parse(localStorage.getItem(LS.templates) || '[]'); } catch (e){}
+  try { taste = JSON.parse(localStorage.getItem(LS.taste) || 'null'); } catch (e){}
+  // deliberately no API keys: backup files may be synced/shared
+  return JSON.stringify({ app: 'LectureFlow', version: 1, savedAt: Date.now(),
+    index: deckIndex(), folders: folders(), templates, taste }, null, 1);
+}
+async function backupWriteDeckId(id){
+  const raw = await IDB.get(LS.deck(id));
+  if (!raw) return false;
+  let d;
+  try { d = JSON.parse(raw); } catch (e){ return false; }
+  const names = await backupListing();
+  const name = backupFileName(d);
+  await backupWriteFile(name, raw);
+  const prev = names.get(id);
+  if (prev && prev !== name){ try { await backupDir.removeEntry(prev); } catch (e){} }   // deck was renamed
+  names.set(id, name);
+  return true;
+}
+let backupTimer = null;
+function backupQueue(id){
+  if (!backupDir) return;
+  backupPending.add(id);
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(backupFlush, 4000);   // batch rapid edits into one write
+}
+let backupFlushing = false;
+async function backupFlush(){
+  if (!backupReady() || backupFlushing || !backupPending.size){ updateBackupUI(); return; }
+  backupFlushing = true;
+  try {
+    for (const id of [...backupPending]){
+      await backupWriteDeckId(id);
+      backupPending.delete(id);
+    }
+    await backupWriteFile(BK_LIBRARY_FILE, libraryPayload());
+    setBackupMeta({ lastAt: Date.now() });
+    backupErr = '';
+  } catch (e){
+    backupErr = e && e.name === 'NotAllowedError' ? 'permission' : (e.message || 'write failed');
+    if (backupErr === 'permission') backupPerm = 'prompt';
+  } finally {
+    backupFlushing = false;
+    updateBackupUI();
+  }
+}
+/* after reconnecting: back up every deck saved since the last successful backup */
+async function backupCatchUp(){
+  const since = backupMeta().lastAt || 0;
+  for (const e of deckIndex()) if (!since || (e.updated || 0) > since) backupPending.add(e.id);
+  if (backupPending.size) await backupFlush();
+}
+async function backupEverything(onProgress){
+  if (!backupReady()) return 0;
+  let n = 0;
+  const ids = deckIndex().map(e => e.id);
+  for (const id of ids){
+    n++;
+    if (onProgress) onProgress(`Backing up ${n} of ${ids.length}…`);
+    try { await backupWriteDeckId(id); } catch (e){ backupErr = e.message || 'write failed'; }
+  }
+  await backupWriteFile(BK_LIBRARY_FILE, libraryPayload());
+  setBackupMeta({ lastAt: Date.now() });
+  updateBackupUI();
+  return n;
+}
+async function backupChooseFolder(){
+  let dir;
+  try { dir = await window.showDirectoryPicker({ id: 'lectureflow-backup', mode: 'readwrite', startIn: 'documents' }); }
+  catch (e){ return false; }   // cancelled
+  // keep things tidy: back up into a "LectureFlow backups" subfolder of whatever was picked
+  if (dir.name !== 'LectureFlow backups') dir = await dir.getDirectoryHandle('LectureFlow backups', { create: true });
+  backupDir = dir;
+  backupPerm = 'granted';
+  backupNames = null;
+  await IDB.set(BK_HANDLE, dir);
+  setBackupMeta({ folder: dir.name, lastAt: 0 });
+  return true;
+}
+async function backupResume(){
+  if (!backupDir) return openBackupModal();
+  try { backupPerm = await backupDir.requestPermission({ mode: 'readwrite' }); } catch (e){ backupPerm = 'prompt'; }
+  updateBackupUI();
+  if (backupReady()){ await backupCatchUp(); toast('Backups resumed — everything is up to date'); }
+}
+
+/* ---- download / restore ---- */
+async function downloadFullBackup(){
+  const JSZip = await ensureJSZip();
+  const zip = new JSZip();
+  const idx = deckIndex();
+  let n = 0;
+  for (const e of idx){
+    const raw = await IDB.get(LS.deck(e.id));
+    if (!raw) continue;
+    zip.file('decks/' + `${safeName(e.title || 'Untitled deck')} [${e.id}].json`, raw);
+    n++;
+  }
+  zip.file(BK_LIBRARY_FILE, libraryPayload());
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `LectureFlow-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  setBackupMeta({ lastDownloadAt: Date.now() });
+  updateBackupUI();
+  return n;
+}
+/* merge a backup (a .zip download, or .json files picked from the backup folder)
+   into this browser. Never replaces a local deck with an older copy. */
+async function restoreFromFiles(files){
+  const decks = [];
+  let library = null;
+  for (const f of files){
+    if (/\.zip$/i.test(f.name)){
+      const zip = await (await ensureJSZip()).loadAsync(await f.arrayBuffer());
+      for (const name of Object.keys(zip.files)){
+        if (zip.files[name].dir || !/\.json$/i.test(name)) continue;
+        const text = await zip.files[name].async('string');
+        if (name.endsWith(BK_LIBRARY_FILE)){ try { library = JSON.parse(text); } catch (e){} }
+        else decks.push(text);
+      }
+    } else if (/\.json$/i.test(f.name)){
+      const text = await f.text();
+      if (f.name === BK_LIBRARY_FILE){ try { library = JSON.parse(text); } catch (e){} }
+      else decks.push(text);
+    }
+  }
+  const idx = deckIndex();
+  const libIdx = (library && Array.isArray(library.index)) ? library.index : [];
+  let added = 0, updated = 0, kept = 0;
+  for (const raw of decks){
+    let d;
+    try { d = JSON.parse(raw); } catch (e){ continue; }
+    if (!d || !d.id || !Array.isArray(d.slides)) continue;
+    const libEntry = libIdx.find(e => e.id === d.id);
+    const backupTime = d.savedAt || (libEntry && libEntry.updated) || 0;
+    const local = idx.find(e => e.id === d.id);
+    const localRaw = await IDB.get(LS.deck(d.id));
+    if (localRaw){
+      let localTime = local ? local.updated || 0 : 0;
+      try { localTime = Math.max(localTime, JSON.parse(localRaw).savedAt || 0); } catch (e){}
+      if (localRaw === raw || localTime >= backupTime){ kept++; continue; }   // local is same or newer
+      updated++;
+    } else added++;
+    await IDB.set(LS.deck(d.id), raw);
+    const entry = { id: d.id, title: d.title || 'Untitled deck', updated: backupTime || Date.now(),
+      count: d.slides.length, folder: (local && local.folder) || (libEntry && libEntry.folder) || null,
+      starred: !!((local && local.starred) || (libEntry && libEntry.starred)) };
+    const at = idx.findIndex(e => e.id === d.id);
+    if (at >= 0) idx[at] = entry; else idx.push(entry);
+    backupQueue(d.id);
+  }
+  saveIndex(idx);
+  if (library){
+    const fs = folders();
+    for (const f of library.folders || []) if (f && f.id && !fs.some(x => x.id === f.id)) fs.push(f);
+    saveFolders(fs);
+    let tpl = [];
+    try { tpl = JSON.parse(localStorage.getItem(LS.templates) || '[]'); } catch (e){}
+    const seen = new Set(tpl.map(t => JSON.stringify(t)));
+    for (const t of library.templates || []) if (!seen.has(JSON.stringify(t))) tpl.push(t);
+    saveTemplates(tpl);
+  }
+  return { added, updated, kept, found: decks.length };
+}
+
+/* ---- UI ---- */
+function agoText(t){
+  if (!t) return 'never';
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return Math.round(s / 86400) + ' days ago';
+}
+function backupState(){
+  const m = backupMeta();
+  if (backupDir && backupPerm === 'granted' && !backupErr)
+    return { level: 'ok', text: `💾 Backed up ${agoText(m.lastAt)}`, tip: `Every save is copied to your “${m.folder || 'backup'}” folder` };
+  if (backupDir)
+    return { level: 'warn', text: '💾 Backup paused, click to resume', tip: 'The browser needs your OK again to write to the backup folder' };
+  if (m.lastDownloadAt && Date.now() - m.lastDownloadAt < 14 * 86400000)
+    return { level: 'ok', text: `💾 Backup downloaded ${agoText(m.lastDownloadAt)}`, tip: 'Set up a backup folder so this happens automatically' };
+  return { level: 'bad', text: '⚠ No backup yet, set one up', tip: 'Your decks only live in this browser right now' };
+}
+function updateBackupUI(){
+  const st = backupState();
+  const chip = $('#backup-chip');
+  if (chip){ chip.textContent = st.text; chip.title = st.tip; chip.dataset.level = st.level; }
+  const resume = $('#btn-backup-resume');
+  if (resume) resume.hidden = !(backupDir && !backupReady());
+  if ($('#backup-modal') && $('#backup-modal').open) renderBackupModal();
+}
+function backupModalStatus(msg, err){
+  const s = $('#backup-status');
+  s.hidden = !msg;
+  s.textContent = msg || '';
+  s.classList.toggle('err', !!err);
+}
+async function renderBackupModal(){
+  const m = backupMeta();
+  const lines = [];
+  lines.push(storagePersisted === true
+    ? '✓ This browser has agreed to keep LectureFlow’s data (it won’t clear it to free space).'
+    : storagePersisted === false
+      ? '⚠ This browser hasn’t agreed to keep LectureFlow’s data permanently, so it may clear it if space runs low (Chrome decides this itself; bookmarking the page and using it often helps). A backup folder protects you either way.'
+      : 'This browser can’t promise to keep data permanently, so a backup matters.');
+  try {
+    const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+    if (est && est.usage != null){
+      const mb = est.usage / 1048576;
+      lines.push(`Decks, images and textbook figures use ${mb < 10 ? mb.toFixed(1) : mb.toFixed(0)} MB of this browser’s storage.`);
+    }
+  } catch (e){}
+  $('#backup-health').textContent = lines.join(' ');
+  const f = $('#backup-folder-state');
+  if (!backupSupported()){
+    f.textContent = 'Automatic folder backups need Chrome or Edge. In this browser, use Download a full backup below every week or so.';
+    $('#backup-choose').hidden = true; $('#backup-now').hidden = true; $('#backup-resume2').hidden = true;
+  } else if (!backupDir){
+    f.textContent = 'Not set up. Choose a folder and every deck will be copied there each time it saves.';
+    $('#backup-choose').hidden = false; $('#backup-choose').textContent = 'Choose backup folder…';
+    $('#backup-now').hidden = true; $('#backup-resume2').hidden = true;
+  } else {
+    f.textContent = backupReady()
+      ? `On. Saving into “${m.folder || backupDir.name}”. Last backup: ${agoText(m.lastAt)}.${backupErr ? ' Last attempt failed: ' + backupErr : ''}`
+      : `Paused. The browser needs your OK again to write to “${m.folder || backupDir.name}”.`;
+    $('#backup-choose').hidden = false; $('#backup-choose').textContent = 'Change folder…';
+    $('#backup-now').hidden = !backupReady(); $('#backup-resume2').hidden = backupReady();
+  }
+  $('#backup-download-state').textContent = m.lastDownloadAt ? `Last downloaded ${agoText(m.lastDownloadAt)}.` : '';
+}
+async function openBackupModal(){
+  backupModalStatus('');
+  await renderBackupModal();
+  $('#backup-modal').showModal();
 }
 
 /* ================= outline parser ================= */
@@ -6211,7 +6551,7 @@ async function batchAccessibleExport(ids){
       onProgress: (n, total) => toast(`Deck ${done}/${ids.length}: “${title}” — describing images ${n}/${total}…`, 60000) });
     totalImgs += viaAI;
     // persist the new descriptions back to the stored deck
-    if (filled){ try { await IDB.set(LS.deck(deck.id), JSON.stringify(deck)); } catch (e){} }
+    if (filled){ try { await putDeck(deck); } catch (e){} }
     // consistent, unique, title-based names inside a per-deck folder
     let base = safeName(title); let name = base, n = 2;
     while (used.has(name.toLowerCase())) name = base + '-' + (n++);
@@ -7174,7 +7514,7 @@ async function copyDeck(id){
   copy.id = uid();
   copy.title = (d.title || 'Untitled deck') + ' (copy)';
   delete copy.driveFileId;
-  await IDB.set(LS.deck(copy.id), JSON.stringify(copy));
+  await putDeck(copy);
   const idx = deckIndex();
   const src = idx.find(e => e.id === id);
   idx.unshift({ id: copy.id, title: copy.title, updated: Date.now(), count: copy.slides.length,
@@ -7196,7 +7536,7 @@ function templates(){
   try { return JSON.parse(localStorage.getItem(LS.templates) || '[]'); }
   catch (e) { return []; }
 }
-function saveTemplates(arr){ localStorage.setItem(LS.templates, JSON.stringify(arr.slice(0, 50))); }
+function saveTemplates(arr){ localStorage.setItem(LS.templates, JSON.stringify(arr)); }
 
 const TPL_PH = { headline: 'Headline', point: 'Point', callout: 'Key stat or quote', text: 'Text' };
 
@@ -7863,6 +8203,45 @@ function wireUI(){
   $('#fill-skip').addEventListener('click', fillSkip);
   $('#fill-back').addEventListener('click', fillBack);
   $('#fill-auto').addEventListener('click', fillAuto);
+  // backups & storage
+  $('#backup-chip').addEventListener('click', () => (backupDir && !backupReady()) ? backupResume() : openBackupModal());
+  $('#btn-backup-resume').addEventListener('click', backupResume);
+  $('#backup-resume2').addEventListener('click', backupResume);
+  $('#backup-close').addEventListener('click', () => $('#backup-modal').close());
+  $('#backup-choose').addEventListener('click', async () => {
+    if (!(await backupChooseFolder())) return;
+    backupModalStatus('Copying every deck into the backup folder…');
+    const n = await backupEverything(m => backupModalStatus(m));
+    backupModalStatus(`Done: ${n} deck${n === 1 ? '' : 's'} backed up. From now on every save is copied automatically.`);
+    renderBackupModal();
+  });
+  $('#backup-now').addEventListener('click', async () => {
+    const n = await backupEverything(m => backupModalStatus(m));
+    backupModalStatus(`Done: ${n} deck${n === 1 ? '' : 's'} backed up.`);
+    renderBackupModal();
+  });
+  $('#backup-download').addEventListener('click', async () => {
+    backupModalStatus('Packing every deck into a .zip…');
+    try {
+      const n = await downloadFullBackup();
+      backupModalStatus(`Downloaded a backup of ${n} deck${n === 1 ? '' : 's'}.`);
+    } catch (e){ backupModalStatus('Could not build the backup (' + (e.message || 'error') + ')', true); }
+    renderBackupModal();
+  });
+  $('#backup-restore').addEventListener('click', () => $('#file-restore').click());
+  $('#file-restore').addEventListener('change', async e => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    backupModalStatus('Restoring…');
+    try {
+      const r = await restoreFromFiles(files);
+      if (!r.found) backupModalStatus('No decks found in what you picked. Choose a LectureFlow backup .zip, or the .json files in your backup folder.', true);
+      else backupModalStatus(`Restored: ${r.added} new, ${r.updated} updated from a newer backup, ${r.kept} already up to date here (local copies are never replaced by older ones).`);
+      renderHome();
+    } catch (e2){ backupModalStatus('Could not read that backup (' + (e2.message || 'error') + ')', true); }
+  });
+
   // textbook figure library
   $('#fill-lib').addEventListener('click', openFigLib);
   $('#btn-figlib').addEventListener('click', openFigLib);
@@ -8213,7 +8592,7 @@ const _driveAutoSave = debounce(async () => {
     if (result && !d.driveFileId){
       d.driveFileId = result.id;
       // persist the new driveFileId without re-triggering auto-save
-      await IDB.set(LS.deck(d.id), JSON.stringify(d));
+      await putDeck(d);
     }
   } catch(e) { /* silent — user isn't expecting this */ }
 }, 60000);
@@ -8304,7 +8683,7 @@ async function driveSaveDeck(d){
     if (!result) return;
     if (!d.driveFileId){
       d.driveFileId = result.id;
-      await IDB.set(LS.deck(d.id), JSON.stringify(d)); // persist driveFileId without re-triggering auto-save
+      await putDeck(d); // persist driveFileId without re-triggering auto-save
     }
     toast('Saved to Google Drive ✓');
   } catch(e){
@@ -8475,6 +8854,15 @@ async function init(){
 
   // migrate any decks still in localStorage → IndexedDB (one-time, safe to re-run)
   await idbMigrate();
+  // bring back any deck that's in storage but missing from the home screen
+  try {
+    const found = await recoverOrphanDecks();
+    if (found) setTimeout(() => toast(`Recovered ${found} deck${found === 1 ? '' : 's'} that had dropped off your home screen. ${found === 1 ? 'It’s' : 'They’re'} in All decks.`, 12000), 800);
+  } catch (e){}
+  ensurePersistentStorage().then(updateBackupUI);
+  backupInit();
+  // write any pending backup before the tab is hidden or closed
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') backupFlush(); });
 
   const curId = localStorage.getItem(LS.current);
   const d = curId && await loadDeck(curId);

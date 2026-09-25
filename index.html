@@ -19,6 +19,7 @@
     <button id="btn-undo" class="btn ghost" title="Undo (Ctrl/Cmd+Z)" disabled>↶</button>
     <button id="btn-redo" class="btn ghost" title="Redo (Ctrl/Cmd+Shift+Z)" disabled>↷</button>
     <button id="btn-save" class="btn ghost" title="All changes saved" hidden>✓ Saved</button>
+    <button id="btn-backup-resume" class="btn ghost backup-resume" title="The browser paused writing to your backup folder — click to allow it again" hidden>💾 Resume backup</button>
     <button id="btn-decks"   class="btn ghost" title="Home — all your decks">Home</button>
     <button id="btn-outline" class="btn ghost" title="Paste a new outline">＋ Outline</button>
     <div class="dropdown">
@@ -108,6 +109,7 @@ Design: free-text notes
     <h2>Folders</h2>
     <ul id="folder-list"></ul>
     <button id="btn-new-folder" class="btn small wide">＋ New folder</button>
+    <button id="backup-chip" class="backup-chip" type="button" data-level="bad">💾 Backups</button>
   </aside>
   <section id="home-main">
     <div id="home-head">
@@ -507,6 +509,29 @@ Design: free-text notes
   </form>
 </dialog>
 
+<!-- ===================== BACKUPS ===================== -->
+<dialog id="backup-modal" class="modal figlib-modal">
+  <h2>💾 Backups &amp; storage</h2>
+  <p id="backup-health" class="modal-sub"></p>
+  <h3 class="backup-h">Automatic backup folder</h3>
+  <p class="modal-sub">Pick a folder once and every deck is copied there as a file whenever it saves. Choose a folder inside <b>Google Drive</b> on this computer (Google Drive for desktop) and your decks reach the cloud automatically too.</p>
+  <p id="backup-folder-state" class="backup-state"></p>
+  <div class="backup-row">
+    <button id="backup-choose" class="btn primary" type="button">Choose backup folder…</button>
+    <button id="backup-resume2" class="btn primary" type="button" hidden>Resume backups</button>
+    <button id="backup-now" class="btn ghost" type="button" hidden>Back up everything now</button>
+  </div>
+  <h3 class="backup-h">Backup file</h3>
+  <p class="modal-sub">Download every deck, folder and template as one .zip. It works in any browser, so save it somewhere safe or upload it to Drive. Your API keys are never included.</p>
+  <p id="backup-download-state" class="backup-state"></p>
+  <div class="backup-row">
+    <button id="backup-download" class="btn ghost" type="button">⬇ Download a full backup</button>
+    <button id="backup-restore" class="btn ghost" type="button" title="Pick a backup .zip, or select the .json files inside your backup folder">⬆ Restore from a backup…</button>
+  </div>
+  <div id="backup-status" class="status" hidden></div>
+  <div class="modal-actions"><button id="backup-close" class="btn ghost" type="button">Close</button></div>
+</dialog>
+
 <!-- ===================== TEXTBOOK FIGURE LIBRARY ===================== -->
 <dialog id="figlib-modal" class="modal figlib-modal">
   <h2>📚 Textbook figures</h2>
@@ -586,6 +611,7 @@ Design: free-text notes
 <input type="file" id="file-outline-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-import-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-figlib" accept=".pdf,application/pdf" hidden>
+<input type="file" id="file-restore" accept=".zip,.json,application/zip,application/json" multiple hidden>
 <input type="file" id="file-outline-pptx" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
 <input type="file" id="file-import" accept=".json,application/json" hidden>
 <input type="file" id="file-outline-batch" accept=".txt,.md,.markdown,.text,text/*" multiple hidden>
