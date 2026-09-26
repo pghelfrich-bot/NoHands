@@ -172,6 +172,7 @@ Design: free-text notes
       <button id="btn-check" class="btn small" title="Scan the whole deck for readability and structure issues before you present">✓ Check</button>
       <button id="btn-relayout" class="btn small" title="Reset image and label positions to the automatic layout">✦ Re-layout</button>
       <button id="btn-smart-trim" class="btn small" title="Shorten this slide's labels in your learned style — the full text stays in speaker notes and is restorable">✨ Trim labels</button>
+      <button id="btn-bottom-lines" class="btn small" title="Write a bottom line for every content slide that doesn't have one: its takeaway, or a cliffhanger that leads into the next slide (uses your Anthropic key; never overwrites yours)">✨ Bottom lines</button>
       <button id="btn-add-label" class="btn small" title="Add an annotation label">＋ Label</button>
       <button id="btn-add-text" class="btn small" title="Add a free text box">＋ Text</button>
       <button id="btn-add-overlay" class="btn small" title="Add a recurring element shown on every slide (edit it once, updates everywhere)">↻ Recurring</button>
@@ -197,7 +198,13 @@ Design: free-text notes
           <input type="color" id="sel-bg">
           <button id="sel-bg-clear" class="btn small" title="Remove background fill">⊘</button>
         </span>
-        <button id="sel-chip" class="btn small" title="Switch this label between a dark fill (white text) and a beige fill (dark text)">◐</button>
+        <button id="sel-chip" class="btn small" title="Label style: dark box → beige box → plain text (no box). On the bottom line: dark banner → beige banner → open text">◐</button>
+        <select id="sel-role" class="sel-scope" hidden title="What this image is: the organism itself (cut out), a place or close-up (oval), or evidence like a field photo or diagram (white frame)">
+          <option value="photo">Photo</option>
+          <option value="organism">Organism (cut out)</option>
+          <option value="place">Place / zoom-in (oval)</option>
+          <option value="evidence">Evidence (framed)</option>
+        </select>
         <button id="sel-truncate" class="btn small" title="Truncate label: click a word to cut the tail there; drag across words to cut a middle piece. Original is kept and restorable.">✄</button>
         <button id="sel-split" class="btn small" title="Split off the truncated tail into a follow-up label. Or: double-click a label, click where to cut, and press Enter twice to split there.">↪</button>
         <button id="sel-front" class="btn small" title="Bring forward">▲</button>
@@ -307,6 +314,12 @@ Design: free-text notes
       </label>
       <label class="check">
         <input type="checkbox" id="bg-frame"> Thin frame around the slide
+      </label>
+      <label class="check" title="Labels become plain text sitting on the slide instead of dark boxes (Scene slides are always plain unless you change a label with ◐)">
+        <input type="checkbox" id="bg-plain-labels"> Plain labels <span class="muted">(no boxes)</span>
+      </label>
+      <label class="check" title="Each slide's bottom line becomes big open text instead of a banner">
+        <input type="checkbox" id="bg-open-bottom"> Open bottom lines <span class="muted">(no banner)</span>
       </label>
       <label class="check" title="In Present mode: slow Ken Burns drift on full-slide photos, and reveal points one at a time as you advance">
         <input type="checkbox" id="bg-motion"> Cinematic motion in Present <span class="muted">(drift + reveal)</span>
