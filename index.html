@@ -63,6 +63,7 @@ Design: ocean blues, calm
       <div class="row outline-actions">
         <button id="btn-outline-file"   class="btn ghost">Upload file</button>
         <button id="btn-outline-sample" class="btn ghost">Load sample</button>
+        <button id="btn-plan" class="btn primary" title="Plan a whole lecture from a topic and your objectives: hook, reveal, objectives, roadmap, topics with series slides and class questions, then a quiz and wrap-up that mirror the objectives">🧭 Plan a lecture</button>
         <button id="btn-outline-prose"  class="btn ghost" title="Paste prose or notes and draft a LectureFlow outline from it">✨ Draft from prose</button>
         <button id="btn-outline-pdf"    class="btn ghost" title="Pick a reading PDF and convert it straight into a LectureFlow outline (uses your Anthropic API key)">📄 From reading PDF</button>
         <button id="btn-outline-import" class="btn ghost" title="Import an existing slide deck (PDF with selectable text) and restyle it into your outline — dense slides are split automatically (uses your Anthropic API key)">📊 Import a presentation</button>
@@ -129,6 +130,7 @@ Design: free-text notes
       <button id="btn-import-deck" class="btn ghost">Import deck</button>
       <button id="btn-batch-outline" class="btn ghost" title="Build a separate deck from each outline .txt file you pick">Batch from outlines</button>
       <button id="btn-from-template" class="btn ghost" title="Start a new deck from a saved skeleton">From template</button>
+      <button id="btn-home-plan" class="btn ghost" title="Plan a whole lecture from a topic and your objectives">🧭 Plan a lecture</button>
       <button id="btn-figlib" class="btn ghost" title="Add your course textbook (PDF) once — its figures and captions are saved so Auto-fill checks the textbook before the web">📚 Textbook figures</button>
       <button id="btn-home-pptx" class="btn ghost" title="Import a PowerPoint (.pptx) directly into a built deck — keeps every image, moves the full text into speaker notes, adds a takeaway to each slide, then pick a theme to restyle (takeaways use your Anthropic API key)">📥 Import PowerPoint</button>
       <button id="btn-new-deck" class="btn primary">＋ New deck</button>
@@ -214,6 +216,8 @@ Design: free-text notes
         <button id="sel-delete" class="btn small danger" title="Delete element">✕</button>
       </span>
       <span class="spacer"></span>
+      <button id="btn-continue-slide" class="btn small" title="Continue this slide: a new slide right after it with the same headline, roots and images, ready for the next idea (for series like “The Water-Vascular System” ×5)">⤵ Continue</button>
+      <button id="btn-save-aboutme" class="btn small" title="Save this slide as your About-me slide: the lecture planner puts it right after the title of every new lecture">👤</button>
       <button id="btn-dup-slide" class="btn small" title="Duplicate slide">⧉</button>
       <button id="btn-del-slide" class="btn small danger" title="Delete slide">🗑</button>
       <span id="slide-pos" class="muted"></span>
@@ -521,6 +525,40 @@ Design: free-text notes
       <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>
+</dialog>
+
+<!-- ===================== PLAN A LECTURE ===================== -->
+<dialog id="plan-modal" class="modal plan-modal">
+  <h2>🧭 Plan a lecture</h2>
+  <p class="modal-sub">Give the topic and what students should get out of it. LectureFlow writes the whole lecture in your deck's shape: hook and reveal, objectives, a roadmap that returns before each topic, topics with series slides and class questions, then a quiz and wrap-up that mirror the objectives one to one.</p>
+  <div class="plan-grid">
+    <label class="field">Topic <input id="plan-topic" type="text" placeholder="e.g. Echinodermata"></label>
+    <label class="field">Course <input id="plan-course" type="text" placeholder="e.g. BIO1020"></label>
+    <label class="field">Your name <input id="plan-presenter" type="text" placeholder="e.g. Dr. Paul Helfrich"></label>
+    <label class="field">Topics <select id="plan-n"><option>3</option><option selected>4</option><option>5</option></select></label>
+  </div>
+  <label class="field">Lecture objectives <span class="muted">(one per line; leave blank and they'll be proposed. Each becomes a topic, a quiz question and a wrap-up point)</span>
+    <textarea id="plan-objectives" rows="4" placeholder="Describe the major groups and commonalities in Echinodermata&#10;Understand the echinoderm's complex evolutionary history&#10;Appreciate the power of the water vascular system&#10;Recognize current topics in echinoderm research"></textarea>
+  </label>
+  <label class="field">Course objectives <span class="muted">(optional, kept in the notes)</span>
+    <textarea id="plan-course-obj" rows="2"></textarea>
+  </label>
+  <label class="field">Source material <span class="muted">(optional: paste notes or reading text to build from)</span>
+    <textarea id="plan-source" rows="3"></textarea>
+  </label>
+  <div class="plan-checks">
+    <label class="check"><input type="checkbox" id="plan-hook" checked> Open with a hook and reveal</label>
+    <label class="check"><input type="checkbox" id="plan-active" checked> A class question or demo in every topic</label>
+    <label class="check"><input type="checkbox" id="plan-analogy" checked> Everyday analogies</label>
+    <label class="check"><input type="checkbox" id="plan-aboutme" checked> Insert my About-me slide <span class="muted" id="plan-aboutme-state"></span></label>
+    <label class="check"><input type="checkbox" id="plan-build" checked> Build the deck right away</label>
+    <label class="check"><input type="checkbox" id="plan-fill" checked> Then find images automatically</label>
+  </div>
+  <div id="plan-status" class="status" hidden></div>
+  <div class="modal-actions">
+    <button id="plan-cancel" class="btn ghost" type="button">Cancel</button>
+    <button id="plan-go" class="btn primary" type="button">Plan lecture</button>
+  </div>
 </dialog>
 
 <!-- ===================== BACKUPS ===================== -->

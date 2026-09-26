@@ -1339,6 +1339,8 @@ function parseOutline(text){
     callout:  /^(?:callout|highlight|quote|stat)\s*[:\-]\s*(.+)$/i,
     figure:   /^(?:figure|image|visual|img|photo)\s*[:\-]\s*(.+)$/i,
     notes:    /^(?:speaker\s*notes?|notes?)\s*[:\-]\s*(.*)$/i,
+    roots:    /^(?:roots?|etymology)\s*[:\-]\s*(.+)$/i,
+    say:      /^(?:say|pronunciation|pronounce)\s*[:\-]\s*(.+)$/i,
   };
   const BULLET = /^[-*•·▪]\s+(.+)$/;
   const NUMPT  = /^\d+[\.\)]\s+(.+)$/;
@@ -1363,6 +1365,8 @@ function parseOutline(text){
                                         return true; }
     if ((m = line.match(F.callout)))  { s.callout = m[1].trim(); mode = null; return true; }
     if ((m = line.match(F.figure)))   { s.figure = m[1].trim(); mode = null; return true; }
+    if ((m = line.match(F.roots)))    { s.roots = m[1].trim(); mode = null; return true; }
+    if ((m = line.match(F.say)))      { s.say = m[1].trim().replace(/^\(\s*|\s*\)$/g, ''); mode = null; return true; }
     if ((m = line.match(F.notes)))    { s.notes = (s.notes ? s.notes + '\n' : '') + m[1]; mode = 'notes'; return true; }
     return false;
   };
@@ -1485,6 +1489,8 @@ function deckToOutline(deck){
   deck.slides.forEach((s, i) => {
     out.push(`${i + 1}. TYPE: ${s.type}`);
     if (s.headline) out.push(`   HEADLINE: ${s.headline}`);
+    if (s.say) out.push(`   SAY: ${s.say}`);
+    if (s.roots) out.push(`   ROOTS: ${s.roots}`);
     const lay = LAYOUT_TO_OUTLINE[s.layout];
     if (lay) out.push(`   LAYOUT: ${lay}`);
     if (s.annotations && s.annotations.length){
@@ -2118,6 +2124,205 @@ async function importPptx(file){
   }
 }
 
+/* ================= plan a lecture (deck skeleton) =================
+   Writes a whole lecture outline in the shape of the teacher's best deck:
+   title → (About me) → hook → reveal → objectives → roadmap → topics (each with
+   series slides, a class question/demo, analogies) → quiz → wrap-up, where the
+   N objectives map one-to-one onto N roadmap topics, N quiz questions and N
+   wrap-up points. Builds it, adds roadmap recaps, and can auto-fill images. */
+const ABOUTME_KEY = 'lectureflow.aboutMe';
+
+const PLAN_SYS = OUTLINE_FORMAT_SPEC + `
+
+You plan a complete university lecture as a LectureFlow outline, modelled on this teacher's best deck (an Echinodermata lecture). What makes that deck work, and what you must reproduce:
+- Organisms and objects float on the slide as cut-outs with short labels beside them (LAYOUT: scene), rather than bullet lists.
+- Every content slide ends on one big sentence at the bottom (CALLOUT): usually the takeaway, sometimes a cliffhanger into the next slide.
+- One concept is unrolled across several consecutive slides that share the same HEADLINE (series slides), each adding one idea.
+- The lecture is backward-designed: N objectives = N roadmap topics = N quiz questions = N wrap-up points, in the same order.
+- Language support: Greek/Latin roots of key terms (ROOTS:) and pronunciation guides for hard names (SAY:).
+- It stays conversational: questions to the class, live demos, everyday analogies and pop-culture links.
+
+WRITE THESE SLIDES, IN THIS ORDER:
+1. TYPE: title. HEADLINE: the topic's formal name. CALLOUT: a subtitle naming the lecture's angle (e.g. "Natural History, Physiology, & Ecology").
+2. (Never write an "about me" or introduction-of-the-teacher slide; it is inserted automatically.)
+3. HOOK (only if requested): TYPE: content, LAYOUT: scene. HEADLINE: a teaser like "Imagine an animal with …" adapted to the topic, without naming it. 3 POINTS, each a surprising trait as "Label | exact thing to picture" (e.g. "Eyes like this! | sea star eyespot close-up"). CALLOUT: a teasing line such as "…it might sound monstrous!".
+4. REVEAL (only if the hook is requested): TYPE: content, LAYOUT: scene. HEADLINE naming the group ("These are traits of the echinoderms!"). SAY: pronunciation of the formal name. ROOTS: its Greek/Latin roots. 3-5 POINTS = representative members as "Common name | exact species". CALLOUT: formal name plus an anchor fact (e.g. species count).
+5. TYPE: content, LAYOUT: statement. HEADLINE: "Lecture Objectives". POINTS: the objectives, each starting "#1.", "#2." … with a measurable verb. NOTES: the course objectives, if given.
+6. TYPE: roadmap. HEADLINE: "Roadmap". POINTS: one short topic name per objective, in order, then a final point "Quick Quiz".
+7. For EACH topic, in the same order as the objectives:
+   a. TYPE: section. HEADLINE: "Topic N: <topic name>". FIGURE: one iconic subject for the topic.
+   b. 5-9 TYPE: content slides that teach it, mixing:
+      - LAYOUT: scene when showing 2-6 different organisms or objects side by side (POINTS as "Label | exact subject").
+      - the default annotated layout (no LAYOUT line) for one subject with 2-4 short labels; FIGURE names the exact subject.
+      - a SERIES where one concept needs unpacking: the SAME HEADLINE on 2-5 consecutive slides, each adding one idea (e.g. "The Water-Vascular System": water enters, canals, tube feet, predation, limits).
+      - for a named taxonomic group: HEADLINE "<Formal name> (<common name>)", SAY: its pronunciation, FIGURE: a representative species, CALLOUT: species count and ecological role.
+      - ACTIVE BEAT (if requested), at least one per topic: TYPE: content, LAYOUT: statement. HEADLINE: a question to the class ("Why are there no freshwater echinoderms?") or a live demo ("Let's demo Pascal's law!"). POINTS: 1-2 prompts. NOTES: what to listen for, or how to run the demo.
+      - ANALOGY (if requested) where it truly helps: an everyday object or pop-culture link as a scene subject (e.g. "Jaws of Life | hydraulic rescue tool").
+8. TYPE: takeaway. HEADLINE: "Competency Quiz". POINTS: one short question per objective, in order. NOTES: a model answer for each, written as "Question 1 — answer" (never start a notes line with a number and a period).
+9. TYPE: takeaway. HEADLINE: "Big Picture Wrap Up". POINTS: one sentence per objective, in order. CALLOUT: "Questions?".
+
+STYLE RULES:
+- CALLOUT on every content slide: one line, at most 12 words. About one in four is a cliffhanger into the next slide that starts or ends with "…" (e.g. "…luckily, there is a clue in their development!", "Despite this …"); never two cliffhangers in a row.
+- POINTS are short (3-10 words), concrete labels, not sentences (except questions). Use exact species names; add the scientific name in parentheses where it helps.
+- FIGURE lines name the exact organism, object or process, search-friendly. If a TEXTBOOK FIGURES list is given, reuse a matching caption's key words in FIGURE so that figure is found.
+- ROOTS on slides that introduce a technical term with Greek or Latin roots: "word (transliteration) 'meaning'; word (transliteration) 'meaning'". SAY for hard formal names, in hyphenated syllables with the stressed one in capitals, e.g. "as-ter-OY-dee-uh".
+- Only state facts you are confident are correct for a university course, and spell taxon names correctly. No em dashes.
+- Output ONLY the outline. No commentary, no code fences.`;
+
+async function loadAboutMe(){
+  try { const raw = await IDB.get(ABOUTME_KEY); return raw ? JSON.parse(raw) : null; } catch (e){ return null; }
+}
+async function saveAboutMe(){
+  const s = cur();
+  if (!s){ toast('Open a deck first'); return; }
+  await IDB.set(ABOUTME_KEY, JSON.stringify(s));
+  toast('Saved as your About-me slide. The lecture planner will add it after the title of each new lecture', 6000);
+}
+function cloneSlideFresh(s){
+  const c = JSON.parse(JSON.stringify(s));
+  c.id = uid();
+  const imgMap = {};
+  (c.images || []).forEach(im => { const n = uid(); imgMap[im.id] = n; im.id = n; });
+  (c.annotations || []).forEach(a => { a.id = uid(); if (a.img && imgMap[a.img]) a.img = imgMap[a.img]; });
+  (c.texts || []).forEach(t => t.id = uid());
+  (c.arrows || []).forEach(a => a.id = uid());
+  delete c.recap; delete c.recapFor;
+  return c;
+}
+
+/* series slides: a new slide right after this one with the same headline, roots
+   and images, ready for the next idea */
+function continueSlide(){
+  const s = cur();
+  if (!s) return;
+  checkpoint();
+  const n = cloneSlideFresh(s);
+  n.annotations = []; n.callout = ''; n.notes = ''; n.texts = []; n.arrows = [];
+  const keep = {};
+  for (const k of ['headline', 'roots', 'say']) if (s.boxes && s.boxes[k]) keep[k] = { ...s.boxes[k] };
+  n.boxes = keep;
+  n.series = true;
+  delete n.searchTerms;
+  state.deck.slides.splice(state.cur + 1, 0, n);
+  state.cur++;
+  renderRail();
+  selectSlide(state.cur);
+  save();
+  toast('Continued: same headline and images. Add the next idea and its bottom line');
+}
+
+function planStatus(msg, err){
+  const s = $('#plan-status');
+  s.hidden = !msg;
+  s.textContent = msg || '';
+  s.classList.toggle('err', !!err);
+}
+async function openPlanModal(){
+  if (settings.planPresenter) $('#plan-presenter').value = settings.planPresenter;
+  if (settings.planCourse) $('#plan-course').value = settings.planCourse;
+  const about = await loadAboutMe();
+  $('#plan-aboutme-state').textContent = about ? '' : '(none saved yet: open a slide and click 👤)';
+  $('#plan-aboutme').disabled = !about;
+  if (!about) $('#plan-aboutme').checked = false;
+  planStatus('');
+  $('#plan-modal').showModal();
+  $('#plan-topic').focus();
+}
+
+/* check the one-to-one alignment the planner promises */
+function planAlignment(deck){
+  const objSlide = deck.slides.find(s => /objective/i.test(s.headline || ''));
+  const nObj = objSlide ? objSlide.annotations.length : 0;
+  const road = deck.slides.find(s => s.type === 'roadmap');
+  const nRoad = road ? road.annotations.filter(a => !/quiz/i.test(a.text)).length : 0;
+  const quiz = deck.slides.find(s => s.type === 'takeaway' && /quiz/i.test(s.headline || ''));
+  const wrap = deck.slides.find(s => s.type === 'takeaway' && /wrap|big picture/i.test(s.headline || ''));
+  const nQuiz = quiz ? quiz.annotations.length : 0, nWrap = wrap ? wrap.annotations.length : 0;
+  const ok = nObj > 0 && [nRoad, nQuiz, nWrap].every(n => n === nObj);
+  return { ok, nObj, nRoad, nQuiz, nWrap };
+}
+
+async function planLecture(){
+  const topic = $('#plan-topic').value.trim();
+  if (!topic){ planStatus('Give the lecture a topic first', true); return; }
+  if (!settings.anthropicKey){ planStatus('Add your Anthropic API key in Settings (⚙) to plan a lecture', true); return; }
+  const course = $('#plan-course').value.trim(), presenter = $('#plan-presenter').value.trim();
+  settings.planPresenter = presenter; settings.planCourse = course;
+  localStorage.setItem(LS.settings, JSON.stringify(settings));
+  const objectives = $('#plan-objectives').value.split('\n').map(l => l.replace(/^\s*(#?\d+[.)]?|[-*•])\s*/, '').trim()).filter(Boolean);
+  const n = objectives.length || +$('#plan-n').value || 4;
+  const flags = { hook: $('#plan-hook').checked, active: $('#plan-active').checked, analogy: $('#plan-analogy').checked };
+
+  // textbook figures on this topic, so FIGURE lines can point at them
+  let figs = [];
+  try {
+    figs = (await figLibMatchText(topic + ' ' + objectives.join(' '), 30))
+      .filter(f => f.caption).map(f => `p. ${f.page}: ${f.caption.slice(0, 160)}`);
+  } catch (e){}
+  const taste = loadTaste();
+  const src = $('#plan-source').value.trim().slice(0, 40000);
+  const user = [
+    `TOPIC: ${topic}`,
+    course ? `COURSE: ${course}` : '',
+    presenter ? `PRESENTER: ${presenter}` : '',
+    objectives.length
+      ? `LECTURE OBJECTIVES (use exactly these ${n}, in this order):\n` + objectives.map((o, i) => `#${i + 1}. ${o}`).join('\n')
+      : `LECTURE OBJECTIVES: propose ${n} clear, measurable objectives for this topic.`,
+    $('#plan-course-obj').value.trim() ? 'COURSE OBJECTIVES:\n' + $('#plan-course-obj').value.trim() : '',
+    `OPTIONS: hook and reveal ${flags.hook ? 'YES' : 'NO'}; active beats ${flags.active ? 'YES' : 'NO'}; analogies ${flags.analogy ? 'YES' : 'NO'}.`,
+    'LENGTH: about 40 slides in total.',
+    figs.length ? 'TEXTBOOK FIGURES (captions available in the course textbook):\n' + figs.join('\n') : '',
+    taste && taste.profile ? "TEACHER'S STYLE PROFILE:\n" + taste.profile : '',
+    src ? 'SOURCE MATERIAL (build the content from this where it applies):\n' + src : '',
+  ].filter(Boolean).join('\n\n');
+
+  const go = $('#plan-go');
+  go.disabled = true;
+  planStatus('Planning the lecture. This takes about a minute…');
+  try {
+    const raw = await anthropicMessage({ system: PLAN_SYS, user, maxTokens: 12000 });
+    let outline = raw.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
+    if (!/^#\s/m.test(outline)) outline = `# ${topic}\n` + outline;
+    if (presenter && !/^presenter\s*:/im.test(outline)) outline = outline.replace(/^(#.*\n)/, `$1Presenter: ${presenter}\n`);
+    if (course && !/^date\s*:/im.test(outline)) outline = outline.replace(/^(#.*\n)/, `$1Date: ${course}\n`);
+    $('#outline-text').value = outline;
+    if (!$('#plan-build').checked){
+      $('#plan-modal').close();
+      showScreen('outline');
+      toast('Lecture planned. Review the outline, then Build deck →', 8000);
+      return;
+    }
+    const deck = parseOutline(outline);
+    if (!deck.slides.length){ planStatus('The plan came back empty. Try again', true); return; }
+    if (presenter) deck.presenter = presenter;
+    if (course) deck.date = course;
+    // the look of the model deck: frame, plain labels, open bottom lines
+    deck.frame = true; deck.labelStyle = 'plain'; deck.bottomStyle = 'open';
+    if ($('#plan-aboutme').checked){
+      const about = await loadAboutMe();
+      if (about){
+        const at = deck.slides.findIndex(s => s.type === 'title');
+        deck.slides.splice(at + 1, 0, cloneSlideFresh(about));
+      }
+    }
+    deck.origin = { outline, fp: structureFingerprint(deck), at: Date.now() };
+    const align = planAlignment(deck);
+    $('#plan-modal').close();
+    openDeck(deck);
+    addRoadmapRecaps();                       // the roadmap returns before each topic, current stop highlighted
+    const warn = align.ok ? '' : ` Check the alignment: ${align.nObj} objectives, ${align.nRoad} roadmap topics, ${align.nQuiz} quiz questions, ${align.nWrap} wrap-up points.`;
+    toast(`Planned ${state.deck.slides.length} slides.${warn}`, 9000);
+    if ($('#plan-fill').checked){
+      openFillFigures();
+      if ($('#fill-modal').open) fillAuto();
+    }
+  } catch (e){
+    planStatus('Could not plan the lecture (' + (e.message || 'error') + ')', true);
+  } finally {
+    go.disabled = false;
+  }
+}
+
 /* ================= lecture "taste" (Phase 1) =================
    Two signals capture the user's taste: (1) how they reshape a generated
    outline into the final deck structure, and (2) how they arrange labels.
@@ -2452,9 +2657,9 @@ function fitHeadlineFS(text, w, maxFs, minFs){
    big open bottom line — the way hand-built biology decks are made. */
 
 /* staggered, organic spots for n subjects (one row up to 3, else two rows) */
-function sceneZones(n, hasCallout){
+function sceneZones(n, hasCallout, top = 150){
   n = clamp(n || 1, 1, 8);
-  const top = 150, bottom = hasCallout ? 572 : 648, left = 60, right = 1220, labelH = 44;
+  const bottom = hasCallout ? 572 : 648, left = 60, right = 1220, labelH = 44;
   const rows = n <= 3 ? 1 : 2;
   const perRow = rows === 1 ? [n] : [Math.ceil(n / 2), Math.floor(n / 2)];
   const rowH = (bottom - top) / rows;
@@ -2472,6 +2677,11 @@ function sceneZones(n, hasCallout){
     }
   });
   return zones;
+}
+/* a slide's scene spots: start lower when roots / pronunciation sit under the headline */
+function sceneZonesFor(slide){
+  const n = Math.max(slide.annotations.length, slide.images.length, 1);
+  return sceneZones(n, !!slide.callout, (slide.roots || slide.say) ? 184 : 150);
 }
 /* the image a scene label belongs to: its linked image, else the image in the same position */
 function sceneAnchor(slide, a, i){
@@ -2569,7 +2779,7 @@ function contentLayout(slide){
     out.annStyle = 'label'; out.annDetail = false; out.scene = true;
     out.headline = { x: 64, y: 52, w: 1060, fs: fitHeadlineFS(head, 1060, 52, 32) };
     const hasC = !!slide.callout;
-    out.figZones = sceneZones(Math.max(n, slide.images.length, 1), hasC);
+    out.figZones = sceneZonesFor(slide);
     const bottomLimit = hasC ? 592 : 668;
     out.anns = slide.annotations.map((a, i) => {
       const im = sceneAnchor(slide, a, i);
@@ -2777,6 +2987,11 @@ function renderTitle(root, slide, deck, pal, dark, opts){
   appendBox(root, withSerif(mkBox(slide, 'headline',
     { x: centered ? 140 : 96, y: 292, w: 1000, fs: fitHeadlineFS(txt, 1000, 74, 44), z: 5 },
     txt, `line-height:1.06;font-weight:600;${ta}`, opts)));
+  // optional subtitle (the title slide's CALLOUT), e.g. "Natural History, Physiology, & Ecology"
+  if (slide.callout){
+    appendBox(root, withSerif(mkBox(slide, 'callout', { x: centered ? 140 : 96, y: 392, w: 1000, fs: 32, z: 5 },
+      slide.callout, `line-height:1.2;font-weight:400;${ta}`, { ...opts, editKey: 'callout' })));
+  }
   if (deck.presenter || opts.editor){
     appendBox(root, mkBox(slide, 'presenter', { x: centered ? 140 : 96, y: 470, w: centered ? 1000 : 900, fs: 22, z: 5 },
       deck.presenter || 'Presenter name', `opacity:.78;${ta}`, { ...opts, editKey: 'presenter' }));
@@ -2916,6 +3131,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
     width:54px;height:5px;border-radius:3px;background:${pal.accent};z-index:5;`));
   appendBox(root, withSerif(mkBox(slide, 'headline', { ...L.headline, z: 5 },
     slide.headline || 'Slide headline', 'font-weight:650;line-height:1.14;', opts)));
+  renderRootsSay(root, slide, deck, L.headline, opts);
 
   // annotations, by style
   slide.annotations.forEach((a, i) => {
@@ -3010,6 +3226,28 @@ function renderContent(root, slide, deck, pal, dark, opts){
     } else if (L.lay === 'panels'){
       addFigHint(root, slide, { x: 870, y: 50, w: 330 });   // tucked top-right above the cards
     }
+  }
+}
+
+/* Language scaffolding under the headline: the word's roots, small at the left
+   (e.g. ἐχῖνος (ekhînos) 'spine'; δέρμα (dérma) 'skin'), and a pronunciation
+   guide centred beneath the title, e.g. (Ast-er-o-de-uh). */
+function effRoots(slide, deck){ return slide.roots || ''; }
+function renderRootsSay(root, slide, deck, headDef, opts){
+  const roots = effRoots(slide, deck), say = slide.say || '';
+  if (!roots && !say) return;
+  const hb = (slide.boxes && slide.boxes.headline) || {};
+  const hx = hb.x != null ? hb.x : headDef.x, hy = hb.y != null ? hb.y : headDef.y;
+  const hfs = hb.fs != null ? hb.fs : headDef.fs * textScale;
+  const below = Math.round(hy + hfs * 1.22 + 2);
+  if (roots){
+    const txt = roots.split(/\s*;\s*/).filter(Boolean).join('\n');
+    appendBox(root, withSerif(mkBox(slide, 'roots', { x: hx + 2, y: below, w: 560, fs: 17, z: 6 }, txt,
+      'white-space:pre-line;line-height:1.3;font-weight:400;opacity:.92;', { ...opts, editKey: 'roots' })));
+  }
+  if (say){
+    appendBox(root, withSerif(mkBox(slide, 'say', { x: hx, y: below - 4, w: headDef.w, fs: 26, z: 6 }, `(${say})`,
+      'text-align:center;font-weight:400;', { ...opts, editKey: 'say' })));
   }
 }
 
@@ -4303,6 +4541,8 @@ function startArrowMove(e, slide, a, root){
 function applyEdit(slide, key, val){
   if (key === 'headline')       slide.headline = val;
   else if (key === 'callout')   slide.callout = val;
+  else if (key === 'roots')     slide.roots = val;
+  else if (key === 'say')       slide.say = val.replace(/^\(\s*|\s*\)$/g, '');
   else if (key === 'presenter') state.deck.presenter = val;
   else if (key === 'date')      state.deck.date = val;
   else if (key.startsWith('text:')){
@@ -5718,7 +5958,7 @@ function sceneEmptyIndex(slide){
 }
 async function placeSceneImage(slide, r, i, { cutout = true } = {}){
   const a = slide.annotations[i];
-  const zones = sceneZones(Math.max(slide.annotations.length, 1), !!slide.callout);
+  const zones = sceneZonesFor(slide);
   const zone = zones[i % zones.length];
   let src = r.full, dim;
   try { dim = await loadImageDim(src); }
@@ -7156,7 +7396,8 @@ async function exportPPTX(){
     if (s.type === 'title'){
       T((deck.date || 'Lecture').toUpperCase(), { x: I(96), y: I(212), w: I(1000), h: I(36), fontSize: 12 * TS, charSpacing: 4, color: C(pal.accent2), align: boxAlign('kicker') });
       rule(96, 268, 64);
-      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(210), fontFace: SERIF, fontSize: pt(fitHeadlineFS(s.headline || deck.title, 1000, 74, 44) * TS), bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+      T(s.headline || deck.title, { x: I(96), y: I(292), w: I(1010), h: I(s.callout ? 96 : 210), fontFace: SERIF, fontSize: pt(fitHeadlineFS(s.headline || deck.title, 1000, 74, 44) * TS), bold: true, align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+      if (s.callout) T(s.callout, { x: I(96), y: I(392), w: I(1010), h: I(60), fontFace: SERIF, fontSize: pt(32 * TS), align: boxAlign('callout'), ...colorOpts(boxObj('callout')) });
       if (deck.presenter) T(deck.presenter, { x: I(96), y: I(516), w: I(900), h: I(40), fontSize: 16 * TS, color: dark ? '9FB2C4' : '5B6B7C', align: boxAlign('presenter') });
     }
     else if (s.type === 'roadmap'){
@@ -7252,6 +7493,20 @@ async function exportPPTX(){
         rule(L.headline.x, L.headline.y - 14, 54);
         T(s.headline || '', { x: I(L.headline.x), y: I(L.headline.y), w: I(L.headline.w), h: I(110),
           fontFace: SERIF, fontSize: pt(L.headline.fs * TS), bold: true, valign: 'top', align: boxAlign('headline'), ...colorOpts(boxObj('headline')) });
+        // roots (small, left) and pronunciation (centred) under the headline
+        const below = L.headline.y + L.headline.fs * TS * 1.22 + 2;
+        const rootsTxt = effRoots(s, deck);
+        if (rootsTxt){
+          const lines = rootsTxt.split(/\s*[;\n]\s*/).filter(Boolean);
+          const rb = boxObj('roots');
+          T(lines.join('\n'), { x: I(rb.x != null ? rb.x : L.headline.x + 2), y: I(rb.y != null ? rb.y : below), w: I(rb.w || 560),
+            h: I(lines.length * 23 + 8), fontFace: SERIF, fontSize: pt(rb.fs || 17), valign: 'top', ...textColor(rb) });
+        }
+        if (s.say){
+          const sb = boxObj('say');
+          T(`(${s.say})`, { x: I(sb.x != null ? sb.x : L.headline.x), y: I(sb.y != null ? sb.y : below - 4), w: I(sb.w || L.headline.w),
+            h: I(40), fontFace: SERIF, fontSize: pt(sb.fs || 26), align: sb.align || 'center', valign: 'top', ...textColor(sb) });
+        }
 
         if (L.annStyle === 'step' && L.timelineGeom){
           const g = L.timelineGeom;
@@ -8558,7 +8813,7 @@ function wireUI(){
     s.annotations.forEach(a => { a.x = a.y = null; });
     if (isSceneSlide(s)){
       // each subject's image back into its own spot; any extra images after them
-      const zones = sceneZones(Math.max(s.annotations.length, s.images.length, 1), !!s.callout);
+      const zones = sceneZonesFor(s);
       const used = new Set();
       s.annotations.forEach((a, i) => {
         const im = sceneAnchor(s, a, i);
@@ -8698,6 +8953,13 @@ function wireUI(){
     refreshAll();
   });
   $('#btn-bottom-lines').addEventListener('click', writeBottomLines);
+  // lecture planner + series + About-me
+  $('#btn-plan').addEventListener('click', openPlanModal);
+  $('#btn-home-plan').addEventListener('click', openPlanModal);
+  $('#plan-cancel').addEventListener('click', () => $('#plan-modal').close());
+  $('#plan-go').addEventListener('click', planLecture);
+  $('#btn-continue-slide').addEventListener('click', continueSlide);
+  $('#btn-save-aboutme').addEventListener('click', saveAboutMe);
   $('#bg-plain-labels').addEventListener('change', () => {
     if (!guardDeck()) return;
     checkpoint();
@@ -8828,8 +9090,9 @@ function wireUI(){
     checkpoint();
     const copy = JSON.parse(JSON.stringify(s));
     copy.id = uid();
-    copy.annotations.forEach(a => a.id = uid());
-    copy.images.forEach(im => im.id = uid());
+    const imgMap = {};
+    copy.images.forEach(im => { const n = uid(); imgMap[im.id] = n; im.id = n; });
+    copy.annotations.forEach(a => { a.id = uid(); if (a.img && imgMap[a.img]) a.img = imgMap[a.img]; });   // keep scene labels linked
     (copy.texts || []).forEach(t => t.id = uid());
     state.deck.slides.splice(state.cur + 1, 0, copy);
     state.cur++;
