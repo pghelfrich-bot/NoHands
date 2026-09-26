@@ -175,10 +175,13 @@ Design: free-text notes
       <button id="btn-relayout" class="btn small" title="Reset image and label positions to the automatic layout">✦ Re-layout</button>
       <button id="btn-smart-trim" class="btn small" title="Shorten this slide's labels in your learned style — the full text stays in speaker notes and is restorable">✨ Trim labels</button>
       <button id="btn-bottom-lines" class="btn small" title="Write a bottom line for every content slide that doesn't have one: its takeaway, or a cliffhanger that leads into the next slide (uses your Anthropic key; never overwrites yours)">✨ Bottom lines</button>
+      <button id="btn-roots" class="btn small" title="Add Greek/Latin roots where a technical term is introduced, and pronunciation guides for hard names, across the whole deck (uses your Anthropic key; never overwrites yours)">✨ Roots</button>
       <button id="btn-add-label" class="btn small" title="Add an annotation label">＋ Label</button>
       <button id="btn-add-text" class="btn small" title="Add a free text box">＋ Text</button>
       <button id="btn-add-overlay" class="btn small" title="Add a recurring element shown on every slide (edit it once, updates everywhere)">↻ Recurring</button>
-      <button id="btn-add-arrow" class="btn small" title="Draw an arrow between any two points (for flows and concept diagrams)">→</button>
+      <button id="btn-add-arrow" class="btn small" title="Draw an arrow between any two points (for flows and concept diagrams). Drag its yellow middle dot to curve it">→</button>
+      <button id="btn-add-story-arrow" class="btn small" title="Add a curved story arrow: thick white with a black outline, for showing sequence or cause (fossil → crinoid → sea star). Drag the ends to aim it, the yellow dot to curve it">⤻</button>
+      <button id="btn-add-ring" class="btn small" title="Add a highlight ring to circle a feature (e.g. the madreporite). Recolour it with the colour picker">◯</button>
       <span class="sep"></span>
       <span id="sel-tools" hidden>
         <select id="sel-scope" class="sel-scope" hidden title="Which slides this recurring element appears on">
@@ -201,6 +204,10 @@ Design: free-text notes
           <button id="sel-bg-clear" class="btn small" title="Remove background fill">⊘</button>
         </span>
         <button id="sel-chip" class="btn small" title="Label style: dark box → beige box → plain text (no box). On the bottom line: dark banner → beige banner → open text">◐</button>
+        <select id="sel-arrow-style" class="sel-scope" hidden title="Arrow style">
+          <option value="line">Line arrow</option>
+          <option value="story">Story arrow (outlined)</option>
+        </select>
         <select id="sel-role" class="sel-scope" hidden title="What this image is: the organism itself (cut out), a place or close-up (oval), or evidence like a field photo or diagram (white frame)">
           <option value="photo">Photo</option>
           <option value="organism">Organism (cut out)</option>
@@ -321,6 +328,9 @@ Design: free-text notes
       </label>
       <label class="check" title="Labels become plain text sitting on the slide instead of dark boxes (Scene slides are always plain unless you change a label with ◐)">
         <input type="checkbox" id="bg-plain-labels"> Plain labels <span class="muted">(no boxes)</span>
+      </label>
+      <label class="check" title="A slide's roots line (e.g. ἐχῖνος 'spine') repeats on the following slides of the same topic until a section slide">
+        <input type="checkbox" id="bg-carry-roots"> Carry roots through each topic
       </label>
       <label class="check" title="Each slide's bottom line becomes big open text instead of a banner">
         <input type="checkbox" id="bg-open-bottom"> Open bottom lines <span class="muted">(no banner)</span>
