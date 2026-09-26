@@ -523,19 +523,93 @@ const FIGURE_FILLER = new Set([
   'rendering', 'drawing', 'showing', 'depicting', 'featuring', 'illustrating', 'view',
   'closeup', 'close', 'up', 'detailed', 'high', 'resolution', 'hd', 'aerial', 'shot',
   'scene', 'across', 'through', 'between', 'among', 'amongst', 'comparison', 'versus', 'vs',
+  'graph', 'chart', 'plot', 'curve', 'data', 'map',
 ]);
+/* grammatical glue that stock-photo search treats as noise ("graph of growth
+   for elk" should search "graph growth elk", not waste words on "of"/"for") */
+const QUERY_STOP = new Set(('of in on for with and to by from at into onto its their how why what when where which who whom is are was were be been being can may might will would should could that this these those than then as vs about over under per via within without not no do does did has have had it they we you our your them there here very more most less least much many some any each every other such only also just both either while during after before because so if').split(' '));
 /* reduce a phrase to a few concrete search keywords: take the part before any
    comma, split compounds, drop filler words, and cap the length */
-function keywordize(text){
+function keywordize(text, max = 4){
   return (text || '')
     .split(',')[0]
     .replace(/[-/]/g, ' ')
     .replace(/[^\w\s]/g, ' ')
     .toLowerCase()
     .split(/\s+/)
-    .filter(w => w && !FIGURE_FILLER.has(w))
-    .slice(0, 4)
+    .filter(w => w && !FIGURE_FILLER.has(w) && !QUERY_STOP.has(w) && !/^\d+$/.test(w))
+    .slice(0, max)
     .join(' ');
+}
+
+/* ---------- search suggestions for a slide ----------
+   Free image libraries match literal words in photo titles, so a slide's
+   headline ("Compensatory mortality offsets harvest") finds nothing. Each slide
+   gets a short list of concrete, photographable queries: from Haiku when a key
+   is set (cached on the slide until its text changes), else a local heuristic
+   that favours scientific names and concrete nouns. */
+function localSearchTerms(s){
+  const out = [];
+  const add = t => { t = (t || '').trim().toLowerCase(); if (t.length > 2 && !out.includes(t)) out.push(t); };
+  const labels = (s.annotations || []).map(a => a.full || a.text);
+  const all = [s.figure, s.headline, ...labels].filter(Boolean).join(' . ');
+  for (const m of all.matchAll(/\(([A-Z][a-z]+ [a-z]{3,})\)/g)) add(m[1]);          // (Canis lupus)
+  if (s.figure){
+    const { primary, alternates } = splitFigureTerms(s.figure);
+    add(keywordize(primary, 3));
+    alternates.forEach(a => add(keywordize(a, 3)));
+  }
+  add(keywordize(s.headline, 3));
+  for (const l of labels) add(keywordize(l, 3));
+  return out.slice(0, 6);
+}
+const SEARCH_TERMS_SYS = `You write image-search queries for one slide in a university lecture deck. The queries go to free photo libraries (Wikimedia Commons, Openverse, Unsplash, Pexels) that match literal words in photo titles and tags, so abstract ideas find nothing.
+
+Return 5 queries, best first:
+- 1 to 3 words each, naming concrete things a photo or a well-known diagram shows: species (common name, and the scientific name as its own query when the slide is about a species), animals doing something, habitats, places, equipment, people doing fieldwork.
+- Turn abstract ideas into something visible. For example: "compensatory mortality" becomes "mallard duck" or "duck hunter"; "public trust doctrine" becomes "national wildlife refuge"; "carrying capacity" becomes "deer herd winter".
+- Use the exact species, place or object the slide names. Never use vague words like "nature", "wildlife", "concept", "management", "graph".
+
+Reply with ONLY a JSON array of strings.`;
+const searchTermsInflight = new Map();
+function slideTermsKey(s){
+  return quickHash([s.headline, s.figure, ...(s.annotations || []).map(a => a.text)].join('|'));
+}
+function cachedSearchTerms(s){
+  return (s.searchTerms && s.searchTerms.key === slideTermsKey(s) && s.searchTerms.terms.length) ? s.searchTerms.terms : null;
+}
+async function slideSearchTerms(s){
+  const cached = cachedSearchTerms(s);
+  if (cached) return cached;
+  const local = localSearchTerms(s);
+  if (!settings.anthropicKey) return local;
+  const key = slideTermsKey(s), flight = s.id + key;
+  if (searchTermsInflight.has(flight)) return searchTermsInflight.get(flight);
+  const p = (async () => {
+    try {
+      const user = [
+        state.deck && state.deck.title ? 'Deck: ' + state.deck.title : '',
+        s.headline ? 'Headline: ' + s.headline : '',
+        s.figure ? 'Intended figure: ' + s.figure : '',
+        (s.annotations || []).length ? 'Labels: ' + s.annotations.map(a => a.text).filter(Boolean).join('; ') : '',
+        s.callout ? 'Takeaway: ' + s.callout : '',
+      ].filter(Boolean).join('\n');
+      const raw = await anthropicMessage({ system: SEARCH_TERMS_SYS, user, maxTokens: 200, model: 'claude-haiku-4-5' });
+      const arr = JSON.parse((raw.match(/\[[\s\S]*\]/) || [raw])[0])
+        .map(x => String(x).trim().toLowerCase()).filter(x => x && x.length < 60);
+      if (!arr.length) return local;
+      const terms = [...new Set([...arr, ...local])].slice(0, 7);
+      s.searchTerms = { key, terms };
+      return terms;
+    } catch (e){ return local; }
+    finally { searchTermsInflight.delete(flight); }
+  })();
+  searchTermsInflight.set(flight, p);
+  return p;
+}
+async function slideSeedAsync(s){
+  const terms = await slideSearchTerms(s);
+  return { primary: terms[0] || keywordize(s.figure || s.headline || ''), alternates: terms.slice(1, 3) };
 }
 
 /* break a FIGURE prompt like "peacock male, alternatively a bird of paradise
@@ -4769,12 +4843,53 @@ function renderAltChips(alternates){
   });
 }
 
+/* suggestion chips: each is a concrete query; clicking one searches it */
+function renderTermChips(terms, active){
+  const box = $('#ip-alts');
+  if (!box) return;
+  box.innerHTML = '';
+  box.hidden = !terms.length;
+  if (!terms.length) return;
+  box.appendChild(el('span', 'ip-try', '', 'Try:'));
+  terms.forEach(term => {
+    const b = el('button', 'ip-alt-chip' + (term === active ? ' active' : ''), '', term);
+    b.type = 'button';
+    b.dataset.term = term;
+    b.addEventListener('click', () => {
+      $('#ip-query').value = term;
+      $$('#ip-alts .ip-alt-chip').forEach(c => c.classList.toggle('active', c === b));
+      runImageSearch();
+    });
+    box.appendChild(b);
+  });
+}
+function chipTerms(){ return $$('#ip-alts .ip-alt-chip').map(c => c.dataset.term); }
+
 function seedImagePanel(){
   const s = cur();
   if (!s) return;
   if (panelSeedFor !== s.id){
     panelSeedFor = s.id;
-    seedQueryFromText(s.figure || s.headline || state.deck.title || '');
+    const sid = s.id;
+    const cached = cachedSearchTerms(s);
+    let first = cached || localSearchTerms(s);
+    if (!first.length && state.deck.title) first = [keywordize(state.deck.title, 3)];
+    $('#ip-query').value = first[0] || '';
+    renderTermChips(first, first[0]);
+    if (!cached && settings.anthropicKey){
+      // wait (briefly) for the smarter suggestions before the automatic search
+      const timeout = new Promise(r => setTimeout(() => r(null), 3000));
+      Promise.race([slideSearchTerms(s), timeout]).then(terms => {
+        if (panelSeedFor !== sid) return;
+        const typed = $('#ip-query').value.trim();
+        if (terms && terms.length && typed === (first[0] || '')){
+          $('#ip-query').value = terms[0];
+          renderTermChips(terms, terms[0]);
+        }
+        autoSearchSoon();
+      });
+      return;
+    }
   }
   autoSearchSoon();
 }
@@ -4831,14 +4946,34 @@ async function runImageSearch(opts = {}){
   ipStatus((auto ? 'Suggestions for this slide — searching ' : 'Searching ')
     + provs.map(p => PROVIDERS[p].label).join(', ') + '…');
 
-  // also search any checked alternate subjects, alongside the main query
-  const altTerms = $$('#ip-alts input:checked').map(cb => cb.dataset.term);
   const transparent = $('#ip-transparent').checked;
-  const { results: merged, failed: failedProvs } = await fetchImages(q, { limit: auto ? 15 : 48, alts: altTerms, provs, transparent });
+  // textbook figures matching this slide come first (skipped for cut-out searches)
+  let lib = [];
+  if (!transparent){
+    const s = cur();
+    try {
+      lib = (await Promise.all((await figLibMatchText(q + ' ' + ((s && (s.figure || s.headline)) || ''), 4))
+        .map(figLibResult))).filter(Boolean);
+    } catch (e){}
+  }
+  const web = await fetchImages(q, { limit: auto ? 15 : 48, provs, transparent });
+  const merged = [...lib, ...web.results], failedProvs = web.failed;
   if (token !== searchToken) return;
 
   if (!merged.length){
-    ipStatus('No results.' + (failedProvs.length ? ` (${failedProvs.join(', ')} failed)` : ''), !!failedProvs.length);
+    // nothing for this query: move on to the next suggestion automatically
+    const terms = chipTerms();
+    const next = terms[terms.indexOf(q) + 1];
+    const tries = opts.tries || 0;
+    if (next && tries < 4){
+      $('#ip-query').value = next;
+      $$('#ip-alts .ip-alt-chip').forEach(c => c.classList.toggle('active', c.dataset.term === next));
+      ipStatus(`Nothing for “${q}”, trying “${next}”…`);
+      if (auto) lastAutoQuery = next;
+      return runImageSearch({ ...opts, tries: tries + 1 });
+    }
+    ipStatus('No results.' + (failedProvs.length ? ` (${failedProvs.join(', ')} failed)` : '')
+      + (terms.length ? ' Try another suggestion above, or type your own.' : ''), !!failedProvs.length);
     return;
   }
 
@@ -5426,7 +5561,13 @@ function figureWorklist(){
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => !s.images.length && (s.figure || s.headline));
 }
-function slideSeed(s){ return splitFigureTerms(s.figure || s.headline || ''); }
+// instant, local seed (the smarter slideSeedAsync replaces it once ready)
+function slideSeed(s){
+  const cached = cachedSearchTerms(s);
+  if (cached) return { primary: cached[0], alternates: cached.slice(1, 3) };
+  const t = localSearchTerms(s);
+  return t.length ? { primary: t[0], alternates: t.slice(1, 3) } : splitFigureTerms(s.figure || s.headline || '');
+}
 
 let fillList = [], fillPos = 0;
 
@@ -5445,9 +5586,15 @@ function fillShow(){
   const { s, i } = fillList[fillPos];
   $('#fill-progress').textContent = `Slide ${i + 1} · ${fillPos + 1} of ${fillList.length}`;
   $('#fill-slidehead').textContent = s.headline || `Slide ${i + 1}`;
-  const seed = slideSeed(s);
-  $('#fill-query').value = seed.primary;
-  fillSearch(seed.alternates);
+  const pos = fillPos;
+  const quick = slideSeed(s);
+  $('#fill-query').value = quick.primary;
+  if (!cachedSearchTerms(s) && settings.anthropicKey) fillStatus('Working out what to search for…');
+  slideSeedAsync(s).then(seed => {
+    if (pos !== fillPos || !$('#fill-modal').open) return;
+    $('#fill-query').value = seed.primary;
+    fillSearch(seed.alternates);
+  });
 }
 
 let fillToken = 0;
@@ -5524,7 +5671,7 @@ async function fillAuto(){
   $('#fill-progress').textContent = `Auto-filling… 0 of ${todo.length}`;
   const one = async ({ s, i }) => {
     if (fillCancelled) return;
-    const seed = slideSeed(s);
+    const seed = await slideSeedAsync(s);
     let lib = [], web = [];
     try { lib = (await Promise.all((await figLibMatches(s, 4)).map(figLibResult))).filter(Boolean); } catch (e){}
     try { web = (await fetchImages(seed.primary, { limit: 8, alts: seed.alternates })).results.slice(0, smart ? 5 : 6); } catch (e){}
