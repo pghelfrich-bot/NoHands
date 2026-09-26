@@ -130,6 +130,19 @@ const SLIDE_CSS = `
 .slide .lf-img.bleed img{object-fit:cover;border-radius:0;box-shadow:none}
 .slide .lf-img.cut img{object-fit:contain;filter:drop-shadow(0 16px 24px rgba(6,14,24,.38))}
 .slide .lf-img.bordered img{border:7px solid #fff;box-sizing:border-box;background:#fff}
+/* image roles: a "place / zoom-in" photo is an oval vignette with a white ring */
+.slide .lf-img.oval img{object-fit:cover;border-radius:50%;border:5px solid #fff;box-sizing:border-box;
+  box-shadow:0 14px 30px rgba(6,14,24,.42)}
+/* plain labels (no box) sit on the slide like hand-placed text; the open bottom
+   line is the slide's big closing sentence without a banner */
+.slide .lf-ann.lf-plain{font-weight:500;line-height:1.2;letter-spacing:0}
+.slide .lf-ann.lf-plain::before,.slide .lf-ann.lf-open-bottom::before{display:none}
+.slide.dark .lf-ann.lf-plain{color:#f4f8fb}
+.slide .lf-open-bottom,.slide .lf-ann.lf-open-bottom{font-weight:500;line-height:1.16;letter-spacing:0}
+/* editor-only: where a scene subject's image will go */
+.slide .lf-scenehint{position:absolute;z-index:6;border:2px dashed var(--lf-accent);border-radius:14px;
+  display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;white-space:pre-line;
+  font-size:15px;line-height:1.35;opacity:.7}
 .slide .lf-cinescrim{position:absolute;inset:0;z-index:3;pointer-events:none;
   background:linear-gradient(to top, rgba(6,12,20,.86) 0%, rgba(6,12,20,.55) 24%, rgba(6,12,20,.12) 46%, rgba(6,12,20,0) 64%)}
 .slide.cine{color:#fff}
@@ -1212,6 +1225,7 @@ function normLayoutName(s){
   if (/statement|big idea|hero/.test(s)) return 'statement';
   if (/figure left/.test(s)) return 'figureLeft';
   if (/figure right/.test(s)) return 'figureRight';
+  if (/scene|cut.?outs?|floating/.test(s)) return 'scene';
   if (/galler|grid|multi.?image|figure grid/.test(s)) return 'figureGrid';
   if (/cinematic|full.?bleed|edge/.test(s)) return 'cinematic';
   if (/cards?/.test(s)) return 'cards';
@@ -1406,10 +1420,17 @@ function parseOutline(text){
     if (sl.callout)  sl.callout  = fix(sl.callout);
     if (sl.figure)   sl.figure   = fix(sl.figure);
     if (sl.notes)    sl.notes    = fix(sl.notes);
+    const isScene = sl.layout === 'scene';
     sl.annotations = (sl.points || []).map(raw => {
-      const pt = fix(raw);
-      const short = shortenPoint(pt);
-      return { id: uid(), text: short, full: pt, orig: pt, x: null, y: null };
+      // "Label | what to picture" — the part after | is the image subject to search for
+      const bar = raw.split(/\s+\|\s+/);
+      const pt = fix(bar[0]);
+      const subject = bar[1] ? fix(bar[1]).trim() : '';
+      // scene labels are names ("Sea urchins"), keep them whole rather than compressing
+      const short = isScene ? pt.trim() : shortenPoint(pt);
+      const a = { id: uid(), text: short, full: pt, orig: pt, x: null, y: null };
+      if (subject) a.subject = subject;
+      return a;
     });
     const detail = sl.annotations.filter(a => a.full.trim() !== a.text.trim());
     if (detail.length && sl.type === 'content'){
@@ -1435,6 +1456,7 @@ const LAYOUT_TO_OUTLINE = {
   cinematic: 'cinematic', cards: 'cards', figureLeft: 'figure left', figureRight: 'figure right',
   spotlight: 'spotlight', bandTop: 'band', panels: 'panels', comparison: 'comparison',
   table: 'table', timeline: 'timeline', statement: 'statement', quote: 'quote', gallery: 'gallery', figureGrid: 'figure grid',
+  scene: 'scene',
 };
 
 // drop the auto-generated "Point details:" block — it's regenerated from
@@ -1467,7 +1489,8 @@ function deckToOutline(deck){
     if (lay) out.push(`   LAYOUT: ${lay}`);
     if (s.annotations && s.annotations.length){
       out.push('   POINTS:');
-      s.annotations.forEach(a => out.push(`   - ${(a.full && a.full.trim()) || a.text}`));
+      s.annotations.forEach(a => out.push(`   - ${(a.full && a.full.trim()) || a.text}`
+        + (a.subject && a.subject !== a.text ? ` | ${a.subject}` : '')));
     }
     if (s.callout) out.push(`   CALLOUT: ${s.callout}`);
     if (s.figure) out.push(`   FIGURE: ${s.figure}`);
@@ -1494,9 +1517,10 @@ Design: free-text mood/colour notes (optional)
 
 N. TYPE: title | roadmap | section | content | takeaway
    HEADLINE: the slide heading
-   LAYOUT: (optional) annotated | comparison | table | timeline | quote | statement | gallery | cinematic
+   LAYOUT: (optional) annotated | scene | comparison | table | timeline | quote | statement | gallery | cinematic
    POINTS:
    - one idea per bullet (long ones are auto-compressed; detail moves to notes)
+   - on a scene slide, one subject per bullet: "Label | what to picture", e.g. "Sea urchins | purple sea urchin"
    CALLOUT: a single highlighted stat or quote (optional)
    FIGURE: what the central image should show (optional but recommended on content slides)
    NOTES: speaker notes (optional)
@@ -1509,7 +1533,10 @@ LAYOUT: comparison when contrasting two things, LAYOUT: table for labeled rows
 (each POINT becomes a row: the term before its first colon is the row label and
 the rest is the detail), LAYOUT: timeline for a sequence
 or chronology, LAYOUT: quote for a single strong quotation, LAYOUT: statement
-for one punchy claim. Math: write equations as LaTeX, inline with $...$ or on
+for one punchy claim, LAYOUT: scene when a slide shows 2-6 different organisms or
+objects side by side (each is cut out and floated on the slide with its own
+label; write each POINT as "Label | exact species or object to picture" and put
+the slide's one-sentence bottom line in CALLOUT). Math: write equations as LaTeX, inline with $...$ or on
 their own as $$...$$ (e.g. "Population growth follows $\\frac{dN}{dt} = rN(1-N/K)$"
 or its own POINT "$$p^2 + 2pq + q^2 = 1$$") — these render as typeset notation,
 so define each symbol in the surrounding POINTS or NOTES. Output ONLY the
@@ -2374,6 +2401,7 @@ function galleryZones(n){
 const LAYOUTS = {
   content: [
     { key: 'annotated',  label: 'Annotated figure',  needs: 'image' },
+    { key: 'scene',      label: 'Scene (cut-outs)',  needs: 'image' },
     { key: 'cinematic',  label: 'Cinematic',        needs: 'image' },
     { key: 'cards',      label: 'Annotated cards',   needs: 'image' },
     { key: 'figureRight',label: 'Figure right' },
@@ -2416,6 +2444,62 @@ function fitHeadlineFS(text, w, maxFs, minFs){
   if (len >= minChars) return minFs;
   const t = (len - maxChars) / (minChars - maxChars);
   return Math.round(maxFs - t * (maxFs - minFs));
+}
+
+/* ---------- Scene layout helpers ----------
+   A "scene" floats several subjects (usually cut-out organisms) across the
+   background, each with a plain label beside it, a headline top-left and a
+   big open bottom line — the way hand-built biology decks are made. */
+
+/* staggered, organic spots for n subjects (one row up to 3, else two rows) */
+function sceneZones(n, hasCallout){
+  n = clamp(n || 1, 1, 8);
+  const top = 150, bottom = hasCallout ? 572 : 648, left = 60, right = 1220, labelH = 44;
+  const rows = n <= 3 ? 1 : 2;
+  const perRow = rows === 1 ? [n] : [Math.ceil(n / 2), Math.floor(n / 2)];
+  const rowH = (bottom - top) / rows;
+  const zones = [];
+  const maxJ = rows === 1 ? 36 : 18;       // alternate spots sit a little lower, like hand placement
+  perRow.forEach((k, r) => {
+    const cw = (right - left) / k;
+    const shift = r === 1 && k < perRow[0] ? cw * 0.5 * (perRow[0] - k) / perRow[0] : 0;
+    for (let c = 0; c < k; c++){
+      const jitter = (c + r) % 2 ? maxJ : 0;
+      const x = left + shift + c * cw + 14;
+      const y = top + r * rowH + 4 + jitter;
+      const h = Math.max(90, rowH - labelH - 14 - maxJ);
+      zones.push({ x: Math.round(x), y: Math.round(y), w: Math.round(cw - 28), h: Math.round(h) });
+    }
+  });
+  return zones;
+}
+/* the image a scene label belongs to: its linked image, else the image in the same position */
+function sceneAnchor(slide, a, i){
+  if (a.img){
+    const im = slide.images.find(x => x.id === a.img);
+    if (im) return im;
+  }
+  const im = slide.images[i];
+  return im && !slide.annotations.some(o => o !== a && o.img === im.id) ? im : null;
+}
+/* the big open bottom line: shrink as the sentence grows so it stays on ~2 lines */
+function openBottomFs(text){
+  const n = (text || '').length;
+  return n > 80 ? 28 : n > 55 ? 32 : 38;
+}
+/* label/bottom-line styling: per-item override, else the deck default, else the layout's natural style */
+function effLabelStyle(slide, deck, a){
+  if (a && a.chip === 'plain') return 'plain';
+  if (a && (a.chip === 'light' || a.chip === 'dark')) return 'chip';
+  if (deck && deck.labelStyle) return deck.labelStyle;
+  return effContentLayout(slide) === 'scene' ? 'plain' : 'chip';
+}
+function effBottomStyle(slide, deck){
+  const c = slide.boxes && slide.boxes.callout;
+  if (c && c.chip === 'plain') return 'open';
+  if (c && (c.chip === 'light' || c.chip === 'dark')) return 'banner';
+  if (deck && deck.bottomStyle) return deck.bottomStyle;
+  return effContentLayout(slide) === 'scene' ? 'open' : 'banner';
 }
 
 /* Geometry for a content slide under its chosen layout. Consumed by both the
@@ -2480,6 +2564,23 @@ function contentLayout(slide){
       return pos;
     });
     if (slide.callout) out.callout = { x: 80, y: 600, w: 1120, fs: 24, banner: true };
+  } else if (lay === 'scene'){
+    // subjects scattered across the slide; each label sits under (or above) its own image
+    out.annStyle = 'label'; out.annDetail = false; out.scene = true;
+    out.headline = { x: 64, y: 52, w: 1060, fs: fitHeadlineFS(head, 1060, 52, 32) };
+    const hasC = !!slide.callout;
+    out.figZones = sceneZones(Math.max(n, slide.images.length, 1), hasC);
+    const bottomLimit = hasC ? 592 : 668;
+    out.anns = slide.annotations.map((a, i) => {
+      const im = sceneAnchor(slide, a, i);
+      const box = im ? { x: im.x, y: im.y, w: im.w, h: im.h } : out.figZones[i % out.figZones.length];
+      const w = Math.round(Math.max(220, Math.min(440, box.w + 60)));
+      let y = box.y + box.h + 6;
+      if (y + 40 > bottomLimit) y = Math.max(132, box.y - 46);   // no room below → label above
+      const x = clamp(Math.round(box.x + box.w / 2 - w / 2), 28, 1252 - w);
+      return { x, y: Math.round(y), w, fs: 28, align: 'center' };
+    });
+    if (hasC) out.callout = { x: 80, y: 600, w: 1120, fs: openBottomFs(slide.callout), banner: true };
   } else if (lay === 'cards'){
     // each point is its own bordered, draggable/resizable card around the figure
     out.annStyle = 'card'; out.connectors = true;
@@ -2839,8 +2940,21 @@ function renderContent(root, slide, deck, pal, dark, opts){
       // pairing when the label's chip is set to 'light'; the slide's one big
       // takeaway point (if any) gets the wide bottom-banner variant. Chips show
       // the full point (not the short label) since they auto-size to fit it.
-      const extra = 'lf-chip' + (a.chip === 'light' ? ' lf-chip-light' : '') + (def.banner ? ' lf-takeaway-banner' : '');
-      renderAnnBox(root, slide, a, i, def, opts, L.annDetail, 0, extra, true);
+      // Plain labels drop the box entirely (scene slides default to plain), and
+      // an "open" bottom line is big unboxed text instead of a banner.
+      let extra;
+      if (def.banner){
+        extra = effBottomStyle(slide, deck) === 'open'
+          ? 'lf-open-bottom serif'
+          : 'lf-chip lf-takeaway-banner' + (a.chip === 'light' ? ' lf-chip-light' : '');
+      } else {
+        extra = effLabelStyle(slide, deck, a) === 'plain'
+          ? 'lf-plain serif'
+          : 'lf-chip' + (a.chip === 'light' ? ' lf-chip-light' : '');
+      }
+      const openDef = def.banner && extra.includes('lf-open-bottom')
+        ? { ...def, fs: openBottomFs(annDisplayText(a)), align: 'right' } : def;
+      renderAnnBox(root, slide, a, i, openDef, opts, L.annDetail, 0, extra, !L.scene);
     } else {
       // 'list' → movable annotation box, no chip background
       renderAnnBox(root, slide, a, i, def, opts, L.annDetail);
@@ -2856,6 +2970,12 @@ function renderContent(root, slide, deck, pal, dark, opts){
       // plain subtitle line over the scrim, not a boxed callout
       appendBox(root, mkBox(slide, 'callout', { ...L.callout, z: 36 }, slide.callout,
         'font-style:italic;line-height:1.4;opacity:.92;', { ...opts, editKey: 'callout' }));
+    } else if (L.callout.banner && effBottomStyle(slide, deck) === 'open'){
+      // open bottom line: the slide's closing sentence as big unboxed serif text
+      const cb = mkBox(slide, 'callout', { ...L.callout, fs: openBottomFs(slide.callout), z: 35 }, slide.callout,
+        'font-weight:500;line-height:1.16;' + ((slide.boxes && slide.boxes.callout && slide.boxes.callout.align) ? '' : 'text-align:right;'), opts);
+      if (cb) cb.classList.add('serif', 'lf-open-bottom');
+      appendBox(root, cb);
     } else if (L.callout.banner){
       // annotated layout: the callout IS the slide's big takeaway banner
       const boxObj = (slide.boxes && slide.boxes.callout) || {};
@@ -2869,6 +2989,17 @@ function renderContent(root, slide, deck, pal, dark, opts){
       if (cb) cb.classList.add('lf-callout');
       appendBox(root, cb);
     }
+  }
+
+  // scene: a dashed spot for every subject that doesn't have its image yet
+  if (opts.editor && L.scene){
+    slide.annotations.forEach((a, i) => {
+      if (sceneAnchor(slide, a, i)) return;
+      const z = L.figZones[i % L.figZones.length];
+      root.appendChild(el('div', 'lf-scenehint', `left:${z.x}px;top:${z.y}px;width:${z.w}px;height:${z.h}px;`,
+        (a.subject || a.text || 'subject') + '\n(Fill figures, or click an image in the panel)'));
+    });
+    return;
   }
 
   // suggested-figure hint when no image is placed yet
@@ -2910,7 +3041,7 @@ function renderAnnBox(root, slide, a, i, def, opts, showDetail = true, cardNum =
     widthStyle = `width:${w}px;`;
   }
   const node = el('div', cls, `left:${x}px;top:${y}px;${widthStyle}font-size:${fs}px;`
-    + (a.align ? `text-align:${a.align};` : '')
+    + ((a.align || def.align) ? `text-align:${a.align || def.align};` : '')
     + (a.color ? `color:${a.color};` : '')
     + (a.bg ? `background-color:${a.bg};` + (cardNum ? '' : 'padding:10px 14px;border-radius:10px;') : ''));
   node.dataset.id = a.id;
@@ -3293,7 +3424,8 @@ function renderImages(root, slide, opts){
   slide.images.forEach((im, i) => {
     const bleed = fullBleed && i === 0;
     const z = bleed ? 1 : (im.z != null ? im.z : 10 + i);
-    const node = el('div', 'lf-img ' + (bleed ? 'bleed ' : '') + (im.cutout ? 'cut' : 'photo') + (im.border && !bleed ? ' bordered' : ''),
+    const node = el('div', 'lf-img ' + (bleed ? 'bleed ' : '') + (im.cutout ? 'cut' : 'photo')
+      + (im.oval && !im.cutout && !bleed ? ' oval' : (im.border && !bleed ? ' bordered' : '')),
       `left:${im.x}px;top:${im.y}px;width:${im.w}px;height:${im.h}px;z-index:${z};`);
     node.dataset.id = im.id;
     node.dataset.sel = 'img:' + im.id;
@@ -3652,7 +3784,12 @@ function applySelection(root){
   const isChippable = !group && info && L2 && L2.annStyle === 'label'
     && (info.type === 'ann' || (info.type === 'box' && info.key === 'callout' && L2.callout && L2.callout.banner));
   $('#sel-chip').disabled = !isChippable;
-  $('#sel-chip').classList.toggle('active', isChippable && info.obj.chip === 'light');
+  $('#sel-chip').classList.toggle('active', isChippable && (info.obj.chip === 'light' || info.obj.chip === 'plain'));
+
+  // image role: organism (cut out) / place (oval) / evidence (framed) / plain photo
+  const roleSel = $('#sel-role');
+  roleSel.hidden = !isImg;
+  if (isImg) roleSel.value = imageRole(info.obj);
 
   // truncate: available when a single annotation on a label-style layout is selected
   const isTrunc = !group && info && info.type === 'ann' && L2 && L2.annStyle === 'label';
@@ -3940,6 +4077,15 @@ function startMove(e, node, slide, info, root, accLine){
   const ox = node.offsetLeft, oy = node.offsetTop;
   let moved = false;
   node.setPointerCapture(e.pointerId);
+  // on a scene slide, an image's label travels with it
+  const riders = [];
+  if (info.isImg && slide.type === 'content' && effContentLayout(slide) === 'scene'){
+    slide.annotations.forEach((a, i) => {
+      if (sceneAnchor(slide, a, i) !== info.obj) return;
+      const n = root.querySelector(`[data-sel="ann:${a.id}"]`);
+      if (n) riders.push({ a, n, x0: n.offsetLeft, y0: n.offsetTop, ax: a.x, ay: a.y });
+    });
+  }
   const move = ev => {
     if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return;
     if (!moved){ checkpoint(); moved = true; }
@@ -3947,6 +4093,10 @@ function startMove(e, node, slide, info, root, accLine){
     const ny = Math.round(clamp(oy + (ev.clientY - sy) / viewScale, -200, SLIDE_H - 20));
     node.style.left = nx + 'px'; node.style.top = ny + 'px';
     Object.assign(info.obj, { x: nx, y: ny });
+    for (const r of riders){
+      r.n.style.left = (r.x0 + nx - ox) + 'px'; r.n.style.top = (r.y0 + ny - oy) + 'px';
+      if (r.ax != null){ r.a.x = r.ax + nx - ox; r.a.y = r.ay + ny - oy; }   // hand-placed labels keep their offset
+    }
     drawConnectors(root, slide, arrowColor(state.deck));
     updateAnchorHandle(root, slide);
   };
@@ -4475,6 +4625,10 @@ function layoutIcon(key){
     case 'statement': return svg(bar(10, 18, 70, 9, A) + bar(10, 30, 50, 9, A) + tline(10, 48, 40) + tline(10, 55, 34));
     case 'quote': return svg(`<text x="16" y="30" font-size="22" fill="${A}">“</text>` + bar(24, 24, 72, 6, T) + bar(30, 36, 60, 6, T) + tline(40, 50, 40));
     case 'gallery': return svg(head(8, 8, 50) + img(8, 20, 50, 18) + img(62, 20, 50, 18) + img(8, 42, 50, 18) + img(62, 42, 50, 18));
+    case 'scene': return svg(head(6, 6, 46)
+      + `<path d="M22 30 l4 -9 4 9 9 1 -7 6 2 9 -8 -5 -8 5 2 -9 -7 -6z" fill="#e0894a"/>`
+      + `<circle cx="62" cy="36" r="9" fill="#7c5ca8"/><ellipse cx="96" cy="30" rx="12" ry="7" fill="#b7793f"/>`
+      + tline(16, 50, 20) + tline(52, 50, 20) + tline(86, 44, 20) + bar(50, 59, 62, 5, T));
     case 'figureGrid': return svg(head(8, 8, 50)
       + img(8, 20, 50, 40) + bar(8, 50, 50, 7, P)
       + img(62, 20, 50, 40) + bar(62, 50, 50, 7, P));
@@ -4868,6 +5022,19 @@ function chipTerms(){ return $$('#ip-alts .ip-alt-chip').map(c => c.dataset.term
 function seedImagePanel(){
   const s = cur();
   if (!s) return;
+  // scene: search for the next subject that still needs its image
+  if (isSceneSlide(s) && sceneEmptyIndex(s) >= 0){
+    const key = s.id + ':' + sceneEmptyIndex(s);
+    if (panelSeedFor !== key){
+      panelSeedFor = key;
+      const subjects = s.annotations.filter((a, i) => !sceneAnchor(s, a, i))
+        .map(a => (a.subject || a.full || a.text || '').trim().toLowerCase()).filter(Boolean);
+      $('#ip-query').value = subjects[0] || '';
+      renderTermChips(subjects, subjects[0]);
+    }
+    autoSearchSoon();
+    return;
+  }
   if (panelSeedFor !== s.id){
     panelSeedFor = s.id;
     const sid = s.id;
@@ -5489,6 +5656,8 @@ function showBgCurrent(){
   $('#bg-blur').value = blur;
   $('#bg-blur-val').textContent = blur + 'px';
   $('#bg-frame').checked = !!(state.deck && state.deck.frame);
+  $('#bg-plain-labels').checked = !!(state.deck && state.deck.labelStyle === 'plain');
+  $('#bg-open-bottom').checked = !!(state.deck && state.deck.bottomStyle === 'open');
   $('#bg-sharp-first').checked = !!(state.deck && state.deck.bgSharpFirst);
   $('#bg-motion').checked = !!(state.deck && state.deck.motion);
   $('#bg-arrows').value = (state.deck && state.deck.arrows) || 'none';
@@ -5528,6 +5697,7 @@ async function placeResultOnSlide(slide, r, at){
     place = defaultImagePlacement(slide, dim.w, dim.h);
   }
   Object.assign(im, place);
+  if (r.provider === 'textbook') im.border = true;   // textbook figures read as framed evidence
   slide.images.push(im);
 
   // Unsplash API guidelines: report the download
@@ -5538,9 +5708,138 @@ async function placeResultOnSlide(slide, r, at){
   return im;
 }
 
+/* ---------- scene filling ----------
+   Each scene subject gets its own image, placed in its spot and linked to its
+   label. Web photos are cut out (the "organism floating on the background"
+   look); if that fails they fall back to an oval vignette. Textbook figures are
+   kept as white-framed "evidence" rather than cut apart. */
+function sceneEmptyIndex(slide){
+  return slide.annotations.findIndex((a, i) => !sceneAnchor(slide, a, i));
+}
+async function placeSceneImage(slide, r, i, { cutout = true } = {}){
+  const a = slide.annotations[i];
+  const zones = sceneZones(Math.max(slide.annotations.length, 1), !!slide.callout);
+  const zone = zones[i % zones.length];
+  let src = r.full, dim;
+  try { dim = await loadImageDim(src); }
+  catch (e){
+    try { src = r.thumb; dim = await loadImageDim(src); } catch (e2){ return null; }
+  }
+  const im = { id: uid(), src, cutout: false, cutSrc: null,
+    attr: { title: r.title, author: r.author, authorUrl: r.authorUrl, license: r.license,
+            licenseUrl: r.licenseUrl, pageUrl: r.pageUrl, sourceName: r.sourceName },
+    ...fitRect(dim.w, dim.h, zone) };
+  im.altFor = imgFingerprint(im);
+  await embedImage(im);
+  if (r.provider === 'textbook') im.border = true;                    // evidence: keep the figure whole
+  else if (cutout){
+    try {
+      const raw = await cutoutBestAvailable(im, {});
+      try { im.cutSrc = await shrinkImage(raw, 1200, 0.88); } catch (e){ im.cutSrc = raw; }
+      im.cutout = true;
+    } catch (e){ im.oval = true; }                                      // couldn't cut it out → oval vignette
+  }
+  if (a) a.img = im.id;
+  slide.images.push(im);
+  return im;
+}
+/* find, check and place an image for every subject in a scene that lacks one */
+async function sceneFill(slide, { onProgress } = {}){
+  const smart = !!settings.anthropicKey;
+  let placed = 0, fromBook = 0;
+  for (let i = 0; i < slide.annotations.length; i++){
+    if (fillCancelled) break;
+    const a = slide.annotations[i];
+    if (sceneAnchor(slide, a, i)) continue;
+    const subject = (a.subject || a.full || a.text || '').trim();
+    if (!subject) continue;
+    onProgress && onProgress(subject);
+    let lib = [], web = [];
+    try { lib = (await Promise.all((await figLibMatchText(subject, 2)).map(figLibResult))).filter(Boolean); } catch (e){}
+    try { web = (await fetchImages(subject, { limit: 8 })).results.slice(0, 5); } catch (e){}
+    let order = [...lib, ...web];
+    if (smart && order.length){
+      // judge against the subject itself, with the slide as context
+      const pseudo = { headline: subject, figure: `${subject} (one subject on a slide titled “${slide.headline || ''}”)`, annotations: [] };
+      try { const v = await visionPick(pseudo, order); if (v) order = v.pick ? [v.pick] : []; } catch (e){}
+    }
+    for (const r of order){
+      const im = await placeSceneImage(slide, r, i);
+      if (im){ placed++; if (r.provider === 'textbook') fromBook++; break; }
+    }
+  }
+  return { placed, fromBook };
+}
+
+function imageRole(im){
+  return im.cutout ? 'organism' : im.oval ? 'place' : im.border ? 'evidence' : 'photo';
+}
+
+/* ---------- bottom lines: takeaways and cliffhangers ----------
+   Hand-built decks end most slides on one big sentence: the takeaway, or a
+   cliffhanger that pulls into the next slide ("…but the anatomy is even more
+   fascinating!"). This writes one for every content slide missing its own,
+   reading the whole deck so each line knows what comes next. */
+const BOTTOM_SYS = `You write the closing line for slides in a university lecture deck. Each content slide ends with one big sentence at the bottom of the slide.
+
+For every slide index listed under NEEDS, write ONE line (at most 12 words):
+- Usually the slide's single takeaway, in plain, lively language. Examples: "~1000 species, spiny algae and coral grazers", "They transition from bilateral to radial symmetry as adults".
+- When the NEXT slide turns the story (answers a question this slide raises, reveals a twist, or goes a layer deeper), write a cliffhanger that leads into it instead, starting or ending with "…". Examples: "…luckily, there is a clue in their development!", "Despite this …", "…but the anatomy is even more fascinating!". Use cliffhangers for roughly one slide in four, at real turns in the story, never on two slides in a row.
+- Use only facts present in the slides. No em dashes. No quotation marks around the line.
+
+Reply with ONLY a JSON object mapping each NEEDS index to its line, like {"3": "…", "7": "…"}.`;
+
+async function writeBottomLines(){
+  if (!guardDeck()) return;
+  if (!settings.anthropicKey){ toast('Add your Anthropic API key in Settings (⚙) to write bottom lines'); return; }
+  const d = state.deck;
+  const needs = [];
+  const brief = d.slides.map((s, i) => {
+    if (s.type === 'content' && !(s.callout && s.callout.trim())) needs.push(i);
+    return { i, type: s.type, headline: s.headline || '',
+      labels: (s.annotations || []).map(a => a.text).filter(Boolean).slice(0, 6),
+      bottom: s.callout || '' };
+  });
+  if (!needs.length){ toast('Every content slide already has a bottom line'); return; }
+  const btn = $('#btn-bottom-lines');
+  btn.disabled = true;
+  toast(`Writing ${needs.length} bottom line${needs.length === 1 ? '' : 's'}…`, 60000);
+  try {
+    const raw = await anthropicMessage({ system: BOTTOM_SYS, maxTokens: 3000,
+      user: 'DECK: ' + (d.title || '') + '\nSLIDES:\n' + JSON.stringify(brief) + '\n\nNEEDS: ' + JSON.stringify(needs) });
+    const map = JSON.parse((raw.match(/\{[\s\S]*\}/) || [raw])[0]);
+    checkpoint();
+    let n = 0;
+    for (const i of needs){
+      const line = map[i] || map[String(i)];
+      const s = d.slides[i];
+      if (line && s && !(s.callout && s.callout.trim())){ s.callout = deEmDash(String(line).trim()); n++; }
+    }
+    commitChange();
+    refreshAll();
+    toast(`Added ${n} bottom line${n === 1 ? '' : 's'}. Undo (↶) if you'd rather not`, 7000);
+  } catch (e){
+    toast('Could not write bottom lines (' + (e.message || 'error') + ')');
+  } finally { btn.disabled = false; }
+}
+
 async function insertImageFromResult(r, at){
   const s = cur();
   if (!s){ toast('Open a deck first'); return; }
+  // on a scene slide, a clicked image fills the next empty subject (cut out, labelled)
+  if (!at && s.type === 'content' && effContentLayout(s) === 'scene' && sceneEmptyIndex(s) >= 0){
+    const i = sceneEmptyIndex(s);
+    checkpoint();
+    toast(`Placing “${s.annotations[i].text}” and cutting it out…`, 15000);
+    const im = await placeSceneImage(s, r, i);
+    if (!im){ toast('That image failed to load — skipped'); return; }
+    refreshAll();
+    save();
+    seedImagePanel();                    // point the panel at the next missing subject
+    const next = sceneEmptyIndex(s);
+    toast(next >= 0 ? `Placed. Next: “${s.annotations[next].text}”` : 'Scene complete');
+    return;
+  }
   checkpoint();
   toast('Inserting image…', 6000);
   const im = await placeResultOnSlide(s, r, at);
@@ -5556,10 +5855,13 @@ async function insertImageFromResult(r, at){
 
 /* ================= batch "Fill figures" pass ================= */
 
+function isSceneSlide(s){ return s.type === 'content' && effContentLayout(s) === 'scene'; }
 function figureWorklist(){
   return state.deck.slides
     .map((s, i) => ({ s, i }))
-    .filter(({ s }) => !s.images.length && (s.figure || s.headline));
+    .filter(({ s }) => isSceneSlide(s)
+      ? sceneEmptyIndex(s) >= 0                                   // scenes: any subject still missing
+      : !s.images.length && (s.figure || s.headline));
 }
 // instant, local seed (the smarter slideSeedAsync replaces it once ready)
 function slideSeed(s){
@@ -5587,6 +5889,16 @@ function fillShow(){
   $('#fill-progress').textContent = `Slide ${i + 1} · ${fillPos + 1} of ${fillList.length}`;
   $('#fill-slidehead').textContent = s.headline || `Slide ${i + 1}`;
   const pos = fillPos;
+  if (isSceneSlide(s)){
+    // scenes are filled one subject at a time
+    const k = sceneEmptyIndex(s);
+    if (k < 0){ fillPos++; fillShow(); return; }
+    const a = s.annotations[k];
+    $('#fill-slidehead').textContent = `${s.headline || `Slide ${i + 1}`} · subject ${k + 1} of ${s.annotations.length}: ${a.text}`;
+    $('#fill-query').value = (a.subject || a.full || a.text || '').trim();
+    fillSearch([]);
+    return;
+  }
   const quick = slideSeed(s);
   $('#fill-query').value = quick.primary;
   if (!cachedSearchTerms(s) && settings.anthropicKey) fillStatus('Working out what to search for…');
@@ -5640,6 +5952,15 @@ function fillCell(r, imEl){
 async function fillAccept(r){
   const { s, i } = fillList[fillPos];
   checkpoint();
+  if (isSceneSlide(s)){
+    const k = sceneEmptyIndex(s);
+    fillStatus('Placing and cutting out…');
+    const im = k >= 0 ? await placeSceneImage(s, r, k) : null;
+    if (!im){ toast('That image failed to load — try another'); fillStatus(''); return; }
+    refreshRailThumb(i); save();
+    fillShow();                         // next subject on this slide, or the next slide when done
+    return;
+  }
   const im = await placeResultOnSlide(s, r);
   if (!im){ toast('That image failed to load — try another'); return; }
   refreshRailThumb(i); save();
@@ -5671,6 +5992,15 @@ async function fillAuto(){
   $('#fill-progress').textContent = `Auto-filling… 0 of ${todo.length}`;
   const one = async ({ s, i }) => {
     if (fillCancelled) return;
+    if (isSceneSlide(s)){
+      const r = await sceneFill(s);
+      if (fillCancelled) return;
+      done++;
+      $('#fill-progress').textContent = `Auto-filling… ${done} of ${todo.length}`;
+      if (r.placed){ placed++; fromBook += r.fromBook ? 1 : 0; refreshRailThumb(i); }
+      if (sceneEmptyIndex(s) >= 0) missed.push(i + 1);
+      return;
+    }
     const seed = await slideSeedAsync(s);
     let lib = [], web = [];
     try { lib = (await Promise.all((await figLibMatches(s, 4)).map(figLibResult))).filter(Boolean); } catch (e){}
@@ -6995,6 +7325,12 @@ async function exportPPTX(){
                 const { a: A, t: Tg } = annLeader(fig, a, { x, y }, w, cardH);
                 addLine(sl, A.x, A.y, Tg.x, Tg.y, { color: arrowC, width: 2, arrow: true });
               }
+            } else if (L.annStyle === 'label' && (def.banner ? effBottomStyle(s, deck) === 'open' : effLabelStyle(s, deck, a) === 'plain')){
+              // plain label / open bottom line: serif text straight on the slide, no box
+              const dispText = L.scene ? a.text : annDisplayText(a);
+              const pfs = def.banner ? openBottomFs(dispText) * TS : fs;
+              T(dispText, { x: I(x), y: I(y), w: I(w), h: I(chipBoxH(dispText, w, pfs, 4)), fontFace: SERIF,
+                fontSize: pt(pfs), valign: 'top', align: a.align || def.align || (def.banner ? 'right' : undefined), ...textColor(a) });
             } else if (L.annStyle === 'label'){
               // filled "chip" label — dark fill/white text by default, or a
               // beige/dark pairing when chip is set to 'light'; the slide's one
@@ -7034,7 +7370,14 @@ async function exportPPTX(){
           });
         }
         if (s.callout && L.callout){
-          if (L.callout.banner){
+          if (L.callout.banner && effBottomStyle(s, deck) === 'open'){
+            const cobj = boxObj('callout');
+            const ofs = openBottomFs(s.callout) * TS;
+            const cx = cobj.x != null ? cobj.x : L.callout.x, cy = cobj.y != null ? cobj.y : L.callout.y;
+            const cw = cobj.w != null ? cobj.w : L.callout.w;
+            T(s.callout, { x: I(cx), y: I(cy), w: I(cw), h: I(chipBoxH(s.callout, cw, ofs, 4)), fontFace: SERIF,
+              fontSize: pt(cobj.fs || ofs), valign: 'top', align: boxAlign('callout') || 'right', ...textColor(cobj) });
+          } else if (L.callout.banner){
             const cobj = boxObj('callout');
             const isLight = cobj.chip === 'light';
             const padY = 18;
@@ -7094,7 +7437,14 @@ async function exportPPTX(){
       const data = (im.cutout && im.cutSrc) ? im.cutSrc : im.src;
       if (!data.startsWith('data:')) continue;
       const alt = imgAlt(s, im);
-      if (im.border && !im.cutout){
+      if (im.oval && !im.cutout){
+        // oval vignette: white ring behind, photo cropped to an ellipse inside it
+        const b = 5;
+        sl.addShape('ellipse', { x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h), fill: { color: 'FFFFFF' }, line: { type: 'none' },
+          shadow: { type: 'outer', color: '060E18', blur: 9, offset: 3, angle: 90, opacity: 0.34 } });
+        sl.addImage({ data, altText: alt, x: I(im.x + b), y: I(im.y + b), w: I(im.w - 2 * b), h: I(im.h - 2 * b),
+          rounding: true, sizing: { type: 'cover', w: I(im.w - 2 * b), h: I(im.h - 2 * b) } });
+      } else if (im.border && !im.cutout){
         // white frame drawn behind, photo inset by the border width (matches the editor)
         const b = 7;
         sl.addShape('roundRect', { x: I(im.x), y: I(im.y), w: I(im.w), h: I(im.h), rectRadius: 0.03,
@@ -8206,6 +8556,22 @@ function wireUI(){
     const s = cur(); if (!s) return;
     checkpoint();
     s.annotations.forEach(a => { a.x = a.y = null; });
+    if (isSceneSlide(s)){
+      // each subject's image back into its own spot; any extra images after them
+      const zones = sceneZones(Math.max(s.annotations.length, s.images.length, 1), !!s.callout);
+      const used = new Set();
+      s.annotations.forEach((a, i) => {
+        const im = sceneAnchor(s, a, i);
+        if (!im) return;
+        Object.assign(im, fitRect(im.w, im.h, zones[i % zones.length]));
+        used.add(im.id);
+      });
+      let k = s.annotations.length;
+      s.images.forEach(im => { if (!used.has(im.id)) Object.assign(im, fitRect(im.w, im.h, zones[k++ % zones.length])); });
+      refreshAll();
+      toast('Scene re-arranged');
+      return;
+    }
     const imgs = s.images;
     // a content slide with several images gets tiled into a clean grid;
     // otherwise fall back to the per-slide default placement
@@ -8309,9 +8675,39 @@ function wireUI(){
     const info = selInfo(s, state.sel);
     if (!info) return;
     checkpoint();
-    if (info.obj.chip === 'light') delete info.obj.chip;
-    else info.obj.chip = 'light';
+    // cycle: dark box → beige box → plain text → dark box
+    const isCallout = info.type === 'box' && info.key === 'callout';
+    const plainNow = isCallout ? effBottomStyle(s, state.deck) === 'open' : effLabelStyle(s, state.deck, info.obj) === 'plain';
+    info.obj.chip = plainNow ? 'dark' : info.obj.chip === 'light' ? 'plain' : 'light';
     commitChange();
+    refreshAll();
+  });
+  $('#sel-role').addEventListener('change', async () => {
+    const s = cur();
+    const info = s && selInfo(s, state.sel);
+    if (!info || !info.isImg) return;
+    checkpoint();
+    const im = info.obj, role = $('#sel-role').value;
+    im.oval = role === 'place';
+    im.border = role === 'evidence';
+    if (role === 'organism'){
+      if (im.cutSrc) im.cutout = true;
+      else { im.cutout = false; await applyCutout(im); }   // computes the cut-out and turns it on
+    } else im.cutout = false;
+    commitChange();
+    refreshAll();
+  });
+  $('#btn-bottom-lines').addEventListener('click', writeBottomLines);
+  $('#bg-plain-labels').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.labelStyle = $('#bg-plain-labels').checked ? 'plain' : null;
+    refreshAll();
+  });
+  $('#bg-open-bottom').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.bottomStyle = $('#bg-open-bottom').checked ? 'open' : null;
     refreshAll();
   });
   $('#sel-truncate').addEventListener('click', () => {

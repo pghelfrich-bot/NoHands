@@ -484,6 +484,8 @@ button.ip-alt-chip{font:inherit;font-size:12px}
 
 /* ---------- fill figures ---------- */
 .fill-modal{width:min(760px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:10px}
+/* a closed dialog must stay hidden even when its own class sets a display mode */
+dialog.modal:not([open]){display:none}
 .fill-head{display:flex;align-items:center;gap:10px}
 .fill-head h2{margin:0;font-size:16px}
 .fill-slidehead{font-size:13px;color:var(--ink-dim)}
