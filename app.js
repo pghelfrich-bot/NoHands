@@ -138,8 +138,10 @@ const SLIDE_CSS = `
 .slide .lf-ann.lf-plain{font-weight:500;line-height:1.2;letter-spacing:0}
 .slide .lf-ann.lf-plain::before,.slide .lf-ann.lf-open-bottom::before{display:none}
 .slide.dark .lf-ann.lf-plain{color:#f4f8fb}
+.slide .lf-ann.lf-onphoto,.slide.light .lf-ann.lf-onphoto{color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 12px rgba(0,0,0,.7)}
 .slide .lf-open-bottom,.slide .lf-ann.lf-open-bottom{font-weight:500;line-height:1.16;letter-spacing:0}
 /* editor-only: where a scene subject's image will go */
+.slide .lf-scenehint.oval{border-radius:50%}
 .slide .lf-scenehint{position:absolute;z-index:6;border:2px dashed var(--lf-accent);border-radius:14px;
   display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;white-space:pre-line;
   font-size:15px;line-height:1.35;opacity:.7}
@@ -154,6 +156,15 @@ const SLIDE_CSS = `
 .slide .lf-arrow-hit{stroke:transparent;stroke-width:18;pointer-events:stroke;cursor:grab}
 .slide .lf-arrow-end{fill:#38bdf8;stroke:#fff;stroke-width:1.5;pointer-events:auto;cursor:pointer}
 .slide .lf-arrow-line.selected{filter:drop-shadow(0 0 3px #38bdf8)}
+.slide .lf-arrow-bend{fill:#fbbf24}
+.slide .lf-story{filter:drop-shadow(0 4px 6px rgba(0,0,0,.35))}
+/* highlight rings: an outlined oval drawing the eye to one feature */
+.slide .lf-ring{position:absolute;z-index:44;border-radius:50%;box-sizing:border-box;pointer-events:none;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.45))}
+.slide .lf-ring.selected{pointer-events:auto;cursor:move}
+.slide .lf-ring .lf-h{pointer-events:auto}
+.slide .lf-rings-hit{position:absolute;inset:0;width:100%;height:100%;z-index:47;pointer-events:none}
+.slide .lf-ring-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:pointer}
 .slide .lf-ann{position:absolute;z-index:30;width:${ANN_W}px;font-size:19px;line-height:1.32;font-weight:600;letter-spacing:.1px}
 .slide .lf-ann::before{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--lf-accent);margin-bottom:7px}
 .slide.light .lf-ann{color:#1d3142}
@@ -1226,6 +1237,7 @@ function normLayoutName(s){
   if (/figure left/.test(s)) return 'figureLeft';
   if (/figure right/.test(s)) return 'figureRight';
   if (/scene|cut.?outs?|floating/.test(s)) return 'scene';
+  if (/profile|taxon|group card/.test(s)) return 'profile';
   if (/galler|grid|multi.?image|figure grid/.test(s)) return 'figureGrid';
   if (/cinematic|full.?bleed|edge/.test(s)) return 'cinematic';
   if (/cards?/.test(s)) return 'cards';
@@ -1460,7 +1472,7 @@ const LAYOUT_TO_OUTLINE = {
   cinematic: 'cinematic', cards: 'cards', figureLeft: 'figure left', figureRight: 'figure right',
   spotlight: 'spotlight', bandTop: 'band', panels: 'panels', comparison: 'comparison',
   table: 'table', timeline: 'timeline', statement: 'statement', quote: 'quote', gallery: 'gallery', figureGrid: 'figure grid',
-  scene: 'scene',
+  scene: 'scene', profile: 'profile',
 };
 
 // drop the auto-generated "Point details:" block — it's regenerated from
@@ -1523,7 +1535,7 @@ Design: free-text mood/colour notes (optional)
 
 N. TYPE: title | roadmap | section | content | takeaway
    HEADLINE: the slide heading
-   LAYOUT: (optional) annotated | scene | comparison | table | timeline | quote | statement | gallery | cinematic
+   LAYOUT: (optional) annotated | scene | profile | comparison | table | timeline | quote | statement | gallery | cinematic
    POINTS:
    - one idea per bullet (long ones are auto-compressed; detail moves to notes)
    - on a scene slide, one subject per bullet: "Label | what to picture", e.g. "Sea urchins | purple sea urchin"
@@ -1542,7 +1554,11 @@ or chronology, LAYOUT: quote for a single strong quotation, LAYOUT: statement
 for one punchy claim, LAYOUT: scene when a slide shows 2-6 different organisms or
 objects side by side (each is cut out and floated on the slide with its own
 label; write each POINT as "Label | exact species or object to picture" and put
-the slide's one-sentence bottom line in CALLOUT). Math: write equations as LaTeX, inline with $...$ or on
+the slide's one-sentence bottom line in CALLOUT), LAYOUT: profile for one
+taxonomic group or organism (FIGURE is the big main photo of a representative
+species; 2-3 POINTS become oval insets, each "Label | what to picture", e.g.
+"Intertidal zone | sea stars in a tide pool" or ">10,000 m | abyssal sea stars";
+CALLOUT gives the species count and ecological role). Math: write equations as LaTeX, inline with $...$ or on
 their own as $$...$$ (e.g. "Population growth follows $\\frac{dN}{dt} = rN(1-N/K)$"
 or its own POINT "$$p^2 + 2pq + q^2 = 1$$") — these render as typeset notation,
 so define each symbol in the surrounding POINTS or NOTES. Output ONLY the
@@ -2155,7 +2171,7 @@ WRITE THESE SLIDES, IN THIS ORDER:
       - LAYOUT: scene when showing 2-6 different organisms or objects side by side (POINTS as "Label | exact subject").
       - the default annotated layout (no LAYOUT line) for one subject with 2-4 short labels; FIGURE names the exact subject.
       - a SERIES where one concept needs unpacking: the SAME HEADLINE on 2-5 consecutive slides, each adding one idea (e.g. "The Water-Vascular System": water enters, canals, tube feet, predation, limits).
-      - for a named taxonomic group: HEADLINE "<Formal name> (<common name>)", SAY: its pronunciation, FIGURE: a representative species, CALLOUT: species count and ecological role.
+      - for a named taxonomic group: LAYOUT: profile. HEADLINE "<Formal name> (<common name>)", SAY: its pronunciation, FIGURE: a representative species (the big main photo), 2-3 POINTS as oval insets "Label | what to picture" (habitat, size extremes, depth range, a close-up of a key feature), CALLOUT: species count and ecological role.
       - ACTIVE BEAT (if requested), at least one per topic: TYPE: content, LAYOUT: statement. HEADLINE: a question to the class ("Why are there no freshwater echinoderms?") or a live demo ("Let's demo Pascal's law!"). POINTS: 1-2 prompts. NOTES: what to listen for, or how to run the demo.
       - ANALOGY (if requested) where it truly helps: an everyday object or pop-culture link as a scene subject (e.g. "Jaws of Life | hydraulic rescue tool").
 8. TYPE: takeaway. HEADLINE: "Competency Quiz". POINTS: one short question per objective, in order. NOTES: a model answer for each, written as "Question 1 — answer" (never start a notes line with a number and a period).
@@ -2297,7 +2313,7 @@ async function planLecture(){
     if (presenter) deck.presenter = presenter;
     if (course) deck.date = course;
     // the look of the model deck: frame, plain labels, open bottom lines
-    deck.frame = true; deck.labelStyle = 'plain'; deck.bottomStyle = 'open';
+    deck.frame = true; deck.labelStyle = 'plain'; deck.bottomStyle = 'open'; deck.carryRoots = true;
     if ($('#plan-aboutme').checked){
       const about = await loadAboutMe();
       if (about){
@@ -2607,6 +2623,7 @@ const LAYOUTS = {
   content: [
     { key: 'annotated',  label: 'Annotated figure',  needs: 'image' },
     { key: 'scene',      label: 'Scene (cut-outs)',  needs: 'image' },
+    { key: 'profile',    label: 'Group profile',     needs: 'image' },
     { key: 'cinematic',  label: 'Cinematic',        needs: 'image' },
     { key: 'cards',      label: 'Annotated cards',   needs: 'image' },
     { key: 'figureRight',label: 'Figure right' },
@@ -2683,6 +2700,36 @@ function sceneZonesFor(slide){
   const n = Math.max(slide.annotations.length, slide.images.length, 1);
   return sceneZones(n, !!slide.callout, (slide.roots || slide.say) ? 184 : 150);
 }
+/* ---------- Group profile layout ----------
+   A taxon/group slide: one big framed photo of a representative member on the
+   left, and 2-3 oval insets down the right (habitats, extremes, close-ups), each
+   labelled beneath, with the species count / ecological role as the bottom line. */
+function profileZones(slide){
+  const top = (slide.roots || slide.say) ? 184 : 150;
+  const bottom = slide.callout ? 580 : 650;
+  const n = clamp(slide.annotations.length || 1, 1, 3);
+  const gap = 14, colX = 856, colW = 350;
+  // labels sit inside the ovals (as hand-built slides do), so the ovals get the whole column
+  const h = Math.round((bottom - top - (n - 1) * gap) / n);
+  const w = Math.min(colW, Math.round(h * 1.6));
+  const insets = Array.from({ length: n }, (_, k) => ({ x: Math.round(colX + (colW - w) / 2), y: Math.round(top + k * (h + gap)), w, h }));
+  return { main: { x: 84, y: top, w: 730, h: bottom - top }, insets };
+}
+function profileMain(slide){
+  return slide.images.find(im => im.main)
+    || slide.images.find(im => !slide.annotations.some(a => a.img === im.id)) || null;
+}
+function isFillLayout(s){
+  if (s.type !== 'content') return false;
+  const lay = effContentLayout(s);
+  return lay === 'scene' || lay === 'profile';
+}
+/* the image a label sits beside, on scene / profile slides */
+function labelAnchor(slide, a, i){
+  if (effContentLayout(slide) === 'profile') return (a.img && slide.images.find(im => im.id === a.img)) || null;
+  return sceneAnchor(slide, a, i);
+}
+
 /* the image a scene label belongs to: its linked image, else the image in the same position */
 function sceneAnchor(slide, a, i){
   if (a.img){
@@ -2702,14 +2749,14 @@ function effLabelStyle(slide, deck, a){
   if (a && a.chip === 'plain') return 'plain';
   if (a && (a.chip === 'light' || a.chip === 'dark')) return 'chip';
   if (deck && deck.labelStyle) return deck.labelStyle;
-  return effContentLayout(slide) === 'scene' ? 'plain' : 'chip';
+  return ['scene', 'profile'].includes(effContentLayout(slide)) ? 'plain' : 'chip';
 }
 function effBottomStyle(slide, deck){
   const c = slide.boxes && slide.boxes.callout;
   if (c && c.chip === 'plain') return 'open';
   if (c && (c.chip === 'light' || c.chip === 'dark')) return 'banner';
   if (deck && deck.bottomStyle) return deck.bottomStyle;
-  return effContentLayout(slide) === 'scene' ? 'open' : 'banner';
+  return ['scene', 'profile'].includes(effContentLayout(slide)) ? 'open' : 'banner';
 }
 
 /* Geometry for a content slide under its chosen layout. Consumed by both the
@@ -2791,6 +2838,18 @@ function contentLayout(slide){
       return { x, y: Math.round(y), w, fs: 28, align: 'center' };
     });
     if (hasC) out.callout = { x: 80, y: 600, w: 1120, fs: openBottomFs(slide.callout), banner: true };
+  } else if (lay === 'profile'){
+    // big framed main photo left; oval insets down the right, each labelled beneath
+    out.annStyle = 'label'; out.annDetail = false; out.profile = true;
+    out.headline = { x: 64, y: 48, w: 1150, fs: fitHeadlineFS(head, 1150, 50, 30) };
+    const z = profileZones(slide);
+    out.figZones = [z.main, ...z.insets];
+    out.anns = slide.annotations.map((a, i) => {
+      const im = labelAnchor(slide, a, i);
+      const box = im ? { x: im.x, y: im.y, w: im.w, h: im.h } : z.insets[i % z.insets.length];
+      return { x: Math.round(box.x - 10), y: Math.round(box.y + box.h / 2 - 16), w: Math.round(box.w + 20), fs: 26, align: 'center' };
+    });
+    if (slide.callout) out.callout = { x: 80, y: 600, w: 1120, fs: openBottomFs(slide.callout), banner: true };
   } else if (lay === 'cards'){
     // each point is its own bordered, draggable/resizable card around the figure
     out.annStyle = 'card'; out.connectors = true;
@@ -2923,6 +2982,7 @@ function renderSlide(slide, deck, opts = {}){
   if (slide.type === 'content' && root.dataset.conn && slide.images.length && slide.annotations.length){
     drawConnectors(root, slide, arrowColor(deck));
   }
+  renderRings(root, slide, opts);
   renderArrows(root, slide, deck, opts);
   renderTexts(root, slide, opts);
   renderOverlays(root, slide, deck, opts);
@@ -3168,6 +3228,7 @@ function renderContent(root, slide, deck, pal, dark, opts){
           ? 'lf-plain serif'
           : 'lf-chip' + (a.chip === 'light' ? ' lf-chip-light' : '');
       }
+      if (L.profile && !def.banner) extra += ' lf-onphoto';
       const openDef = def.banner && extra.includes('lf-open-bottom')
         ? { ...def, fs: openBottomFs(annDisplayText(a)), align: 'right' } : def;
       renderAnnBox(root, slide, a, i, openDef, opts, L.annDetail, 0, extra, !L.scene);
@@ -3207,14 +3268,14 @@ function renderContent(root, slide, deck, pal, dark, opts){
     }
   }
 
-  // scene: a dashed spot for every subject that doesn't have its image yet
-  if (opts.editor && L.scene){
-    slide.annotations.forEach((a, i) => {
-      if (sceneAnchor(slide, a, i)) return;
-      const z = L.figZones[i % L.figZones.length];
-      root.appendChild(el('div', 'lf-scenehint', `left:${z.x}px;top:${z.y}px;width:${z.w}px;height:${z.h}px;`,
-        (a.subject || a.text || 'subject') + '\n(Fill figures, or click an image in the panel)'));
-    });
+  // scene / profile: a dashed spot for every subject that doesn't have its image yet
+  if (opts.editor && (L.scene || L.profile)){
+    for (const t of fillTargets(slide)){
+      if (t.filled) continue;
+      const z = t.zone;
+      root.appendChild(el('div', 'lf-scenehint' + (t.kind === 'inset' ? ' oval' : ''), `left:${z.x}px;top:${z.y}px;width:${z.w}px;height:${z.h}px;`,
+        (t.subject || t.label || 'subject') + '\n(Fill figures, or click an image in the panel)'));
+    }
     return;
   }
 
@@ -3232,7 +3293,19 @@ function renderContent(root, slide, deck, pal, dark, opts){
 /* Language scaffolding under the headline: the word's roots, small at the left
    (e.g. ἐχῖνος (ekhînos) 'spine'; δέρμα (dérma) 'skin'), and a pronunciation
    guide centred beneath the title, e.g. (Ast-er-o-de-uh). */
-function effRoots(slide, deck){ return slide.roots || ''; }
+/* a slide's own roots, else (when the deck carries roots forward) the most recent
+   roots earlier in the same topic — stopping at a section / roadmap / title slide */
+function effRoots(slide, deck){
+  if (slide.roots) return slide.roots;
+  if (!deck || !deck.carryRoots || slide.type !== 'content') return '';
+  const i = deck.slides.indexOf(slide);
+  for (let j = i - 1; j >= 0; j--){
+    const p = deck.slides[j];
+    if (p.type !== 'content') return '';
+    if (p.roots) return p.roots;
+  }
+  return '';
+}
 function renderRootsSay(root, slide, deck, headDef, opts){
   const roots = effRoots(slide, deck), say = slide.say || '';
   if (!roots && !say) return;
@@ -3763,39 +3836,114 @@ function renderOverlays(root, slide, deck, opts){
    move the whole arrow) and two endpoint handles (drag to re-aim an end). */
 function arrowDefaultColor(slide){ return isDark(slide) ? '#e9f1f8' : '#1f2d3a'; }
 
-function renderArrows(root, slide, deck, opts){
+/* arrow geometry: straight, or a quadratic curve bowed by `bend` px along the normal */
+function arrowCtrl(a){
+  const mx = (a.from.x + a.to.x) / 2, my = (a.from.y + a.to.y) / 2;
+  const dx = a.to.x - a.from.x, dy = a.to.y - a.from.y, len = Math.hypot(dx, dy) || 1;
+  const b = a.bend || 0;
+  return { x: mx - dy / len * b, y: my + dx / len * b };
+}
+/* unit vector along the arrow at its tip */
+function arrowTipDir(a){
+  const c = a.bend ? arrowCtrl(a) : a.from;
+  const ux = a.to.x - c.x, uy = a.to.y - c.y, L = Math.hypot(ux, uy) || 1;
+  return { ux: ux / L, uy: uy / L };
+}
+/* path d, optionally ending `trim` px short of the tip (so a thick shaft never pokes through its head) */
+function arrowPathD(a, trim = 0){
+  const { ux, uy } = arrowTipDir(a);
+  const ex = (a.to.x - ux * trim).toFixed(1), ey = (a.to.y - uy * trim).toFixed(1);
+  if (!a.bend) return `M${a.from.x} ${a.from.y} L${ex} ${ey}`;
+  const c = arrowCtrl(a);
+  return `M${a.from.x} ${a.from.y} Q${c.x.toFixed(1)} ${c.y.toFixed(1)} ${ex} ${ey}`;
+}
+/* the curve's own midpoint (where the bend handle sits) */
+function arrowMid(a){
+  const c = arrowCtrl(a);
+  return { x: 0.25 * a.from.x + 0.5 * c.x + 0.25 * a.to.x, y: 0.25 * a.from.y + 0.5 * c.y + 0.25 * a.to.y };
+}
+/* a point on the curve at t (for exporting curves as short segments) */
+function arrowAt(a, t){
+  const c = a.bend ? arrowCtrl(a) : { x: (a.from.x + a.to.x) / 2, y: (a.from.y + a.to.y) / 2 };
+  const u = 1 - t;
+  return { x: u * u * a.from.x + 2 * u * t * c.x + t * t * a.to.x, y: u * u * a.from.y + 2 * u * t * c.y + t * t * a.to.y };
+}
+/* triangular head for a story arrow; `grow` enlarges it (for the outline pass) */
+function arrowHeadPts(a, w, grow = 0){
+  const { ux, uy } = arrowTipDir(a);
+  const len = w * 2.4 + grow * 1.7, half = w * 1.55 + grow;
+  const tx = a.to.x + ux * grow, ty = a.to.y + uy * grow;
+  const bx = a.to.x - ux * len, by = a.to.y - uy * len;
+  const p = (x, y) => `${x.toFixed(1)},${y.toFixed(1)}`;
+  return `${p(tx, ty)} ${p(bx - uy * half, by + ux * half)} ${p(bx + uy * half, by - ux * half)}`;
+}
+function arrowsSVG(slide, opts){
   const arrows = slide.arrows || [];
-  if (!arrows.length) return;
+  if (!arrows.length) return null;
   const def = arrowDefaultColor(slide);
   let defs = '', body = '', overlay = '';
   arrows.forEach((a, i) => {
-    const col = a.color || def;
-    const w = a.width || 3;
-    const mk = `lfarw-${slide.id}-${i}`;
-    defs += `<marker id="${mk}" markerWidth="11" markerHeight="11" refX="7.5" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">`
-      + `<path d="M1 1 L9.5 4.5 L1 8 Z" fill="${col}"/></marker>`;
-    body += `<line class="lf-arrow-line" data-arid="${a.id}" x1="${a.from.x}" y1="${a.from.y}" x2="${a.to.x}" y2="${a.to.y}" `
-      + `stroke="${col}" stroke-width="${w}" stroke-linecap="round" marker-end="url(#${mk})"/>`;
+    const d = arrowPathD(a);
+    if (a.style === 'story'){
+      // the hand-drawn "story" arrow: thick white shaft, black outline, big head, soft shadow
+      const col = a.color || '#ffffff', ol = '#111820';
+      const w = a.width || 16, trim = w * 2.1;
+      body += `<g class="lf-story">`
+        + `<path class="lf-arrow-line" data-arid="${a.id}" d="${arrowPathD(a, trim)}" fill="none" stroke="${ol}" stroke-width="${w + 7}" stroke-linecap="round"/>`
+        + `<polygon points="${arrowHeadPts(a, w, 4)}" fill="${ol}" stroke="${ol}" stroke-width="2" stroke-linejoin="round"/>`
+        + `<path d="${arrowPathD(a, trim)}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>`
+        + `<polygon points="${arrowHeadPts(a, w)}" fill="${col}"/></g>`;
+    } else {
+      const col = a.color || def;
+      const w = a.width || 3;
+      const mk = `lfarw-${slide.id}-${i}`;
+      defs += `<marker id="${mk}" markerWidth="11" markerHeight="11" refX="7.5" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">`
+        + `<path d="M1 1 L9.5 4.5 L1 8 Z" fill="${col}"/></marker>`;
+      body += `<path class="lf-arrow-line" data-arid="${a.id}" d="${d}" fill="none" `
+        + `stroke="${col}" stroke-width="${w}" stroke-linecap="round" marker-end="url(#${mk})"/>`;
+    }
     if (opts.editor){
-      overlay += `<line class="lf-arrow-hit" data-sel="arrow:${a.id}" data-arid="${a.id}" x1="${a.from.x}" y1="${a.from.y}" x2="${a.to.x}" y2="${a.to.y}"/>`
+      const m = arrowMid(a);
+      overlay += `<path class="lf-arrow-hit" data-sel="arrow:${a.id}" data-arid="${a.id}" d="${d}" fill="none"/>`
         + `<circle class="lf-arrow-end" data-arid="${a.id}" data-end="from" cx="${a.from.x}" cy="${a.from.y}" r="6"/>`
-        + `<circle class="lf-arrow-end" data-arid="${a.id}" data-end="to" cx="${a.to.x}" cy="${a.to.y}" r="6"/>`;
+        + `<circle class="lf-arrow-end" data-arid="${a.id}" data-end="to" cx="${a.to.x}" cy="${a.to.y}" r="6"/>`
+        + `<circle class="lf-arrow-end lf-arrow-bend" data-arid="${a.id}" data-end="mid" cx="${m.x.toFixed(1)}" cy="${m.y.toFixed(1)}" r="5"><title>Drag to curve the arrow</title></circle>`;
     }
   });
-  root.appendChild(svgEl(`<defs>${defs}</defs>${body}${overlay}`, 'lf-arrows'));
+  return svgEl(`<defs>${defs}</defs>${body}${overlay}`, 'lf-arrows');
+}
+function renderArrows(root, slide, deck, opts){
+  const svg = arrowsSVG(slide, opts);
+  if (svg) root.appendChild(svg);
 }
 
-/* update an arrow's line/hit/handle geometry in place during a drag */
+/* redraw the arrows layer in place during a drag */
 function setArrowGeom(svg, a){
-  svg.querySelectorAll(`[data-arid="${a.id}"]`).forEach(node => {
-    if (node.tagName === 'circle'){
-      const p = node.dataset.end === 'from' ? a.from : a.to;
-      node.setAttribute('cx', p.x); node.setAttribute('cy', p.y);
-    } else {
-      node.setAttribute('x1', a.from.x); node.setAttribute('y1', a.from.y);
-      node.setAttribute('x2', a.to.x);   node.setAttribute('y2', a.to.y);
-    }
+  if (!svg || !svg.parentNode) return;
+  const fresh = arrowsSVG(cur(), { editor: true });
+  if (!fresh) return;
+  svg.replaceWith(fresh);
+  if (state.sel === 'arrow:' + a.id){
+    const ln = fresh.querySelector(`.lf-arrow-line[data-arid="${a.id}"]`);
+    if (ln) ln.classList.add('selected');
+  }
+}
+
+/* Highlight rings: an outlined oval that draws the eye to one feature (the
+   madreporite, a tube foot). Clicked by their outline, so what's inside them
+   stays selectable. */
+function renderRings(root, slide, opts){
+  const rings = slide.rings || [];
+  if (!rings.length) return;
+  let hit = '';
+  rings.forEach(r => {
+    const node = el('div', 'lf-ring', `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;`
+      + `border:${r.width || 5}px solid ${r.color || '#ffffff'};`);
+    node.dataset.sel = 'ring:' + r.id;
+    root.appendChild(node);
+    hit += `<ellipse class="lf-ring-hit" data-ringid="${r.id}" cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"/>`;
   });
+  if (opts.editor) root.appendChild(svgEl(hit, 'lf-rings-hit'));
 }
 
 function renderFooter(root, slide, deck, pal, dark, opts){
@@ -3916,6 +4064,10 @@ function selInfo(slide, sel){
     const obj = (state.deck && state.deck.overlays || []).find(x => x.id === sel.slice(8));
     return obj && { type: 'overlay', obj, isText: true };
   }
+  if (sel.startsWith('ring:')){
+    const obj = (slide.rings || []).find(x => x.id === sel.slice(5));
+    return obj && { type: 'ring', obj, isShape: true };
+  }
   if (sel.startsWith('arrow:')){
     const obj = (slide.arrows || []).find(x => x.id === sel.slice(6));
     return obj && { type: 'arrow', obj, isArrow: true };
@@ -3940,7 +4092,7 @@ function addHandles(node){
 }
 
 function applySelection(root){
-  root.querySelectorAll('.lf-box.selected,.lf-img.selected,.group-sel').forEach(n => {
+  root.querySelectorAll('.lf-box.selected,.lf-img.selected,.lf-ring.selected,.group-sel').forEach(n => {
     n.classList.remove('selected', 'group-sel');
     n.querySelectorAll('.lf-h').forEach(h => h.remove());
   });
@@ -3996,7 +4148,8 @@ function applySelection(root){
   const colorInput = $('#sel-color'), colorReset = $('#sel-color-reset');
   const bgInput = $('#sel-bg'), bgClear = $('#sel-bg-clear');
   // text colour applies to text & arrows; background fill only to text
-  colorInput.disabled = colorReset.disabled = !(isText || isArrow);
+  const isShape = !group && info && info.isShape;
+  colorInput.disabled = colorReset.disabled = !(isText || isArrow || isShape);
   bgInput.disabled = bgClear.disabled = !isText;
   if (isText){
     const refObj = group ? group[0].info.obj : info.obj;
@@ -4007,8 +4160,14 @@ function applySelection(root){
       bgInput.value = refObj.bg || '#ffffff';
   } else if (isArrow){
     if (document.activeElement !== colorInput)
-      colorInput.value = info.obj.color || arrowDefaultColor(cur());
+      colorInput.value = info.obj.color || (info.obj.style === 'story' ? '#ffffff' : arrowDefaultColor(cur()));
+  } else if (isShape){
+    if (document.activeElement !== colorInput) colorInput.value = info.obj.color || '#ffffff';
   }
+  // arrow style: plain line or the outlined "story" arrow
+  const arrowSel = $('#sel-arrow-style');
+  arrowSel.hidden = !isArrow;
+  if (isArrow) arrowSel.value = info.obj.style === 'story' ? 'story' : 'line';
 
   // recurring-overlay scope selector (which slides the element appears on)
   const scopeSel = $('#sel-scope');
@@ -4184,6 +4343,14 @@ function wireSlideEditing(root, slide){
       if (a){ setSel('arrow:' + a.id); startArrowEndDrag(e, slide, a, arEnd.dataset.end, root); }
       return;
     }
+    const ringHit = e.target.closest('.lf-ring-hit');
+    if (ringHit){
+      const sel = 'ring:' + ringHit.dataset.ringid;
+      const ringNode = root.querySelector(`[data-sel="${sel}"]`);
+      const info = selInfo(slide, sel);
+      if (ringNode && info){ e.preventDefault(); setSel(sel); startMove(e, ringNode, slide, info, root, accLine); }
+      return;
+    }
     const arHit = e.target.closest('.lf-arrow-hit');
     if (arHit){
       const a = (slide.arrows || []).find(x => x.id === arHit.dataset.arid);
@@ -4317,9 +4484,9 @@ function startMove(e, node, slide, info, root, accLine){
   node.setPointerCapture(e.pointerId);
   // on a scene slide, an image's label travels with it
   const riders = [];
-  if (info.isImg && slide.type === 'content' && effContentLayout(slide) === 'scene'){
+  if (info.isImg && isFillLayout(slide)){
     slide.annotations.forEach((a, i) => {
-      if (sceneAnchor(slide, a, i) !== info.obj) return;
+      if (labelAnchor(slide, a, i) !== info.obj) return;
       const n = root.querySelector(`[data-sel="ann:${a.id}"]`);
       if (n) riders.push({ a, n, x0: n.offsetLeft, y0: n.offsetTop, ax: a.x, ay: a.y });
     });
@@ -4364,8 +4531,8 @@ function startResize(e, dir, node, slide, info, root, accLine){
     if (dir.includes('s')) nh = h0 + dy;
     if (dir.includes('n')){ nh = h0 - dy; ny = y0 + dy; }
     nw = Math.max(40, nw); nh = Math.max(22, nh);
-    if (info.isImg){
-      if (dir.length === 2){ nh = nw / ratio; if (dir.includes('n')) ny = y0 + (h0 - nh); }
+    if (info.isImg || info.isShape){
+      if (dir.length === 2 && info.isImg){ nh = nw / ratio; if (dir.includes('n')) ny = y0 + (h0 - nh); }
       node.style.left = Math.round(nx) + 'px'; node.style.top = Math.round(ny) + 'px';
       node.style.width = Math.round(nw) + 'px'; node.style.height = Math.round(nh) + 'px';
       Object.assign(info.obj, { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) });
@@ -4496,14 +4663,20 @@ function startGroupResize(e, dir, slide, root, accLine){
 function startArrowEndDrag(e, slide, a, end, root){
   e.stopPropagation(); e.preventDefault();
   checkpoint();
-  const svg = root.querySelector('.lf-arrows');
   const rect = root.getBoundingClientRect();
   const move = ev => {
-    a[end] = {
+    const p = {
       x: Math.round(clamp((ev.clientX - rect.left) / viewScale, 0, SLIDE_W)),
       y: Math.round(clamp((ev.clientY - rect.top) / viewScale, 0, SLIDE_H)),
     };
-    if (svg) setArrowGeom(svg, a);
+    if (end === 'mid'){
+      // the curve's midpoint sits halfway to the control point, so bend = 2 × the offset along the normal
+      const mx = (a.from.x + a.to.x) / 2, my = (a.from.y + a.to.y) / 2;
+      const dx = a.to.x - a.from.x, dy = a.to.y - a.from.y, len = Math.hypot(dx, dy) || 1;
+      const b = Math.round(2 * ((p.x - mx) * (-dy / len) + (p.y - my) * (dx / len)));
+      a.bend = Math.abs(b) < 8 ? 0 : b;                 // snap back to straight near the line
+    } else a[end] = p;
+    setArrowGeom(root.querySelector('.lf-arrows'), a);
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
@@ -4527,7 +4700,7 @@ function startArrowMove(e, slide, a, root){
     const dx = (ev.clientX - sx) / viewScale, dy = (ev.clientY - sy) / viewScale;
     a.from = { x: Math.round(clamp(f0.x + dx, 0, SLIDE_W)), y: Math.round(clamp(f0.y + dy, 0, SLIDE_H)) };
     a.to   = { x: Math.round(clamp(t0.x + dx, 0, SLIDE_W)), y: Math.round(clamp(t0.y + dy, 0, SLIDE_H)) };
-    if (svg) setArrowGeom(svg, a);
+    setArrowGeom(root.querySelector('.lf-arrows'), a);
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
@@ -4577,6 +4750,7 @@ function deleteOne(s, sel){
   else if (info.type === 'text') s.texts = (s.texts || []).filter(t => ('text:' + t.id) !== sel);
   else if (info.type === 'overlay') state.deck.overlays = (state.deck.overlays || []).filter(o => ('overlay:' + o.id) !== sel);
   else if (info.type === 'arrow') s.arrows = (s.arrows || []).filter(a => ('arrow:' + a.id) !== sel);
+  else if (info.type === 'ring')  s.rings = (s.rings || []).filter(r => ('ring:' + r.id) !== sel);
   else if (info.type === 'box')  { s.boxes[info.key] = s.boxes[info.key] || {}; s.boxes[info.key].hidden = true; }
 }
 
@@ -4869,6 +5043,9 @@ function layoutIcon(key){
       + `<path d="M22 30 l4 -9 4 9 9 1 -7 6 2 9 -8 -5 -8 5 2 -9 -7 -6z" fill="#e0894a"/>`
       + `<circle cx="62" cy="36" r="9" fill="#7c5ca8"/><ellipse cx="96" cy="30" rx="12" ry="7" fill="#b7793f"/>`
       + tline(16, 50, 20) + tline(52, 50, 20) + tline(86, 44, 20) + bar(50, 59, 62, 5, T));
+    case 'profile': return svg(head(6, 6, 50) + `<rect x="6" y="16" width="66" height="40" rx="2" fill="#fff"/>` + img(9, 19, 60, 34)
+      + `<ellipse cx="94" cy="24" rx="17" ry="9" fill="${IMG}" stroke="#fff" stroke-width="1.5"/>`
+      + `<ellipse cx="94" cy="46" rx="17" ry="9" fill="${IMG}" stroke="#fff" stroke-width="1.5"/>` + bar(40, 60, 72, 5, T));
     case 'figureGrid': return svg(head(8, 8, 50)
       + img(8, 20, 50, 40) + bar(8, 50, 50, 7, P)
       + img(62, 20, 50, 40) + bar(62, 50, 50, 7, P));
@@ -5263,12 +5440,12 @@ function seedImagePanel(){
   const s = cur();
   if (!s) return;
   // scene: search for the next subject that still needs its image
-  if (isSceneSlide(s) && sceneEmptyIndex(s) >= 0){
-    const key = s.id + ':' + sceneEmptyIndex(s);
+  if (isFillLayout(s) && nextTarget(s)){
+    const open = fillTargets(s).filter(t => !t.filled && t.subject);
+    const key = s.id + ':' + open.length;
     if (panelSeedFor !== key){
       panelSeedFor = key;
-      const subjects = s.annotations.filter((a, i) => !sceneAnchor(s, a, i))
-        .map(a => (a.subject || a.full || a.text || '').trim().toLowerCase()).filter(Boolean);
+      const subjects = open.map(t => t.subject.toLowerCase());
       $('#ip-query').value = subjects[0] || '';
       renderTermChips(subjects, subjects[0]);
     }
@@ -5898,6 +6075,7 @@ function showBgCurrent(){
   $('#bg-frame').checked = !!(state.deck && state.deck.frame);
   $('#bg-plain-labels').checked = !!(state.deck && state.deck.labelStyle === 'plain');
   $('#bg-open-bottom').checked = !!(state.deck && state.deck.bottomStyle === 'open');
+  $('#bg-carry-roots').checked = !!(state.deck && state.deck.carryRoots);
   $('#bg-sharp-first').checked = !!(state.deck && state.deck.bgSharpFirst);
   $('#bg-motion').checked = !!(state.deck && state.deck.motion);
   $('#bg-arrows').value = (state.deck && state.deck.arrows) || 'none';
@@ -5948,18 +6126,35 @@ async function placeResultOnSlide(slide, r, at){
   return im;
 }
 
-/* ---------- scene filling ----------
-   Each scene subject gets its own image, placed in its spot and linked to its
-   label. Web photos are cut out (the "organism floating on the background"
-   look); if that fails they fall back to an oval vignette. Textbook figures are
-   kept as white-framed "evidence" rather than cut apart. */
-function sceneEmptyIndex(slide){
-  return slide.annotations.findIndex((a, i) => !sceneAnchor(slide, a, i));
-}
-async function placeSceneImage(slide, r, i, { cutout = true } = {}){
-  const a = slide.annotations[i];
+/* ---------- filling scene & profile slides ----------
+   These layouts have several spots, each with its own subject: a scene's
+   subjects, or a profile's main photo plus its oval insets. fillTargets() lists
+   them; each gets its own image, placed in its spot and linked to its label.
+   Scene photos are cut out (the "organism floating on the background" look,
+   oval if that fails; textbook figures stay whole in a white frame). A profile's
+   main photo is framed evidence and its insets are ovals. */
+function fillTargets(slide){
+  const subj = a => (a.subject || a.full || a.text || '').trim();
+  if (effContentLayout(slide) === 'profile'){
+    const z = profileZones(slide);
+    const t = [{ kind: 'main', label: 'main photo', subject: (slide.figure || slide.headline || '').trim(),
+                 zone: z.main, filled: !!profileMain(slide) }];
+    slide.annotations.forEach((a, i) => t.push({ kind: 'inset', i, a, label: a.text, subject: subj(a),
+      zone: z.insets[i % z.insets.length], filled: !!(a.img && slide.images.some(im => im.id === a.img)) }));
+    return t;
+  }
   const zones = sceneZonesFor(slide);
-  const zone = zones[i % zones.length];
+  return slide.annotations.map((a, i) => ({ kind: 'subject', i, a, label: a.text, subject: subj(a),
+    zone: zones[i % zones.length], filled: !!sceneAnchor(slide, a, i) }));
+}
+function nextTarget(slide){ return fillTargets(slide).find(t => !t.filled && t.subject) || null; }
+/* the image currently filling a target */
+function targetImage(slide, t){
+  if (t.kind === 'main') return profileMain(slide);
+  if (t.kind === 'inset') return (t.a.img && slide.images.find(im => im.id === t.a.img)) || null;
+  return sceneAnchor(slide, t.a, t.i);
+}
+async function placeTarget(slide, r, t){
   let src = r.full, dim;
   try { dim = await loadImageDim(src); }
   catch (e){
@@ -5968,43 +6163,45 @@ async function placeSceneImage(slide, r, i, { cutout = true } = {}){
   const im = { id: uid(), src, cutout: false, cutSrc: null,
     attr: { title: r.title, author: r.author, authorUrl: r.authorUrl, license: r.license,
             licenseUrl: r.licenseUrl, pageUrl: r.pageUrl, sourceName: r.sourceName },
-    ...fitRect(dim.w, dim.h, zone) };
+    ...(t.kind === 'inset' ? { x: t.zone.x, y: t.zone.y, w: t.zone.w, h: t.zone.h } : fitRect(dim.w, dim.h, t.zone)) };
   im.altFor = imgFingerprint(im);
   await embedImage(im);
-  if (r.provider === 'textbook') im.border = true;                    // evidence: keep the figure whole
-  else if (cutout){
+  if (t.kind === 'main'){ im.main = true; im.border = true; }          // the group's representative: framed
+  else if (t.kind === 'inset') im.oval = true;                          // habitat / extreme / close-up: oval
+  else if (r.provider === 'textbook') im.border = true;                 // evidence: keep the figure whole
+  else {
     try {
       const raw = await cutoutBestAvailable(im, {});
       try { im.cutSrc = await shrinkImage(raw, 1200, 0.88); } catch (e){ im.cutSrc = raw; }
       im.cutout = true;
     } catch (e){ im.oval = true; }                                      // couldn't cut it out → oval vignette
   }
-  if (a) a.img = im.id;
+  if (t.a) t.a.img = im.id;
   slide.images.push(im);
   return im;
 }
-/* find, check and place an image for every subject in a scene that lacks one */
-async function sceneFill(slide, { onProgress } = {}){
+/* find, check and place an image for every empty spot on a scene / profile slide */
+async function targetsFill(slide, { onProgress } = {}){
   const smart = !!settings.anthropicKey;
   let placed = 0, fromBook = 0;
-  for (let i = 0; i < slide.annotations.length; i++){
+  for (const t of fillTargets(slide)){
     if (fillCancelled) break;
-    const a = slide.annotations[i];
-    if (sceneAnchor(slide, a, i)) continue;
-    const subject = (a.subject || a.full || a.text || '').trim();
-    if (!subject) continue;
-    onProgress && onProgress(subject);
+    if (t.filled || !t.subject) continue;
+    onProgress && onProgress(t.subject);
     let lib = [], web = [];
-    try { lib = (await Promise.all((await figLibMatchText(subject, 2)).map(figLibResult))).filter(Boolean); } catch (e){}
-    try { web = (await fetchImages(subject, { limit: 8 })).results.slice(0, 5); } catch (e){}
+    const isMain = t.kind === 'main';
+    const seed = isMain ? await slideSeedAsync(slide) : { primary: t.subject, alternates: [] };
+    try { lib = (await Promise.all((await figLibMatchText(t.subject + (isMain ? ' ' + (slide.headline || '') : ''), isMain ? 4 : 2)).map(figLibResult))).filter(Boolean); } catch (e){}
+    try { web = (await fetchImages(seed.primary, { limit: 8, alts: seed.alternates })).results.slice(0, 5); } catch (e){}
     let order = [...lib, ...web];
     if (smart && order.length){
-      // judge against the subject itself, with the slide as context
-      const pseudo = { headline: subject, figure: `${subject} (one subject on a slide titled “${slide.headline || ''}”)`, annotations: [] };
-      try { const v = await visionPick(pseudo, order); if (v) order = v.pick ? [v.pick] : []; } catch (e){}
+      // judge against this spot's own subject, with the slide as context
+      const judge = isMain ? slide
+        : { headline: t.subject, figure: `${t.subject} (one subject on a slide titled “${slide.headline || ''}”)`, annotations: [] };
+      try { const v = await visionPick(judge, order); if (v) order = v.pick ? [v.pick] : []; } catch (e){}
     }
     for (const r of order){
-      const im = await placeSceneImage(slide, r, i);
+      const im = await placeTarget(slide, r, t);
       if (im){ placed++; if (r.provider === 'textbook') fromBook++; break; }
     }
   }
@@ -6028,6 +6225,52 @@ For every slide index listed under NEEDS, write ONE line (at most 12 words):
 - Use only facts present in the slides. No em dashes. No quotation marks around the line.
 
 Reply with ONLY a JSON object mapping each NEEDS index to its line, like {"3": "…", "7": "…"}.`;
+
+/* ---------- roots & pronunciation, written for the whole deck ---------- */
+const ROOTS_SYS = `You add language support to a university lecture deck: the Greek or Latin roots of technical terms, and pronunciation guides for hard names.
+
+For the slides listed, decide:
+- "roots": ONLY on the slide where a technical term or a group's formal name is FIRST introduced (usually in the HEADLINE). Format: word (transliteration) 'meaning'; word (transliteration) 'meaning'. Write Greek roots in Greek script, e.g. ἐχῖνος (ekhînos) 'spine'; δέρμα (dérma) 'skin'. Latin roots in plain letters, e.g. radius 'ray'. Leave it out when unsure or when the term has no meaningful classical roots.
+- "say": ONLY for hard-to-pronounce formal names in the HEADLINE (taxa, anatomical terms), as hyphenated syllables with the stressed syllable in capitals, e.g. "as-ter-OY-dee-uh". Leave it out for ordinary words.
+Be accurate: a wrong etymology is worse than none.
+
+Reply with ONLY a JSON object keyed by slide index, including only slides that need something, e.g. {"4": {"roots": "...", "say": "..."}, "9": {"say": "..."}}.`;
+
+async function writeRootsSay(){
+  if (!guardDeck()) return;
+  if (!settings.anthropicKey){ toast('Add your Anthropic API key in Settings (⚙) to add roots and pronunciation'); return; }
+  const d = state.deck;
+  const list = d.slides.map((s, i) => ({ i, type: s.type, headline: s.headline || '',
+    labels: (s.annotations || []).map(a => a.text).filter(Boolean).slice(0, 6),
+    hasRoots: !!s.roots, hasSay: !!s.say }))
+    .filter(x => ['content', 'section'].includes(x.type) && !(x.hasRoots && x.hasSay));
+  if (!list.length){ toast('Every slide already has roots and pronunciation'); return; }
+  const btn = $('#btn-roots');
+  btn.disabled = true;
+  toast('Finding roots and pronunciations…', 60000);
+  try {
+    const raw = await anthropicMessage({ system: ROOTS_SYS, maxTokens: 3000,
+      user: 'DECK: ' + (d.title || '') + '\nSLIDES:\n' + JSON.stringify(list) });
+    const map = JSON.parse((raw.match(/\{[\s\S]*\}/) || [raw])[0]);
+    checkpoint();
+    let nR = 0, nS = 0;
+    const asked = new Set(list.map(x => x.i));
+    for (const [k, v] of Object.entries(map)){
+      if (!asked.has(+k)) continue;                      // only slides we actually sent
+      const s = d.slides[+k];
+      if (!s || !v) continue;
+      if (v.roots && !s.roots){ s.roots = String(v.roots).trim(); nR++; }
+      if (v.say && !s.say){ s.say = String(v.say).trim().replace(/^\(\s*|\s*\)$/g, ''); nS++; }
+    }
+    if (nR && d.carryRoots == null) d.carryRoots = true;   // first run: carry roots through each topic
+    commitChange();
+    refreshAll();
+    showBgCurrent();
+    toast(`Added roots on ${nR} slide${nR === 1 ? '' : 's'} and ${nS} pronunciation${nS === 1 ? '' : 's'}. Undo (↶) if you'd rather not`, 7000);
+  } catch (e){
+    toast('Could not add roots (' + (e.message || 'error') + ')');
+  } finally { btn.disabled = false; }
+}
 
 async function writeBottomLines(){
   if (!guardDeck()) return;
@@ -6067,17 +6310,17 @@ async function insertImageFromResult(r, at){
   const s = cur();
   if (!s){ toast('Open a deck first'); return; }
   // on a scene slide, a clicked image fills the next empty subject (cut out, labelled)
-  if (!at && s.type === 'content' && effContentLayout(s) === 'scene' && sceneEmptyIndex(s) >= 0){
-    const i = sceneEmptyIndex(s);
+  if (!at && isFillLayout(s) && nextTarget(s)){
+    const t = nextTarget(s);
     checkpoint();
-    toast(`Placing “${s.annotations[i].text}” and cutting it out…`, 15000);
-    const im = await placeSceneImage(s, r, i);
+    toast(`Placing “${t.label}”${t.kind === 'subject' ? ' and cutting it out' : ''}…`, 15000);
+    const im = await placeTarget(s, r, t);
     if (!im){ toast('That image failed to load — skipped'); return; }
     refreshAll();
     save();
     seedImagePanel();                    // point the panel at the next missing subject
-    const next = sceneEmptyIndex(s);
-    toast(next >= 0 ? `Placed. Next: “${s.annotations[next].text}”` : 'Scene complete');
+    const next = nextTarget(s);
+    toast(next ? `Placed. Next: “${next.label}”` : 'All spots filled');
     return;
   }
   checkpoint();
@@ -6095,12 +6338,11 @@ async function insertImageFromResult(r, at){
 
 /* ================= batch "Fill figures" pass ================= */
 
-function isSceneSlide(s){ return s.type === 'content' && effContentLayout(s) === 'scene'; }
 function figureWorklist(){
   return state.deck.slides
     .map((s, i) => ({ s, i }))
-    .filter(({ s }) => isSceneSlide(s)
-      ? sceneEmptyIndex(s) >= 0                                   // scenes: any subject still missing
+    .filter(({ s }) => isFillLayout(s)
+      ? !!nextTarget(s)                                           // scenes/profiles: any spot still empty
       : !s.images.length && (s.figure || s.headline));
 }
 // instant, local seed (the smarter slideSeedAsync replaces it once ready)
@@ -6129,13 +6371,12 @@ function fillShow(){
   $('#fill-progress').textContent = `Slide ${i + 1} · ${fillPos + 1} of ${fillList.length}`;
   $('#fill-slidehead').textContent = s.headline || `Slide ${i + 1}`;
   const pos = fillPos;
-  if (isSceneSlide(s)){
-    // scenes are filled one subject at a time
-    const k = sceneEmptyIndex(s);
-    if (k < 0){ fillPos++; fillShow(); return; }
-    const a = s.annotations[k];
-    $('#fill-slidehead').textContent = `${s.headline || `Slide ${i + 1}`} · subject ${k + 1} of ${s.annotations.length}: ${a.text}`;
-    $('#fill-query').value = (a.subject || a.full || a.text || '').trim();
+  if (isFillLayout(s)){
+    // scenes and profiles are filled one spot at a time
+    const all = fillTargets(s), t = all.find(x => !x.filled && x.subject);
+    if (!t){ fillPos++; fillShow(); return; }
+    $('#fill-slidehead').textContent = `${s.headline || `Slide ${i + 1}`} · ${all.indexOf(t) + 1} of ${all.length}: ${t.label}`;
+    $('#fill-query').value = t.subject;
     fillSearch([]);
     return;
   }
@@ -6192,10 +6433,10 @@ function fillCell(r, imEl){
 async function fillAccept(r){
   const { s, i } = fillList[fillPos];
   checkpoint();
-  if (isSceneSlide(s)){
-    const k = sceneEmptyIndex(s);
-    fillStatus('Placing and cutting out…');
-    const im = k >= 0 ? await placeSceneImage(s, r, k) : null;
+  if (isFillLayout(s)){
+    const t = nextTarget(s);
+    fillStatus(t && t.kind === 'subject' ? 'Placing and cutting out…' : 'Placing…');
+    const im = t ? await placeTarget(s, r, t) : null;
     if (!im){ toast('That image failed to load — try another'); fillStatus(''); return; }
     refreshRailThumb(i); save();
     fillShow();                         // next subject on this slide, or the next slide when done
@@ -6232,13 +6473,13 @@ async function fillAuto(){
   $('#fill-progress').textContent = `Auto-filling… 0 of ${todo.length}`;
   const one = async ({ s, i }) => {
     if (fillCancelled) return;
-    if (isSceneSlide(s)){
-      const r = await sceneFill(s);
+    if (isFillLayout(s)){
+      const r = await targetsFill(s);
       if (fillCancelled) return;
       done++;
       $('#fill-progress').textContent = `Auto-filling… ${done} of ${todo.length}`;
       if (r.placed){ placed++; fromBook += r.fromBook ? 1 : 0; refreshRailThumb(i); }
-      if (sceneEmptyIndex(s) >= 0) missed.push(i + 1);
+      if (nextTarget(s)) missed.push(i + 1);
       return;
     }
     const seed = await slideSeedAsync(s);
@@ -7585,7 +7826,8 @@ async function exportPPTX(){
               const dispText = L.scene ? a.text : annDisplayText(a);
               const pfs = def.banner ? openBottomFs(dispText) * TS : fs;
               T(dispText, { x: I(x), y: I(y), w: I(w), h: I(chipBoxH(dispText, w, pfs, 4)), fontFace: SERIF,
-                fontSize: pt(pfs), valign: 'top', align: a.align || def.align || (def.banner ? 'right' : undefined), ...textColor(a) });
+                fontSize: pt(pfs), valign: 'top', align: a.align || def.align || (def.banner ? 'right' : undefined),
+                ...(L.profile && !def.banner ? { color: 'FFFFFF' } : {}), ...textColor(a) });
             } else if (L.annStyle === 'label'){
               // filled "chip" label — dark fill/white text by default, or a
               // beige/dark pairing when chip is set to 'light'; the slide's one
@@ -7678,10 +7920,23 @@ async function exportPPTX(){
         fontSize: pt(fs), bold: true, italic: !!o.italic, valign: 'top', align: o.align, ...colorOpts(o) });
     });
 
-    // free arrows
+    // free arrows — curves are exported as short segments along the same curve;
+    // story arrows as a thick black line with a thinner white line over it
     (s.arrows || []).forEach(a => {
-      const col = a.color || (dark ? '#E9F1F8' : '#1F2D3A');
-      addLine(sl, a.from.x, a.from.y, a.to.x, a.to.y, { color: col, width: a.width || 3, arrow: true });
+      const story = a.style === 'story';
+      const col = a.color || (story ? '#FFFFFF' : (dark ? '#E9F1F8' : '#1F2D3A'));
+      const w = story ? (a.width || 16) * 0.62 : (a.width || 3);
+      const steps = a.bend ? 12 : 1;
+      const pts = Array.from({ length: steps + 1 }, (_, k) => arrowAt(a, k / steps));
+      const passes = story ? [{ color: '#111820', width: w + 4 }, { color: col, width: w }] : [{ color: col, width: w }];
+      for (const ps of passes)
+        for (let k = 0; k < steps; k++)
+          addLine(sl, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y, { color: ps.color, width: ps.width, arrow: k === steps - 1 });
+    });
+    // highlight rings
+    (s.rings || []).forEach(r => {
+      sl.addShape('ellipse', { x: I(r.x), y: I(r.y), w: I(r.w), h: I(r.h), fill: { color: 'FFFFFF', transparency: 100 },
+        line: { color: C(r.color || '#ffffff'), width: Math.max(1, (r.width || 5) * 0.62) } });
     });
 
     // images (only embeddable ones survive into PPTX)
@@ -8811,20 +9066,20 @@ function wireUI(){
     const s = cur(); if (!s) return;
     checkpoint();
     s.annotations.forEach(a => { a.x = a.y = null; });
-    if (isSceneSlide(s)){
-      // each subject's image back into its own spot; any extra images after them
-      const zones = sceneZonesFor(s);
+    if (isFillLayout(s)){
+      // every spot's image back into its own zone; any extra images after them
       const used = new Set();
-      s.annotations.forEach((a, i) => {
-        const im = sceneAnchor(s, a, i);
-        if (!im) return;
-        Object.assign(im, fitRect(im.w, im.h, zones[i % zones.length]));
+      for (const t of fillTargets(s)){
+        const im = targetImage(s, t);
+        if (!im || used.has(im.id)) continue;
+        Object.assign(im, t.kind === 'inset' ? { ...t.zone } : fitRect(im.w, im.h, t.zone));
         used.add(im.id);
-      });
+      }
+      const zones = effContentLayout(s) === 'scene' ? sceneZonesFor(s) : [];
       let k = s.annotations.length;
-      s.images.forEach(im => { if (!used.has(im.id)) Object.assign(im, fitRect(im.w, im.h, zones[k++ % zones.length])); });
+      if (zones.length) s.images.forEach(im => { if (!used.has(im.id)) Object.assign(im, fitRect(im.w, im.h, zones[k++ % zones.length])); });
       refreshAll();
-      toast('Scene re-arranged');
+      toast('Re-arranged');
       return;
     }
     const imgs = s.images;
@@ -8871,7 +9126,7 @@ function wireUI(){
     });
   });
   // text colour applies to text elements and to arrows
-  const colorable = i => i.isText || i.isArrow;
+  const colorable = i => i.isText || i.isArrow || i.isShape;
   let colorCheckpointed = false;
   $('#sel-color').addEventListener('pointerdown', () => { colorCheckpointed = false; });
   $('#sel-color').addEventListener('input', () => {
@@ -8953,6 +9208,42 @@ function wireUI(){
     refreshAll();
   });
   $('#btn-bottom-lines').addEventListener('click', writeBottomLines);
+  $('#btn-roots').addEventListener('click', writeRootsSay);
+  $('#btn-add-ring').addEventListener('click', () => {
+    const s = cur(); if (!s) return;
+    checkpoint();
+    s.rings = s.rings || [];
+    const r = { id: uid(), x: 540, y: 250, w: 200, h: 200, color: '#ffffff', width: 5 };
+    s.rings.push(r);
+    state.sel = 'ring:' + r.id;
+    refreshAll();
+  });
+  $('#btn-add-story-arrow').addEventListener('click', () => {
+    const s = cur(); if (!s) return;
+    checkpoint();
+    s.arrows = s.arrows || [];
+    const a = { id: uid(), from: { x: 460, y: 420 }, to: { x: 760, y: 420 }, bend: -110, style: 'story' };
+    s.arrows.push(a);
+    state.sel = 'arrow:' + a.id;
+    refreshAll();
+  });
+  $('#sel-arrow-style').addEventListener('change', () => {
+    const s = cur();
+    const info = s && selInfo(s, state.sel);
+    if (!info || info.type !== 'arrow') return;
+    checkpoint();
+    if ($('#sel-arrow-style').value === 'story'){ info.obj.style = 'story'; delete info.obj.width; }
+    else { delete info.obj.style; delete info.obj.width; }
+    delete info.obj.color;
+    commitChange();
+    refreshAll();
+  });
+  $('#bg-carry-roots').addEventListener('change', () => {
+    if (!guardDeck()) return;
+    checkpoint();
+    state.deck.carryRoots = $('#bg-carry-roots').checked;
+    refreshAll();
+  });
   // lecture planner + series + About-me
   $('#btn-plan').addEventListener('click', openPlanModal);
   $('#btn-home-plan').addEventListener('click', openPlanModal);
