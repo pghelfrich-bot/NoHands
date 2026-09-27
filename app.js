@@ -2227,6 +2227,163 @@ function continueSlide(){
   toast('Continued: same headline and images. Add the next idea and its bottom line');
 }
 
+/* ---------- grounding: plan from a textbook chapter or a reading ---------- */
+const GROUND_SYS = `
+
+GROUNDING — a SOURCE TEXT is provided (a textbook chapter or a reading), with pages marked [p. N]:
+- Build the lecture from the SOURCE. Every fact, number, name, species, date and mechanism on a slide must come from it. Do not add outside facts; if something seems important but is not in the source, leave it out.
+- Follow the source's own structure and emphasis when choosing topics, and keep its terminology and species names.
+- End the NOTES of every content, section, quiz and wrap-up slide with a line "Source: p. N" or "Source: pp. N–M" giving the page(s) that support that slide.
+- Hooks, class questions, demos and analogies may be your own framing, but any fact inside them must still come from the source.
+- Prefer the source's figures: when the TEXTBOOK FIGURES list has a figure on the right page, reuse its caption's key words in FIGURE.`;
+
+const VERIFY_SYS = `You fact-check a university lecture deck against its SOURCE TEXT (a textbook chapter or reading). Pages are marked [p. N].
+
+For EACH slide listed, compare every factual claim (numbers, names, species, dates, mechanisms, definitions) with the SOURCE:
+- "ok": every claim is stated in, or directly follows from, the source.
+- "partly": some claims are supported, but at least one is not in the source or goes beyond it.
+- "unsupported": the main claims are not in the source.
+- "wrong": something contradicts the source.
+Ignore pure framing: questions to the class, "Let's demo…", transitions, and cliffhangers or analogies that carry no factual claim.
+For each slide that is not "ok", list each problem briefly, and if the source says something different, say what and on which page.
+
+Reply with ONLY a JSON array, one entry per slide listed:
+[{"i": <index>, "status": "ok" | "partly" | "unsupported" | "wrong", "pages": "p. N" or "pp. N-M", "issues": ["…"]}]`;
+
+const SOURCE_CAP = 180000;   // characters of source text sent (a long chapter fits; a whole book doesn't)
+
+/* the selected pages of a library book as one text with [p. N] markers (printed page numbers) */
+async function sourceText(book, fromPrinted, toPrinted){
+  await loadBooks();
+  const meta = bookMeta.find(b => b.book === book);
+  const texts = await bookText(book);
+  if (!meta || !texts) return null;
+  const a = clamp(pdfPageOf(meta, fromPrinted), 1, texts.length), z = clamp(pdfPageOf(meta, toPrinted), a, texts.length);
+  const parts = [];
+  for (let p = a; p <= z; p++) if ((texts[p - 1] || '').trim()) parts.push(`[p. ${printedPage(meta, p)}]\n${texts[p - 1]}`);
+  let text = parts.join('\n\n');
+  const trimmed = text.length > SOURCE_CAP;
+  if (trimmed) text = text.slice(0, SOURCE_CAP);
+  return { text, trimmed, pages: z - a + 1, meta, pdfFrom: a, pdfTo: z };
+}
+
+/* planner's book / chapter / page pickers */
+async function fillPlanBooks(selectBook){
+  await loadBooks();
+  const sel = $('#plan-book');
+  const keep = selectBook != null ? selectBook : sel.value;
+  sel.innerHTML = '';
+  sel.appendChild(new Option('General knowledge (no source)', ''));
+  for (const m of bookMeta){
+    const o = new Option(m.hasText ? m.book : `${m.book} (add it again to read its text)`, m.book);
+    o.disabled = !m.hasText;
+    sel.appendChild(o);
+  }
+  sel.appendChild(new Option('📄 Upload a reading or paper (PDF)…', '__upload'));
+  sel.value = [...sel.options].some(o => o.value === keep && !o.disabled) ? keep : '';
+  await onPlanBookChange();
+}
+async function onPlanBookChange(){
+  const book = $('#plan-book').value;
+  if (book === '__upload'){ $('#plan-book').value = ''; $('#file-plan-pdf').click(); return onPlanBookChange(); }
+  const ch = $('#plan-chapter'), from = $('#plan-from'), to = $('#plan-to');
+  ch.innerHTML = '';
+  const on = !!book;
+  ch.disabled = from.disabled = to.disabled = !on;
+  $('#plan-verify-row').hidden = !on;
+  if (!on){ from.value = to.value = ''; updatePlanGroundNote(); return; }
+  const meta = bookMeta.find(b => b.book === book);
+  const first = printedPage(meta, 1), last = printedPage(meta, meta.pages);
+  ch.appendChild(new Option(`Whole text (pp. ${first}–${last})`, 'all'));
+  (meta.chapters || []).forEach((c, i) =>
+    ch.appendChild(new Option(`${c.title} (pp. ${printedPage(meta, c.start)}–${printedPage(meta, c.end)})`, String(i))));
+  ch.value = (meta.chapters || []).length ? '0' : 'all';
+  onPlanChapterChange();
+}
+function onPlanChapterChange(){
+  const book = $('#plan-book').value;
+  const meta = (bookMeta || []).find(b => b.book === book);
+  if (!meta) return;
+  const v = $('#plan-chapter').value;
+  const c = v === 'all' ? { start: 1, end: meta.pages } : meta.chapters[+v];
+  $('#plan-from').value = printedPage(meta, c.start);
+  $('#plan-to').value = printedPage(meta, c.end);
+  updatePlanGroundNote();
+}
+function updatePlanGroundNote(){
+  const note = $('#plan-ground-note');
+  const book = $('#plan-book').value;
+  if (!book){
+    note.textContent = 'Pick a textbook chapter or a reading and the lecture is built only from that text, with page citations in each slide\'s notes. Add textbooks with 📚 Textbook figures, or upload a paper here.';
+    return;
+  }
+  const n = Math.max(0, (+$('#plan-to').value || 0) - (+$('#plan-from').value || 0) + 1);
+  note.textContent = `The lecture will be built only from pp. ${$('#plan-from').value}–${$('#plan-to').value} (${n} page${n === 1 ? '' : 's'}), `
+    + 'citing pages in each slide\'s notes.' + (n > 60 ? ' That\'s a lot of text: a single chapter plans better.' : '');
+}
+async function planUploadPdf(file){
+  if (!file) return;
+  if (figLibBuilding){ planStatus('Already reading a PDF — wait for it to finish', true); return; }
+  $('#plan-go').disabled = true;
+  try {
+    const r = await addTextbookToLibrary(file, m => planStatus('Reading the PDF: ' + m));
+    if (!r || !r.textPages){ planStatus('No selectable text found in that PDF (it may be a scan)', true); return; }
+    planStatus(`Read ${r.textPages} pages of “${r.book}”${r.added ? ` and ${r.added} figures` : ''}. It's in your library now.`);
+    await fillPlanBooks(r.book);
+    updateFigLibBadge();
+  } catch (e){
+    planStatus('Could not read that PDF (' + (e.message || 'error') + ')', true);
+  } finally { $('#plan-go').disabled = false; }
+}
+
+/* ---------- fact-check a deck against the text it was planned from ---------- */
+function groundFp(s){
+  return quickHash([s.headline, s.callout, ...(s.annotations || []).map(a => a.full || a.text)].join('|'));
+}
+async function verifyAgainstSource(deck, { onStatus } = {}){
+  if (!deck || !deck.source){ toast('This deck wasn\'t planned from a text, so there is nothing to check it against'); return null; }
+  if (!settings.anthropicKey){ toast('Add your Anthropic API key in Settings (⚙) to check facts'); return null; }
+  const src = await sourceText(deck.source.book, deck.source.from, deck.source.to);
+  if (!src){ toast(`“${deck.source.book}” is no longer in your library — add it again to check against it`); return null; }
+  const list = deck.slides.map((s, i) => ({ i, type: s.type, headline: s.headline || '',
+      points: (s.annotations || []).map(a => a.full || a.text).filter(Boolean), bottom: s.callout || '' }))
+    .filter(x => ['content', 'section', 'takeaway'].includes(x.type) && !deck.slides[x.i].recap && (x.points.length || x.bottom || x.headline));
+  onStatus && onStatus(`Checking ${list.length} slides against the text…`);
+  const raw = await anthropicMessage({ system: VERIFY_SYS, maxTokens: 8000,
+    user: `SOURCE TEXT (${deck.source.book}, pp. ${deck.source.from}–${deck.source.to}):\n${src.text}\n\nSLIDES:\n${JSON.stringify(list)}` });
+  const arr = JSON.parse((raw.match(/\[[\s\S]*\]/) || [raw])[0]);
+  const asked = new Set(list.map(x => x.i));
+  let ok = 0, flagged = 0;
+  for (const r of arr){
+    const s = deck.slides[r.i];
+    if (!s || !asked.has(r.i)) continue;
+    const status = ['ok', 'partly', 'unsupported', 'wrong'].includes(r.status) ? r.status : 'partly';
+    s.ground = { status, pages: r.pages || '', issues: (r.issues || []).map(String).slice(0, 5), at: Date.now(), fp: groundFp(s) };
+    if (status === 'ok') ok++; else flagged++;
+    // make sure the notes cite the supporting pages
+    if (r.pages && !/^Source:/m.test(s.notes || '')) s.notes = ((s.notes || '').trim() + `\nSource: ${r.pages}`).trim();
+  }
+  deck.source.checkedAt = Date.now();
+  return { ok, flagged, total: list.length };
+}
+async function runVerify(){
+  const d = state.deck;
+  toast('Checking every slide against the text…', 90000);
+  try {
+    checkpoint();
+    const r = await verifyAgainstSource(d);
+    if (!r) return;
+    commitChange();
+    refreshAll();
+    toast(r.flagged
+      ? `Checked ${r.total} slides: ${r.ok} supported by the text, ${r.flagged} need a look (open ✓ Check)`
+      : `Checked ${r.total} slides: everything is supported by the text`, 10000);
+    if ($('#check-modal').open) openDeckCheck();
+  } catch (e){
+    toast('Could not check against the text (' + (e.message || 'error') + ')');
+  }
+}
+
 function planStatus(msg, err){
   const s = $('#plan-status');
   s.hidden = !msg;
@@ -2241,6 +2398,7 @@ async function openPlanModal(){
   $('#plan-aboutme').disabled = !about;
   if (!about) $('#plan-aboutme').checked = false;
   planStatus('');
+  await fillPlanBooks();
   $('#plan-modal').showModal();
   $('#plan-topic').focus();
 }
@@ -2259,8 +2417,14 @@ function planAlignment(deck){
 }
 
 async function planLecture(){
-  const topic = $('#plan-topic').value.trim();
-  if (!topic){ planStatus('Give the lecture a topic first', true); return; }
+  const groundBook = $('#plan-book').value;
+  let topic = $('#plan-topic').value.trim();
+  if (!topic && groundBook && $('#plan-chapter').value !== 'all'){
+    const m = bookMeta.find(b => b.book === groundBook);
+    const c = m && m.chapters[+$('#plan-chapter').value];
+    if (c) topic = c.title.replace(/^(chapter|ch\.)\s*[\divxlc]+\s*[:.\-–]?\s*/i, '');
+  }
+  if (!topic){ planStatus('Give the lecture a topic (or pick a chapter) first', true); return; }
   if (!settings.anthropicKey){ planStatus('Add your Anthropic API key in Settings (⚙) to plan a lecture', true); return; }
   const course = $('#plan-course').value.trim(), presenter = $('#plan-presenter').value.trim();
   settings.planPresenter = presenter; settings.planCourse = course;
@@ -2269,14 +2433,29 @@ async function planLecture(){
   const n = objectives.length || +$('#plan-n').value || 4;
   const flags = { hook: $('#plan-hook').checked, active: $('#plan-active').checked, analogy: $('#plan-analogy').checked };
 
-  // textbook figures on this topic, so FIGURE lines can point at them
+  // the chosen chapter / reading, with page markers
+  let src = null;
+  if (groundBook){
+    const from = +$('#plan-from').value, to = +$('#plan-to').value;
+    if (!from || !to || to < from){ planStatus('Check the page range', true); return; }
+    src = await sourceText(groundBook, from, to);
+    if (!src || !src.text.trim()){ planStatus('No text found on those pages', true); return; }
+    src.book = groundBook; src.from = from; src.to = to;
+  }
+  // textbook figures: those on the chosen pages, else ones matching the topic
   let figs = [];
   try {
-    figs = (await figLibMatchText(topic + ' ' + objectives.join(' '), 30))
-      .filter(f => f.caption).map(f => `p. ${f.page}: ${f.caption.slice(0, 160)}`);
+    await loadFigLib();
+    const pool = src
+      ? figLib.filter(f => f.book === src.book && f.page >= src.pdfFrom && f.page <= src.pdfTo)
+      : await figLibMatchText(topic + ' ' + objectives.join(' '), 30);
+    figs = pool.filter(f => f.caption).slice(0, 40).map(f => {
+      const m = (bookMeta || []).find(b => b.book === f.book);
+      return `p. ${printedPage(m, f.page)}: ${f.caption.slice(0, 160)}`;
+    });
   } catch (e){}
   const taste = loadTaste();
-  const src = $('#plan-source').value.trim().slice(0, 40000);
+  const srcPaste = $('#plan-source').value.trim().slice(0, 40000);
   const user = [
     `TOPIC: ${topic}`,
     course ? `COURSE: ${course}` : '',
@@ -2289,14 +2468,17 @@ async function planLecture(){
     'LENGTH: about 40 slides in total.',
     figs.length ? 'TEXTBOOK FIGURES (captions available in the course textbook):\n' + figs.join('\n') : '',
     taste && taste.profile ? "TEACHER'S STYLE PROFILE:\n" + taste.profile : '',
-    src ? 'SOURCE MATERIAL (build the content from this where it applies):\n' + src : '',
+    srcPaste ? (src ? 'TEACHER\'S NOTES (use for emphasis and framing; facts still come from the SOURCE TEXT):\n' : 'SOURCE MATERIAL (build the content from this where it applies):\n') + srcPaste : '',
+    src ? `SOURCE TEXT (${src.book}, pp. ${src.from}–${src.to}):\n` + src.text : '',
   ].filter(Boolean).join('\n\n');
 
   const go = $('#plan-go');
   go.disabled = true;
-  planStatus('Planning the lecture. This takes about a minute…');
+  planStatus(src
+    ? `Reading pp. ${src.from}–${src.to} and planning the lecture from it. This takes a minute or two…${src.trimmed ? ' (Long range: only the first part fits.)' : ''}`
+    : 'Planning the lecture. This takes about a minute…');
   try {
-    const raw = await anthropicMessage({ system: PLAN_SYS, user, maxTokens: 12000 });
+    const raw = await anthropicMessage({ system: PLAN_SYS + (src ? GROUND_SYS : ''), user, maxTokens: 12000 });
     let outline = raw.replace(/^```[\w]*\n?|\n?```$/g, '').trim();
     if (!/^#\s/m.test(outline)) outline = `# ${topic}\n` + outline;
     if (presenter && !/^presenter\s*:/im.test(outline)) outline = outline.replace(/^(#.*\n)/, `$1Presenter: ${presenter}\n`);
@@ -2322,6 +2504,7 @@ async function planLecture(){
       }
     }
     deck.origin = { outline, fp: structureFingerprint(deck), at: Date.now() };
+    if (src) deck.source = { book: src.book, from: src.from, to: src.to };
     const align = planAlignment(deck);
     $('#plan-modal').close();
     openDeck(deck);
@@ -2332,6 +2515,8 @@ async function planLecture(){
       openFillFigures();
       if ($('#fill-modal').open) fillAuto();
     }
+    // fact-check runs alongside the image search
+    if (src && $('#plan-verify').checked) runVerify();
   } catch (e){
     planStatus('Could not plan the lecture (' + (e.message || 'error') + ')', true);
   } finally {
@@ -6677,6 +6862,9 @@ function figLibMatches(slide, n = 4){
 async function figLibResult(f){
   const src = await IDB.get(figImgKey(f.id));
   if (!src) return null;
+  await loadBooks();
+  const meta = bookMeta.find(b => b.book === f.book);
+  f = { ...f, page: printedPage(meta, f.page) };
   return { provider: 'textbook', id: f.id, thumb: src, full: src,
     title: f.caption || `Figure from p. ${f.page}`, caption: f.caption || '',
     author: f.book, authorUrl: '', license: 'Course textbook', licenseUrl: '', pageUrl: '',
@@ -6766,6 +6954,93 @@ function loneCaption(lines){
   return captionRun(col, col.indexOf(cap));
 }
 
+/* ---- the book's own text, chapters and printed page numbers ----
+   Kept alongside the figures so the lecture planner can read a chapter and
+   ground a lecture in it (citing the book's printed page numbers). */
+const BOOKS_KEY = 'figlib:books';
+const bookTextKey = b => 'figlib:text:' + b;
+let bookMeta = null;          // [{ book, pages, offset, chapters: [{ title, start, end }] (PDF pages), hasText }]
+async function loadBooks(){
+  if (bookMeta) return bookMeta;
+  try { bookMeta = JSON.parse((await IDB.get(BOOKS_KEY)) || '[]'); } catch (e){ bookMeta = []; }
+  return bookMeta;
+}
+async function saveBooks(){ await IDB.set(BOOKS_KEY, JSON.stringify(bookMeta || [])); }
+async function bookText(book){
+  try { return JSON.parse((await IDB.get(bookTextKey(book))) || 'null'); } catch (e){ return null; }
+}
+function printedPage(meta, pdfPage){ return pdfPage + ((meta && meta.offset) || 0); }
+function pdfPageOf(meta, printed){ return printed - ((meta && meta.offset) || 0); }
+/* page text in reading order (pdf.js item order), with its own line breaks */
+function readingText(tc){
+  return tc.items.map(it => (it.str || '') + (it.hasEOL ? '\n' : ' ')).join('')
+    .replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+/* numbers printed in a page's header / footer lines (candidate page numbers) */
+function edgeNumbers(lines){
+  const edge = [...lines.slice(0, 2), ...lines.slice(-2)];
+  const out = [];
+  for (const l of edge){
+    const t = l.s.trim();
+    if (t.length > 70) continue;
+    const m = t.match(/^(\d{1,4})\b/) || t.match(/\b(\d{1,4})$/);
+    if (m) out.push(+m[1]);
+  }
+  return out;
+}
+/* printed = PDF page + offset: the most common difference between the numbers
+   printed in headers/footers and the PDF page index, if it's consistent enough */
+function pageOffset(edges){
+  const count = new Map();
+  let withNums = 0;
+  edges.forEach((nums, i) => {
+    if (!nums || !nums.length) return;
+    withNums++;
+    for (const d of new Set(nums.map(n => n - (i + 1)))) count.set(d, (count.get(d) || 0) + 1);
+  });
+  let best = 0, bestN = 0;
+  for (const [d, n] of count) if (n > bestN){ best = d; bestN = n; }
+  return (bestN >= 3 && bestN >= withNums * 0.25) ? best : 0;
+}
+/* chapters: the PDF's bookmarks when it has them, else "Chapter N" headings */
+async function pdfChapters(doc, texts){
+  let out = [];
+  try {
+    const ol = await doc.getOutline();
+    if (ol && ol.length){
+      const items = ol.length < 4 ? ol.flatMap(it => [it, ...(it.items || [])]) : ol;
+      for (const it of items){
+        let dest = it.dest;
+        if (typeof dest === 'string') dest = await doc.getDestination(dest);
+        if (!Array.isArray(dest) || !dest[0]) continue;
+        const idx = await doc.getPageIndex(dest[0]);
+        if ((it.title || '').trim()) out.push({ title: it.title.trim(), start: idx + 1 });
+      }
+    }
+  } catch (e){}
+  if (!out.length){
+    const seen = new Set();
+    const CH = /(?:^|\n)\s*(chapter|ch\.)\s+(\d{1,2}|[ivxlc]{1,6})\b([^\n]*)(?:\n([^\n]{3,80}))?/gi;
+    texts.forEach((t, i) => {
+      // a contents page lists several chapters; a contents line has dot leaders or ends in a page number
+      if (((t || '').match(CH) || []).length > 1) return;
+      CH.lastIndex = 0;
+      const m = CH.exec((t || '').slice(0, 400));
+      CH.lastIndex = 0;
+      if (!m || /\.{2,}|\s\d{1,4}\s*$/.test(m[3] || '')) return;
+      const num = m[2].toLowerCase();
+      if (seen.has(num)) return;                        // a running header repeats the chapter on every page
+      seen.add(num);
+      const rest = (m[3] || '').replace(/^[\s:.\-–]+/, '').trim();
+      out.push({ title: `Chapter ${m[2]}${rest ? ': ' + rest : (m[4] ? ': ' + m[4].trim() : '')}`, start: i + 1 });
+    });
+  }
+  out.sort((a, b) => a.start - b.start);
+  out = out.filter((c, i) => i === 0 || c.start !== out[i - 1].start);
+  out.forEach((c, i) => { c.end = i + 1 < out.length ? Math.max(c.start, out[i + 1].start - 1) : texts.length; });
+  return out;
+}
+
 async function addTextbookToLibrary(file, onStatus){
   if (figLibBuilding) return null;
   figLibBuilding = true;
@@ -6774,11 +7049,12 @@ async function addTextbookToLibrary(file, onStatus){
   await loadFigLib();
   const book = file.name.replace(/\.pdf$/i, '').replace(/_+/g, ' ').trim() || 'Textbook';
   await removeBookFromLibrary(book);   // re-adding a book replaces its old figures
-  let added = 0, fullPage = 0, pages = 0;
+  let added = 0, fullPage = 0, pages = 0, doc = null;
   const seen = new Set();
+  const texts = [], edges = [];
   try {
     await ensurePdfJs();
-    const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
     pages = doc.numPages;
     for (let p = 1; p <= doc.numPages; p++){
       if (figLibCancel) break;
@@ -6786,6 +7062,14 @@ async function addTextbookToLibrary(file, onStatus){
       let page;
       try { page = await doc.getPage(p); } catch (e){ continue; }
       const viewport = page.getViewport({ scale: 2 });
+      // the page's text: kept for the lecture planner, and for this page's captions
+      let tc = null, lines = [];
+      try { tc = await page.getTextContent(); } catch (e){}
+      if (tc){
+        texts[p - 1] = readingText(tc);
+        try { lines = pageLines(tc, viewport); } catch (e){}
+        edges[p - 1] = edgeNumbers(lines);
+      }
       const pageArea = viewport.width * viewport.height;
       let boxes;
       try {
@@ -6801,8 +7085,6 @@ async function addTextbookToLibrary(file, onStatus){
       cv.width = Math.round(viewport.width);
       cv.height = Math.round(viewport.height);
       await page.render({ canvasContext: cv.getContext('2d'), viewport }).promise;
-      let lines = [];
-      try { lines = pageLines(await page.getTextContent(), viewport); } catch (e){}
       const pageText = lines.map(l => l.s).join(' ');
       for (const box of boxes){
         const fig = cropCanvasRegion(cv, box, p, 1100);
@@ -6826,13 +7108,31 @@ async function addTextbookToLibrary(file, onStatus){
     }
   } finally {
     await saveFigLib();
+    // the book's text, chapters and page numbering (whatever was read, even if stopped early)
+    try {
+      const read = texts.filter(t => t && t.trim()).length;
+      for (let i = 0; i < pages; i++) if (texts[i] == null) texts[i] = '';
+      const chapters = doc ? await pdfChapters(doc, texts) : [];
+      await IDB.set(bookTextKey(book), JSON.stringify(texts));
+      await loadBooks();
+      bookMeta = bookMeta.filter(b => b.book !== book);
+      bookMeta.push({ book, pages, offset: pageOffset(edges), chapters, hasText: read > 0, textPages: read, at: Date.now() });
+      await saveBooks();
+    } catch (e){}
     figLibBuilding = false;
   }
-  return { book, added, pages, fullPage, cancelled: figLibCancel };
+  const meta = (bookMeta || []).find(b => b.book === book) || {};
+  return { book, added, pages, fullPage, cancelled: figLibCancel, textPages: meta.textPages || 0, chapters: (meta.chapters || []).length };
 }
 
 async function removeBookFromLibrary(book){
   await loadFigLib();
+  await loadBooks();
+  if (bookMeta.some(b => b.book === book)){
+    bookMeta = bookMeta.filter(b => b.book !== book);
+    await saveBooks();
+    try { await IDB.del(bookTextKey(book)); } catch (e){}
+  }
   const gone = figLib.filter(f => f.book === book);
   for (const f of gone){ try { await IDB.del(figImgKey(f.id)); } catch (e){} }
   if (gone.length){
@@ -6851,6 +7151,7 @@ function figLibStatus(msg, err){
 }
 async function openFigLib(){
   await loadFigLib();
+  await loadBooks();
   renderFigLibBooks();
   if (!figLibBuilding) figLibStatus('');
   $('#figlib-modal').showModal();
@@ -6859,6 +7160,7 @@ function renderFigLibBooks(){
   const ul = $('#figlib-books');
   ul.innerHTML = '';
   const byBook = new Map();
+  for (const m of bookMeta || []) byBook.set(m.book, { n: 0, cap: 0 });
   for (const f of figLib || []){
     const b = byBook.get(f.book) || { n: 0, cap: 0 };
     b.n++;
@@ -6871,7 +7173,11 @@ function renderFigLibBooks(){
   for (const [book, b] of byBook){
     const li = el('li');
     li.appendChild(el('span', 'dk-name', '', book));
-    li.appendChild(el('span', 'dk-meta', '', `${b.n} figure${b.n === 1 ? '' : 's'} · ${b.cap} with captions`));
+    const m = (bookMeta || []).find(x => x.book === book);
+    const textNote = m && m.hasText
+      ? ` · text read${m.chapters && m.chapters.length ? `, ${m.chapters.length} chapters` : ''}`
+      : ' · text not read yet (add it again to use it in Plan a lecture)';
+    li.appendChild(el('span', 'dk-meta', '', `${b.n} figure${b.n === 1 ? '' : 's'}${textNote}`));
     const del = el('button', 'btn small danger', '', 'Remove');
     del.type = 'button';
     del.addEventListener('click', async () => {
@@ -6900,10 +7206,14 @@ async function figLibAddFile(file){
     if (!r) return;
     if (!r.added && r.fullPage > r.pages * 0.5)
       figLibStatus(`“${r.book}” looks like a scanned book (each page is one photo), so its figures can't be separated automatically. Use ✂ Crop in the image panel's Readings tab for the ones you need.`, true);
+    else if (!r.added && r.textPages)
+      figLibStatus(`Read the text of ${r.textPages} pages from “${r.book}”${r.chapters ? ` (${r.chapters} chapters)` : ''}. No photo figures found (graphs drawn as vector art aren't picked up; use ✂ Crop in the Readings tab for those).`);
     else if (!r.added)
       figLibStatus(`No photo figures found in “${r.book}”. Graphs drawn as vector art aren't picked up; use ✂ Crop in the Readings tab for those.`, true);
     else
-      figLibStatus(`${r.cancelled ? 'Stopped — kept' : 'Added'} ${r.added} figures from “${r.book}”. Auto-fill will check these first.`);
+      figLibStatus(`${r.cancelled ? 'Stopped — kept' : 'Added'} ${r.added} figures from “${r.book}”`
+        + (r.textPages ? ` and read the text of ${r.textPages} pages${r.chapters ? ` (${r.chapters} chapters)` : ''}` : '')
+        + '. Auto-fill checks these figures first, and Plan a lecture can build from its chapters.');
   } catch (e){
     figLibStatus('Could not read that PDF (' + (e.message || 'unknown error') + ')', true);
   } finally {
@@ -8114,6 +8424,19 @@ function deckCheck(deck){
   const out = [];
   const slides = deck.slides || [];
 
+  // fact-check against the source text (only for slides unchanged since they were checked)
+  slides.forEach((s, i) => {
+    const g = s.ground;
+    if (!g || g.status === 'ok' || g.fp !== groundFp(s)) return;
+    const title = g.status === 'wrong' ? 'Contradicts the source'
+      : g.status === 'unsupported' ? 'Not found in the source' : 'Partly supported by the source';
+    out.push({ level: g.status === 'partly' ? 'info' : 'warn', slide: i, title,
+      detail: (() => {
+        const txt = g.issues && g.issues.length ? g.issues.join(' · ') : 'Compare this slide with the text';
+        return txt + (g.pages && !/\bpp?\.\s*\d/.test(txt) ? ` (${g.pages})` : '');
+      })() });
+  });
+
   if (slides.length && slides[0].type !== 'title')
     out.push({ level: 'info', slide: 0, title: 'No title slide up front',
       detail: `The deck opens on a ${slides[0].type} slide — a title slide sets the scene.` });
@@ -8261,6 +8584,9 @@ function altSave(){
 
 function openDeckCheck(){
   if (!guardDeck()) return;
+  const vb = $('#check-verify');
+  vb.hidden = !state.deck.source;
+  if (state.deck.source) vb.textContent = state.deck.source.checkedAt ? '📖 Re-check facts against the source' : '📖 Check facts against the source';
   const findings = deckCheck(state.deck);
   const list = $('#check-list');
   const sum = $('#check-summary');
@@ -9249,6 +9575,12 @@ function wireUI(){
   $('#btn-home-plan').addEventListener('click', openPlanModal);
   $('#plan-cancel').addEventListener('click', () => $('#plan-modal').close());
   $('#plan-go').addEventListener('click', planLecture);
+  $('#plan-book').addEventListener('change', onPlanBookChange);
+  $('#plan-chapter').addEventListener('change', onPlanChapterChange);
+  $('#plan-from').addEventListener('input', updatePlanGroundNote);
+  $('#plan-to').addEventListener('input', updatePlanGroundNote);
+  $('#file-plan-pdf').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; planUploadPdf(f); });
+  $('#check-verify').addEventListener('click', runVerify);
   $('#btn-continue-slide').addEventListener('click', continueSlide);
   $('#btn-save-aboutme').addEventListener('click', saveAboutMe);
   $('#bg-plain-labels').addEventListener('change', () => {

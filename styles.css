@@ -566,3 +566,8 @@ dialog.modal:not([open]){display:none}
 #canvas .lf-img.group-sel,#canvas .lf-box.group-sel{outline:2px dashed #f5a623;outline-offset:2px;border-radius:4px}
 #canvas .lf-group-box{position:absolute;outline:2px dashed #f5a623;outline-offset:6px;border-radius:6px;pointer-events:none;z-index:121}
 #canvas .lf-group-box .lf-h{pointer-events:auto;background:#f5a623}
+.plan-ground{display:grid;grid-template-columns:2fr 2fr 1.2fr;gap:10px;margin-top:6px}
+@media (max-width:700px){.plan-ground{grid-template-columns:1fr}}
+.plan-pages{display:flex;align-items:center;gap:6px}
+.plan-pages input{width:100%;min-width:0}
+.plan-ground-note{margin:2px 0 8px}
