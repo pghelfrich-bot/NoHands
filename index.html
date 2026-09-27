@@ -490,6 +490,7 @@ Design: free-text notes
     <div id="check-summary" class="check-summary"></div>
     <div id="check-list" class="check-list"></div>
     <div class="modal-actions">
+      <button id="check-verify" class="btn ghost" type="button" hidden title="Compare every slide with the chapter or reading this deck was planned from, and flag anything it doesn't support">📖 Check facts against the source</button>
       <button value="cancel" class="btn primary" type="submit">Close</button>
     </div>
   </form>
@@ -550,10 +551,21 @@ Design: free-text notes
   <label class="field">Lecture objectives <span class="muted">(one per line; leave blank and they'll be proposed. Each becomes a topic, a quiz question and a wrap-up point)</span>
     <textarea id="plan-objectives" rows="4" placeholder="Describe the major groups and commonalities in Echinodermata&#10;Understand the echinoderm's complex evolutionary history&#10;Appreciate the power of the water vascular system&#10;Recognize current topics in echinoderm research"></textarea>
   </label>
+  <div class="plan-ground">
+    <label class="field">Ground it in
+      <select id="plan-book"><option value="">General knowledge (no source)</option></select>
+    </label>
+    <label class="field">Chapter <select id="plan-chapter" disabled></select></label>
+    <label class="field">Pages
+      <span class="plan-pages"><input id="plan-from" type="number" min="1" disabled> – <input id="plan-to" type="number" min="1" disabled></span>
+    </label>
+  </div>
+  <p id="plan-ground-note" class="modal-sub plan-ground-note">Pick a textbook chapter or a reading and the lecture is built only from that text, with page citations in each slide's notes. Add textbooks with 📚 Textbook figures, or upload a paper here.</p>
+  <label class="check" id="plan-verify-row" hidden><input type="checkbox" id="plan-verify" checked> Afterwards, check every slide against the text and flag anything it doesn't support</label>
   <label class="field">Course objectives <span class="muted">(optional, kept in the notes)</span>
     <textarea id="plan-course-obj" rows="2"></textarea>
   </label>
-  <label class="field">Source material <span class="muted">(optional: paste notes or reading text to build from)</span>
+  <label class="field">Your notes <span class="muted">(optional: emphasis, examples or stories you always use. With a chapter picked, facts still come only from the chapter)</span>
     <textarea id="plan-source" rows="3"></textarea>
   </label>
   <div class="plan-checks">
@@ -673,6 +685,7 @@ Design: free-text notes
 <input type="file" id="file-outline-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-import-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-figlib" accept=".pdf,application/pdf" hidden>
+<input type="file" id="file-plan-pdf" accept=".pdf,application/pdf" hidden>
 <input type="file" id="file-restore" accept=".zip,.json,application/zip,application/json" multiple hidden>
 <input type="file" id="file-outline-pptx" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden>
 <input type="file" id="file-import" accept=".json,application/json" hidden>
