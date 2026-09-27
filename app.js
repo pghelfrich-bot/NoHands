@@ -6339,6 +6339,33 @@ function targetImage(slide, t){
   if (t.kind === 'inset') return (t.a.img && slide.images.find(im => im.id === t.a.img)) || null;
   return sceneAnchor(slide, t.a, t.i);
 }
+/* crop a cut-out to its visible pixels, so the organism fills its spot instead of
+   floating small in the empty margin the background removal leaves behind */
+function trimAlpha(src){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0);
+      let d;
+      try { d = ctx.getImageData(0, 0, w, h).data; } catch (e){ return resolve({ src, w, h }); }
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2)
+        if (d[(y * w + x) * 4 + 3] > 24){ if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 < 0) return resolve({ src, w, h });
+      const pad = Math.round(Math.max(w, h) * 0.015);
+      x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+      const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+      if (cw > w * 0.95 && ch > h * 0.95) return resolve({ src, w, h });   // nothing worth trimming
+      const out = document.createElement('canvas'); out.width = cw; out.height = ch;
+      out.getContext('2d').drawImage(cv, x0, y0, cw, ch, 0, 0, cw, ch);
+      resolve({ src: out.toDataURL('image/png'), w: cw, h: ch });
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
 async function placeTarget(slide, r, t){
   let src = r.full, dim;
   try { dim = await loadImageDim(src); }
@@ -6359,6 +6386,8 @@ async function placeTarget(slide, r, t){
       const raw = await cutoutBestAvailable(im, {});
       try { im.cutSrc = await shrinkImage(raw, 1200, 0.88); } catch (e){ im.cutSrc = raw; }
       im.cutout = true;
+      // fit the organism itself (not the empty margin around it) into its spot
+      try { const tr = await trimAlpha(im.cutSrc); im.cutSrc = tr.src; Object.assign(im, fitRect(tr.w, tr.h, t.zone)); } catch (e){}
     } catch (e){ im.oval = true; }                                      // couldn't cut it out → oval vignette
   }
   if (t.a) t.a.img = im.id;
@@ -7444,19 +7473,24 @@ async function cutoutPhotoRoom(im){
   return blobToDataURL(await res.blob());
 }
 
+/* The free in-browser remover. Pinned to a known version and loaded as jsDelivr's
+   browser-ready "+esm" bundle: the old unpinned dist/index.browser.js path no longer
+   exists (404), which silently disabled cut-outs of anything not on a plain
+   background. The model files come from the library's own default host. */
+const IMGLY_URL = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm';
 let _imglyMod = null;
 async function cutoutImgly(im){
   if (!_imglyMod){
-    _imglyMod = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal/dist/index.browser.js');
+    try { _imglyMod = await import(IMGLY_URL); }
+    catch (e){ _imglyMod = null; throw e; }       // let a later attempt retry the download
   }
-  const publicPath = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal/dist/';
   let input;
   if (im.src.startsWith('data:')){
     input = await (await fetch(im.src)).blob();
   } else {
     input = im.src;
   }
-  const blob = await _imglyMod.removeBackground(input, { publicPath });
+  const blob = await _imglyMod.removeBackground(input);
   return blobToDataURL(blob);
 }
 
