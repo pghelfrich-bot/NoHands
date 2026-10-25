@@ -7825,8 +7825,16 @@ async function exportHandout(){
     toast(`Filled ${filled} image description${filled === 1 ? '' : 's'}${viaAI ? ` (${viaAI} by looking at the image)` : ''} · building handout…`, 6000);
   }
 
-  downloadText(safeName(deck.title) + '-handout.html', buildHandoutHTML(forExport(deck)));
-  toast('Accessible handout downloaded — upload the .html to Canvas, or open it and Save as PDF', 9000);
+  const ex = forExport(deck);
+  downloadText(safeName(deck.title) + '-handout.html', buildHandoutHTML(ex));
+  // the slides as a real PDF too (one slide per page, bookmarked, searchable)
+  try {
+    const pdf = await buildSlidesPDF(ex, { onProgress: (k, n) => toast(`Building the slides PDF… ${k} of ${n}`, 60000) });
+    downloadBlob(safeName(deck.title) + ' - slides.pdf', pdf);
+    toast('Downloaded the accessible handout (.html) and the slides PDF: upload both to Canvas, and open the PDF on your tablet to lecture from', 10000);
+  } catch (e){
+    toast('Accessible handout downloaded, but the slides PDF could not be built (' + (e.message || 'error') + ')', 10000);
+  }
 }
 
 /* Batch: for each selected deck, re-describe every image (vision), then bundle
@@ -7838,7 +7846,7 @@ async function batchAccessibleExport(ids){
   catch (e){ toast('Could not load the ZIP library — check your network'); return; }
   const zip = new window.JSZip();
   const used = new Set();
-  let done = 0, ok = 0, totalImgs = 0;
+  let done = 0, ok = 0, totalImgs = 0, pdfFailed = 0;
   for (const id of ids){
     done++;
     let deck;
@@ -7864,15 +7872,166 @@ async function batchAccessibleExport(ids){
     zip.file(name + '.html', standaloneHTML(ex));
     zip.file(name + ' - accessible handout.html', buildHandoutHTML(ex));
     zip.file(name + ' - clean slides (no labels).html', standaloneHTML(cleanDeck(ex)));
+    try {
+      zip.file(name + ' - slides.pdf', await buildSlidesPDF(ex, {
+        onProgress: (k, total) => toast(`Deck ${done}/${ids.length}: “${title}” — slides PDF ${k}/${total}…`, 60000) }));
+    } catch (e){ pdfFailed++; }
     ok++;
   }
   if (!ok){ toast('Nothing to export'); return; }
   toast('Zipping…', 30000);
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
   downloadBlob('LectureFlow-accessible-export.zip', blob);
-  toast(`Exported ${ok} deck${ok === 1 ? '' : 's'} — slides, clean slides & accessible handout each${totalImgs ? `, ${totalImgs} images described` : ''} — unzip and upload to Canvas`, 10000);
+  toast(`Exported ${ok} deck${ok === 1 ? '' : 's'} — slides, slides PDF, clean slides & accessible handout each${totalImgs ? `, ${totalImgs} images described` : ''}${pdfFailed ? ` (${pdfFailed} PDF${pdfFailed === 1 ? '' : 's'} could not be built)` : ''} — unzip and upload to Canvas`, 10000);
   // reflect any updated home-screen metadata (unchanged here, but harmless)
   renderHome();
+}
+
+/* ================= slides PDF (real file, for tablets and Canvas) =================
+   One 16:9 page per slide, rendered by the browser itself (so cut-outs, ovals,
+   blurred backgrounds and shadows look exactly as on screen), with:
+   - an invisible text layer per page (headline, roots, labels, bottom line,
+     image descriptions) so the PDF is searchable and readable aloud,
+   - bookmarks for every slide, grouped under their section, for quick jumping,
+   - document title / author / language metadata, and an image-credits page.
+   Speaker notes are left out (they can hold quiz answer keys). */
+const JSPDF_URL = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+const HTML2CANVAS_URL = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+const PDF_SCALE = 1.5;                 // 1920×1080 per slide: sharp on a tablet, ~200-400 KB a page
+
+/* render a slide node to a JPEG data URL via an SVG <foreignObject> (pixel-identical to the screen) */
+function rasterViaSVG(node, scale){
+  return new Promise((resolve, reject) => {
+    const W = SLIDE_W, H = SLIDE_H;
+    const xhtml = new XMLSerializer().serializeToString(node);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W * scale}" height="${H * scale}" viewBox="0 0 ${W} ${H}">`
+      + `<foreignObject x="0" y="0" width="${W}" height="${H}"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${W}px;height:${H}px;margin:0">`
+      + `<style><![CDATA[${SLIDE_CSS}]]></style>${xhtml}</div></foreignObject></svg>`;
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = W * scale; cv.height = H * scale;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL('image/jpeg', 0.86));   // throws on browsers that taint foreignObject (Safari)
+      } catch (e){ reject(e); }
+    };
+    img.onerror = () => reject(new Error('svg render failed'));
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+}
+/* fallback renderer for browsers that block the SVG route */
+async function rasterViaHtml2canvas(node, scale){
+  await loadScript(HTML2CANVAS_URL);
+  const host = el('div', '', 'position:fixed;left:-20000px;top:0;width:1280px;height:720px;');
+  host.appendChild(node);
+  document.body.appendChild(host);
+  try {
+    const cv = await window.html2canvas(node, { scale, backgroundColor: '#ffffff', useCORS: true, logging: false, width: SLIDE_W, height: SLIDE_H });
+    return cv.toDataURL('image/jpeg', 0.86);
+  } finally { host.remove(); }
+}
+async function slideJPEG(slide, deck, i, total){
+  const node = renderSlide(slide, deck, { index: i, total });
+  try { return await rasterViaSVG(node, PDF_SCALE); }
+  catch (e){ return await rasterViaHtml2canvas(renderSlide(slide, deck, { index: i, total }), PDF_SCALE); }
+}
+/* the words on a slide, in reading order, for the PDF's hidden text layer */
+function slidePlainText(s, deck){
+  const parts = [];
+  if (s.type === 'title') parts.push(s.headline || deck.title, s.callout, deck.presenter, deck.date);
+  else parts.push(s.headline);
+  if (s.say) parts.push(`(${s.say})`);
+  const roots = effRoots(s, deck);
+  if (roots) parts.push(roots);
+  for (const a of s.annotations || []) parts.push(a.full && a.full.trim() ? a.full : a.text);
+  if (s.type !== 'title') parts.push(s.callout);
+  for (const t of s.texts || []) parts.push(t.text);
+  for (const im of s.images || []){
+    const alt = imgAlt(s, im);
+    if (alt && !im.decorative) parts.push('Image: ' + alt);
+  }
+  return parts.filter(x => x && String(x).trim()).map(x => mathToPlainText(String(x)).trim()).join('\n');
+}
+/* the PDF's built-in fonts only cover Latin-1: keep accents' base letters, drop the rest */
+function pdfSafe(t){
+  return String(t || '').normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...')
+    .replace(/[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/g, '');
+}
+function pdfBookmarkLabel(s, i){
+  const head = (s.headline || '').trim() || (s.type === 'title' ? 'Title' : 'Slide');
+  return pdfSafe(`${i + 1}. ${s.recap ? 'Roadmap (where we are)' : head}`).slice(0, 120);
+}
+async function buildSlidesPDF(deck, { onProgress } = {}){
+  await loadScript(JSPDF_URL);
+  const { jsPDF } = window.jspdf;
+  const PW = 960, PH = 540;           // points; 16:9
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: [PW, PH], compress: true });
+  doc.setProperties({ title: pdfSafe(deck.title || 'Lecture'), subject: 'Lecture slides',
+    author: pdfSafe(deck.presenter || ''), keywords: pdfSafe(deck.date || ''), creator: 'LectureFlow' });
+  try { doc.setLanguage('en-US'); } catch (e){}
+  try { doc.setDisplayMode('fullwidth', 'continuous', 'UseOutlines'); } catch (e){}
+  const n = deck.slides.length;
+  let section = null;
+  for (let i = 0; i < n; i++){
+    const s = deck.slides[i];
+    onProgress && onProgress(i + 1, n);
+    if (i) doc.addPage([PW, PH], 'landscape');
+    doc.addImage(await slideJPEG(s, deck, i, n), 'JPEG', 0, 0, PW, PH, undefined, 'FAST');
+    // hidden text: searchable, selectable, and readable by screen readers
+    const txt = pdfSafe(slidePlainText(s, deck));
+    if (txt){
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
+      doc.text(doc.splitTextToSize(txt, PW - 80), 40, 60, { renderingMode: 'invisible' });
+    }
+    // bookmarks: each topic at the top level (starting at its "where we are"
+    // roadmap when one comes right before it), with its slides inside
+    try {
+      const next = deck.slides[i + 1];
+      const prev = deck.slides[i - 1];
+      if (s.type === 'title') section = doc.outline.add(null, pdfBookmarkLabel(s, i), { pageNumber: i + 1 });
+      else if (s.recap && next && next.type === 'section'){
+        section = doc.outline.add(null, pdfSafe(`${i + 1}. ${next.headline || 'Section'}`).slice(0, 120), { pageNumber: i + 1 });
+        doc.outline.add(section, pdfBookmarkLabel(s, i), { pageNumber: i + 1 });
+      }
+      else if (s.type === 'section' && !(prev && prev.recap)) section = doc.outline.add(null, pdfBookmarkLabel(s, i), { pageNumber: i + 1 });
+      else doc.outline.add(section, pdfBookmarkLabel(s, i), { pageNumber: i + 1 });
+    } catch (e){}
+  }
+  // image credits
+  const attrs = collectAttributions(deck);
+  if (attrs.length){
+    doc.addPage([PW, PH], 'landscape');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(20, 30, 40);
+    doc.text('Image credits', 48, 64);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60, 70, 80);
+    const lines = attrs.map(a => pdfSafe(`Slide ${a.slide}: ${a.author} · ${a.sourceName} · ${a.license}${a.pageUrl ? ' · ' + a.pageUrl : ''}`));
+    let y = 96;
+    for (const l of lines){
+      for (const part of doc.splitTextToSize(l, PW - 96)){
+        if (y > PH - 36){ doc.addPage([PW, PH], 'landscape'); y = 56; }
+        doc.text(part, 48, y); y += 14;
+      }
+    }
+    try { doc.outline.add(null, 'Image credits', { pageNumber: doc.getNumberOfPages() }); } catch (e){}
+  }
+  return doc.output('blob');
+}
+async function exportSlidesPDF(){
+  if (!guardDeck()) return;
+  toast('Building the PDF…', 60000);
+  try {
+    await ensureEmbedded(state.deck);
+    const blob = await buildSlidesPDF(forExport(state.deck), { onProgress: (k, n) => toast(`Building the PDF… slide ${k} of ${n}`, 60000) });
+    downloadBlob(safeName(state.deck.title) + ' - slides.pdf', blob);
+    toast('PDF downloaded: one slide per page, with bookmarks for each section', 7000);
+  } catch (e){
+    toast('Could not build the PDF (' + (e.message || 'error') + '). Try Export → PDF (print) instead', 9000);
+  }
 }
 
 async function exportPDF(){
@@ -9362,6 +9521,7 @@ function wireUI(){
   $('#export-drive').addEventListener('click', () => { dd.classList.remove('open'); driveSaveDeck(); });
   $('#export-pptx').addEventListener('click', () => { dd.classList.remove('open'); exportPPTX(); });
   $('#export-pdf').addEventListener('click', () => { dd.classList.remove('open'); exportPDF(); });
+  $('#export-pdf-file').addEventListener('click', () => { dd.classList.remove('open'); exportSlidesPDF(); });
   $('#export-html').addEventListener('click', () => { dd.classList.remove('open'); exportHTML(); });
   $('#export-handout').addEventListener('click', () => { dd.classList.remove('open'); exportHandout(); });
   $('#export-outline').addEventListener('click', () => {
