@@ -27,9 +27,10 @@
       <div class="dropdown-menu" id="export-menu">
         <button id="export-drive">Save to Drive ☁</button>
         <button id="export-pptx">PowerPoint (.pptx)</button>
+        <button id="export-pdf-file" title="Download the slides as a PDF: one slide per page, bookmarked by section, searchable. Good for lecturing from a tablet">PDF (download)</button>
         <button id="export-pdf">PDF (print)</button>
         <button id="export-html">Standalone HTML</button>
-        <button id="export-handout" title="Re-describes every image by looking at it (AI), then downloads a screen-reader-friendly handout for Canvas. Your hand-written descriptions are kept. Upload the .html as a page or Save as PDF.">Accessible export ♿</button>
+        <button id="export-handout" title="Re-describes every image by looking at it (AI), then downloads a screen-reader-friendly handout for Canvas plus the slides as a bookmarked PDF (good for your tablet). Your hand-written descriptions are kept.">Accessible export ♿</button>
         <button id="export-outline" title="Download this deck's text as an outline you can bulk-edit and rebuild">Outline (.txt)</button>
       </div>
     </div>
@@ -123,7 +124,7 @@ Design: free-text notes
         </select>
       </label>
       <span class="spacer"></span>
-      <button id="btn-bulk-access" class="btn ghost" hidden title="For each checked deck: re-describe every image (AI), then bundle the slides + accessible handout into one ZIP for Canvas">♿ Accessible export (0)</button>
+      <button id="btn-bulk-access" class="btn ghost" hidden title="For each checked deck: re-describe every image (AI), then bundle the slides, the slides PDF and the accessible handout into one ZIP for Canvas">♿ Accessible export (0)</button>
       <button id="btn-bulk-delete" class="btn ghost danger" hidden title="Delete the decks you've checked">🗑 Delete selected (0)</button>
       <button id="btn-taste" class="btn ghost" title="Analyze the decks you've starred to learn your lecture-design taste">✨ Taste</button>
       <button id="btn-drive" class="btn ghost" title="Browse and open decks from Google Drive">☁ Drive</button>
